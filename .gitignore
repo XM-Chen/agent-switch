@@ -1,0 +1,12 @@
+# Trellis workspace and generated agent files
+.trellis/
+.agents/
+.claude/
+.codex/
+.cursor/
+.opencode/
+.pi/
+.reasonix/
+.trae/
+.zcode/
+AGENTS.md
