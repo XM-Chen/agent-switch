@@ -30,6 +30,19 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 time = { version = "0.3", features = ["formatting"] }
 
+# 凭据加密与 Keychain
+aes-gcm = "0.10"
+rand = "0.8"
+keyring = "3"
+base64 = "0.22"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+
+# OAuth HTTP 客户端
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+url = "2"
+urlencoding = "2"
+
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
 dirs = "6"
 

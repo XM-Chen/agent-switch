@@ -1,14 +1,6 @@
-/// Data Access Object module — empty placeholder for future DAO modules.
+/// Data Access Object module.
 ///
-/// Usage:
-/// ```
-/// mod endpoints;
-/// mod models;
-/// mod accounts;
-/// pub use endpoints::*;
-/// pub use models::*;
-/// pub use accounts::*;
-/// ```
-pub mod endpoints {}
-pub mod models {}
-pub mod accounts {}
+/// DAO 只做 SQL，不做加密。加密在 `services/crypto.rs` 层完成；
+/// DAO 原样存取 `credentials_encrypted` / `api_key_encrypted` BLOB。
+pub mod accounts;
+pub mod endpoints;

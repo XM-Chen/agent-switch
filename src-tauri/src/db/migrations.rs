@@ -11,15 +11,57 @@ struct Migration {
 
 /// Migration list: add new migrations at the end.
 /// DO NOT reorder or remove entries once they have been deployed.
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "create_schema_migrations",
-    sql: "CREATE TABLE IF NOT EXISTS schema_migrations (
-        version INTEGER PRIMARY KEY,
-        name TEXT NOT NULL,
-        applied_at TEXT NOT NULL
-    );",
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "create_schema_migrations",
+        sql: "CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            applied_at TEXT NOT NULL
+        );",
+    },
+    Migration {
+        version: 2,
+        name: "create_accounts_and_endpoints",
+        sql: "CREATE TABLE IF NOT EXISTS accounts (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            account_type TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            credentials_encrypted BLOB,
+            extra_json TEXT,
+            priority INTEGER NOT NULL DEFAULT 0,
+            last_login_at TEXT,
+            last_error TEXT,
+            last_error_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS endpoints (
+            id TEXT PRIMARY KEY,
+            account_id TEXT,
+            name TEXT NOT NULL,
+            base_url TEXT NOT NULL,
+            protocol_type TEXT NOT NULL,
+            api_key_encrypted BLOB,
+            auth_mode TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            priority INTEGER NOT NULL DEFAULT 0,
+            cooldown_until TEXT,
+            last_success_at TEXT,
+            last_failure_at TEXT,
+            last_error_kind TEXT,
+            extra_json TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_endpoints_account_id ON endpoints(account_id);
+        CREATE INDEX IF NOT EXISTS idx_endpoints_enabled_priority ON endpoints(enabled, priority);",
+    },
+];
 
 /// Ensure the migration tracking table exists, then run pending migrations.
 pub fn run_migrations(conn: &Mutex<Connection>) -> Result<(), String> {
@@ -49,7 +91,7 @@ pub fn run_migrations(conn: &Mutex<Connection>) -> Result<(), String> {
 
     drop(stmt);
 
-    // Apply pending migrations inside a single transaction
+    // Apply pending migrations
     let pending: Vec<&Migration> = MIGRATIONS
         .iter()
         .filter(|m| !applied.contains(&m.version))
@@ -63,7 +105,7 @@ pub fn run_migrations(conn: &Mutex<Connection>) -> Result<(), String> {
     for migration in &pending {
         tracing::info!("执行迁移 v{}: {}", migration.version, migration.name);
 
-        db.execute(migration.sql, []).map_err(|e| {
+        db.execute_batch(migration.sql).map_err(|e| {
             format!(
                 "迁移 v{} ({}) 失败: {}",
                 migration.version, migration.name, e

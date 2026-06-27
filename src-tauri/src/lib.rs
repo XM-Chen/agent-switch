@@ -3,6 +3,7 @@ mod commands;
 mod config;
 mod db;
 mod http;
+mod services;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -49,6 +50,21 @@ pub fn run() {
                 panic!("数据库迁移失败: {}", e);
             });
 
+            // 初始化凭据加密服务。
+            // Keychain 不可用时为 None，应用仍可启动，但凭据相关功能进入降级模式。
+            let crypto = match services::keychain::ensure_master_key() {
+                Ok(key) => {
+                    tracing::info!("凭据加密服务已就绪");
+                    Some(Arc::new(services::crypto::CryptoService::new(key)))
+                }
+                Err(e) => {
+                    tracing::warn!("系统凭据管理器不可用，凭据功能进入降级模式: {}", e);
+                    None
+                }
+            };
+
+            let codex_oauth = Arc::new(services::codex_oauth::CodexOAuthService::new());
+
             // Create the shared shutdown channel
             let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
@@ -59,6 +75,8 @@ pub fn run() {
                 shutdown_tx: tokio::sync::Mutex::new(Some(shutdown_tx)),
                 data_dir,
                 web_dist_dir,
+                crypto,
+                codex_oauth,
             });
 
             // Register as managed state
