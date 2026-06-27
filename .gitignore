@@ -10,3 +10,8 @@
 .trae/
 .zcode/
 AGENTS.md
+
+# Build artifacts
+dist/
+node_modules/
+src-tauri/target/

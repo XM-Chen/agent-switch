@@ -1,0 +1,11 @@
+{
+  "identifier": "default",
+  "description": "默认能力：允许基本窗口操作和核心插件",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "dialog:default",
+    "fs:default"
+  ]
+}
