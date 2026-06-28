@@ -2,7 +2,6 @@
 ///
 /// 管理端点切换状态、重试计数、冷却逻辑和回退链。
 /// `FailoverState` 提供状态追踪和辅助方法，`proxy_request` 内部驱动路由主循环。
-
 use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
@@ -61,18 +60,10 @@ pub struct FailoverState {
 
 impl FailoverState {
     /// 创建故障转移状态。
-    pub fn new(
-        failover_enabled: bool,
-        max_switches: u32,
-        max_retries: u32,
-    ) -> Self {
+    pub fn new(failover_enabled: bool, max_switches: u32, max_retries: u32) -> Self {
         Self {
             switch_count: 0,
-            max_switches: if failover_enabled {
-                max_switches
-            } else {
-                1
-            },
+            max_switches: if failover_enabled { max_switches } else { 1 },
             failed_ids: HashSet::new(),
             retry_counts: HashMap::new(),
             max_retries,
@@ -127,25 +118,22 @@ impl FailoverState {
 
     /// 获取当前端点的重试次数并递增。
     pub fn get_and_increment_retry(&mut self, endpoint_id: &str) -> u32 {
-        let count = self.retry_counts.entry(endpoint_id.to_string()).or_insert(0);
+        let count = self
+            .retry_counts
+            .entry(endpoint_id.to_string())
+            .or_insert(0);
         *count += 1;
         *count
     }
 
     /// 判断端点是否达到最大重试次数。
     pub fn is_max_retries_reached(&self, endpoint_id: &str) -> bool {
-        self.retry_counts
-            .get(endpoint_id)
-            .copied()
-            .unwrap_or(0)
-            >= self.max_retries
+        self.retry_counts.get(endpoint_id).copied().unwrap_or(0) >= self.max_retries
     }
 
     /// 检查是否需要重试（可重试且未超限）。
     pub fn should_retry(&self, endpoint_id: &str, error: &ProxyError) -> bool {
-        error.retryable
-            && !error.stream_started
-            && !self.is_max_retries_reached(endpoint_id)
+        error.retryable && !error.stream_started && !self.is_max_retries_reached(endpoint_id)
     }
 
     /// 计算错误对应的冷却时长（秒）。
@@ -168,7 +156,9 @@ impl FailoverState {
             }
             ProxyErrorKind::UpstreamError(code) if (500..=599).contains(&code) => {
                 // 5xx：30-120s（按切换次数递增）
-                30i64.saturating_add((self.switch_count as i64) * 15).min(120)
+                30i64
+                    .saturating_add((self.switch_count as i64) * 15)
+                    .min(120)
             }
             _ => 30, // 默认冷却
         }
@@ -187,7 +177,10 @@ fn parse_retry_after(message: &str) -> Option<i64> {
         if let Some(ra) = value.get("retry_after").and_then(|v| v.as_i64()) {
             return Some(ra);
         }
-        if let Some(ra) = value.get("error").and_then(|e| e.get("retry_after").and_then(|v| v.as_i64())) {
+        if let Some(ra) = value
+            .get("error")
+            .and_then(|e| e.get("retry_after").and_then(|v| v.as_i64()))
+        {
             return Some(ra);
         }
     }

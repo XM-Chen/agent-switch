@@ -20,7 +20,6 @@
 /// | `tool_use` | `tool_calls` |
 /// | `max_tokens` | `length` |
 /// | `stop_sequence` | `stop` |
-
 use crate::services::translator::helpers;
 use crate::services::translator::{StreamContext, ToolCallAcc, Translator};
 use serde_json::{json, Value};
@@ -58,7 +57,11 @@ impl Translator for AnthropicToChatTranslator {
         // 3. 转换 messages 中的内容块
         if let Some(messages) = body.get_mut("messages").and_then(|m| m.as_array_mut()) {
             for msg in messages.iter_mut() {
-                let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("user").to_string();
+                let role = msg
+                    .get("role")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("user")
+                    .to_string();
                 // 仅处理非 system 的消息
                 if role == "system" {
                     continue;
@@ -101,10 +104,8 @@ impl Translator for AnthropicToChatTranslator {
                                         .get("id")
                                         .and_then(|i| i.as_str())
                                         .unwrap_or("toolu_xxx");
-                                    let tc_name = block
-                                        .get("name")
-                                        .and_then(|n| n.as_str())
-                                        .unwrap_or("");
+                                    let tc_name =
+                                        block.get("name").and_then(|n| n.as_str()).unwrap_or("");
                                     let empty_obj = json!({});
                                     let tc_input = block.get("input").unwrap_or(&empty_obj);
                                     tool_calls.push(json!({
@@ -123,7 +124,8 @@ impl Translator for AnthropicToChatTranslator {
                         } else if has_tool_result {
                             // tool_result → tool 角色
                             for block in &blocks {
-                                if block.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
+                                if block.get("type").and_then(|t| t.as_str()) == Some("tool_result")
+                                {
                                     let tool_use_id = block
                                         .get("tool_use_id")
                                         .and_then(|i| i.as_str())
@@ -177,12 +179,7 @@ impl Translator for AnthropicToChatTranslator {
         // （stream 字段在两种协议中同名，已存在于 body）
 
         // 8. 移除 Anthropic 专有字段
-        let anthropic_only = [
-            "metadata",
-            "thinking",
-            "adult_content",
-            "output_config",
-        ];
+        let anthropic_only = ["metadata", "thinking", "adult_content", "output_config"];
         if let Some(obj) = body.as_object_mut() {
             for field in &anthropic_only {
                 obj.remove(*field);
@@ -200,10 +197,7 @@ impl Translator for AnthropicToChatTranslator {
             .and_then(|i| i.as_str())
             .unwrap_or("msg_unknown");
 
-        let model = body
-            .get("model")
-            .and_then(|m| m.as_str())
-            .unwrap_or("");
+        let model = body.get("model").and_then(|m| m.as_str()).unwrap_or("");
 
         let usage = body.get("usage");
         let (prompt_tokens, completion_tokens, total_tokens) = if let Some(u) = usage {
@@ -217,7 +211,11 @@ impl Translator for AnthropicToChatTranslator {
                 .get("cache_read_input_tokens")
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0);
-            (input + cache_create + cache_read, output, input + cache_create + cache_read + output)
+            (
+                input + cache_create + cache_read,
+                output,
+                input + cache_create + cache_read + output,
+            )
         } else {
             (0, 0, 0)
         };
@@ -229,7 +227,11 @@ impl Translator for AnthropicToChatTranslator {
             .unwrap_or("stop");
 
         // 转换 content 数组
-        let content_blocks = body.get("content").and_then(|c| c.as_array()).cloned().unwrap_or_default();
+        let content_blocks = body
+            .get("content")
+            .and_then(|c| c.as_array())
+            .cloned()
+            .unwrap_or_default();
         let mut content_text = String::new();
         let mut tool_calls = Vec::new();
 
@@ -291,7 +293,11 @@ impl Translator for AnthropicToChatTranslator {
     }
 
     /// 将 Anthropic SSE 行转换为 OpenAI Chat SSE 行。
-    fn translate_stream_line(&self, line: &str, context: &mut StreamContext) -> Result<String, String> {
+    fn translate_stream_line(
+        &self,
+        line: &str,
+        context: &mut StreamContext,
+    ) -> Result<String, String> {
         // 检查 event 类型
         if let Some(_event_name) = helpers::is_sse_event_type(line) {
             context.content_block_index = 0;
@@ -326,10 +332,7 @@ impl Translator for AnthropicToChatTranslator {
                         .get("id")
                         .and_then(|i| i.as_str())
                         .unwrap_or("msg_unknown");
-                    let model_name = message
-                        .get("model")
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("");
+                    let model_name = message.get("model").and_then(|m| m.as_str()).unwrap_or("");
                     let usage = message.get("usage");
                     let (prompt, _out, total) = if let Some(u) = usage {
                         let inp = u.get("input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -387,7 +390,10 @@ impl Translator for AnthropicToChatTranslator {
             "content_block_start" => {
                 // content_block_start 可能是 text 或 tool_use
                 let block = parsed.get("content_block");
-                let block_type = block.and_then(|b| b.get("type")).and_then(|t| t.as_str()).unwrap_or("");
+                let block_type = block
+                    .and_then(|b| b.get("type"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("");
                 let index = parsed.get("index").and_then(|i| i.as_i64()).unwrap_or(0) as i32;
 
                 match block_type {
@@ -461,7 +467,10 @@ impl Translator for AnthropicToChatTranslator {
 
             "content_block_delta" => {
                 let delta = parsed.get("delta");
-                let delta_type = delta.and_then(|d| d.get("type")).and_then(|t| t.as_str()).unwrap_or("");
+                let delta_type = delta
+                    .and_then(|d| d.get("type"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("");
                 let index = parsed.get("index").and_then(|i| i.as_i64()).unwrap_or(0) as i32;
 
                 match delta_type {
@@ -650,7 +659,10 @@ impl Translator for ChatToAnthropicTranslator {
                     if t.get("type").and_then(|tt| tt.as_str()) == Some("function") {
                         let func = t.get("function")?;
                         let name = func.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                        let desc = func.get("description").and_then(|d| d.as_str()).unwrap_or("");
+                        let desc = func
+                            .get("description")
+                            .and_then(|d| d.as_str())
+                            .unwrap_or("");
                         let params = func
                             .get("parameters")
                             .or_else(|| func.get("parametersJsonSchema"))
@@ -702,10 +714,7 @@ impl Translator for ChatToAnthropicTranslator {
             .and_then(|i| i.as_str())
             .unwrap_or("chatcmpl_unknown");
 
-        let model = body
-            .get("model")
-            .and_then(|m| m.as_str())
-            .unwrap_or("");
+        let model = body.get("model").and_then(|m| m.as_str()).unwrap_or("");
 
         // 提取第一条 choice
         let choice = body
@@ -746,8 +755,7 @@ impl Translator for ChatToAnthropicTranslator {
                         .and_then(|f| f.get("arguments"))
                         .and_then(|a| a.as_str())
                         .unwrap_or("{}");
-                    let tc_args: Value =
-                        serde_json::from_str(tc_args_str).unwrap_or(json!({}));
+                    let tc_args: Value = serde_json::from_str(tc_args_str).unwrap_or(json!({}));
                     content_blocks.push(json!({
                         "type": "tool_use",
                         "id": tc_id,
@@ -794,7 +802,11 @@ impl Translator for ChatToAnthropicTranslator {
     }
 
     /// 将 OpenAI Chat SSE 行转换为 Anthropic SSE 行。
-    fn translate_stream_line(&self, line: &str, context: &mut StreamContext) -> Result<String, String> {
+    fn translate_stream_line(
+        &self,
+        line: &str,
+        context: &mut StreamContext,
+    ) -> Result<String, String> {
         // 提取 data 负载
         let data = match helpers::extract_sse_data(line) {
             Some(d) => d,
@@ -822,7 +834,9 @@ impl Translator for ChatToAnthropicTranslator {
 
         let delta = choice.get("delta");
         let finish_reason = choice.get("finish_reason").and_then(|f| f.as_str());
-        let content = delta.and_then(|d| d.get("content")).and_then(|c| c.as_str());
+        let content = delta
+            .and_then(|d| d.get("content"))
+            .and_then(|c| c.as_str());
         let role = delta.and_then(|d| d.get("role")).and_then(|r| r.as_str());
 
         // 读取 usage（可能在最后一个 chunk 的顶层）
@@ -836,10 +850,7 @@ impl Translator for ChatToAnthropicTranslator {
                 .get("id")
                 .and_then(|i| i.as_str())
                 .unwrap_or("chatcmpl_unknown");
-            let model_name = parsed
-                .get("model")
-                .and_then(|m| m.as_str())
-                .unwrap_or("");
+            let model_name = parsed.get("model").and_then(|m| m.as_str()).unwrap_or("");
 
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -880,7 +891,10 @@ impl Translator for ChatToAnthropicTranslator {
         }
 
         // 处理 tool_calls delta
-        if let Some(tool_calls) = delta.and_then(|d| d.get("tool_calls")).and_then(|t| t.as_array()) {
+        if let Some(tool_calls) = delta
+            .and_then(|d| d.get("tool_calls"))
+            .and_then(|t| t.as_array())
+        {
             for tc in tool_calls {
                 let tc_index = tc.get("index").and_then(|i| i.as_i64()).unwrap_or(0) as i32;
                 let tc_id = tc.get("id").and_then(|i| i.as_str()).unwrap_or("");
@@ -985,8 +999,7 @@ impl ChatToAnthropicTranslator {
                             .and_then(|f| f.get("arguments"))
                             .and_then(|a| a.as_str())
                             .unwrap_or("{}");
-                        let tc_args: Value =
-                            serde_json::from_str(tc_args_str).unwrap_or(json!({}));
+                        let tc_args: Value = serde_json::from_str(tc_args_str).unwrap_or(json!({}));
                         blocks.push(json!({
                             "type": "tool_use",
                             "id": tc_id,
@@ -1073,7 +1086,8 @@ mod tests {
             "stream": true
         });
 
-        t.translate_request(&mut body, "claude-sonnet-4-20250514").unwrap();
+        t.translate_request(&mut body, "claude-sonnet-4-20250514")
+            .unwrap();
 
         // system 被移出顶层并作为第一条消息
         assert!(body.get("system").is_none());
@@ -1184,10 +1198,19 @@ mod tests {
 
         t.translate_response(&mut body).unwrap();
 
-        assert_eq!(body["choices"][0]["message"]["content"], "Here is the weather");
+        assert_eq!(
+            body["choices"][0]["message"]["content"],
+            "Here is the weather"
+        );
         assert_eq!(body["choices"][0]["finish_reason"], "tool_calls");
-        assert_eq!(body["choices"][0]["message"]["tool_calls"][0]["id"], "toolu_1");
-        assert_eq!(body["choices"][0]["message"]["tool_calls"][0]["function"]["name"], "get_weather");
+        assert_eq!(
+            body["choices"][0]["message"]["tool_calls"][0]["id"],
+            "toolu_1"
+        );
+        assert_eq!(
+            body["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
+            "get_weather"
+        );
     }
 
     #[test]
@@ -1411,7 +1434,10 @@ mod tests {
         t.translate_response(&mut body).unwrap();
 
         let content = body["content"].as_array().unwrap();
-        let tool_use = content.iter().find(|b| b.get("type") == Some(&json!("tool_use"))).unwrap();
+        let tool_use = content
+            .iter()
+            .find(|b| b.get("type") == Some(&json!("tool_use")))
+            .unwrap();
         assert_eq!(tool_use["id"], "call_1");
         assert_eq!(tool_use["name"], "get_weather");
         assert_eq!(body["stop_reason"], "tool_use");
@@ -1477,7 +1503,8 @@ mod tests {
         });
 
         // Convert Anthropic → Chat
-        a2c.translate_request(&mut an_body, "claude-sonnet-4-20250514").unwrap();
+        a2c.translate_request(&mut an_body, "claude-sonnet-4-20250514")
+            .unwrap();
 
         // Verify intermediate Chat format
         assert!(an_body.get("system").is_none());
@@ -1485,7 +1512,8 @@ mod tests {
         assert_eq!(an_body["messages"][1]["role"], "user");
 
         // Convert Chat → Anthropic
-        c2a.translate_request(&mut an_body, "claude-sonnet-4-20250514").unwrap();
+        c2a.translate_request(&mut an_body, "claude-sonnet-4-20250514")
+            .unwrap();
 
         // Verify roundtrip
         assert_eq!(an_body["system"], "You are helpful");

@@ -3,13 +3,12 @@
 /// 从 DB 中按协议类型加载候选端点，提供 Fill-First 和 Round-Robin 两种选择策略。
 /// 自动跳过已禁用、冷却中、已失败的端点。
 /// 支持模型锁检查回调。
-
 use std::collections::HashSet;
 use std::sync::Mutex;
 
 use rusqlite::Connection;
-use time::OffsetDateTime;
 use time::format_description::well_known::Iso8601;
+use time::OffsetDateTime;
 
 use crate::db::dao::endpoints::{self, EndpointRow};
 use crate::http::proxy::constants;
@@ -117,9 +116,7 @@ impl EndpointSelector {
         match &endpoint.cooldown_until {
             Some(cooldown_str) => {
                 match OffsetDateTime::parse(cooldown_str, &Iso8601::DEFAULT) {
-                    Ok(cooldown_time) => {
-                        OffsetDateTime::now_utc() < cooldown_time
-                    }
+                    Ok(cooldown_time) => OffsetDateTime::now_utc() < cooldown_time,
                     Err(_) => false, // 无法解析视为不在冷却中
                 }
             }

@@ -5,7 +5,6 @@
 /// 从而允许故障转移引擎切换端点。
 ///
 /// 一旦首块确认正常，标记 `stream_started = true`，此后禁止切换。
-
 use std::pin::Pin;
 
 use axum::http::StatusCode;
@@ -19,7 +18,8 @@ pub struct BufferedResult {
     /// 第一个 data chunk（若为流式且成功）。
     pub first_chunk: Bytes,
     /// 包含首块 + 剩余数据的完整流（供客户端消费）。
-    pub remaining_stream: Pin<Box<dyn Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync>>> + Send>>,
+    pub remaining_stream:
+        Pin<Box<dyn Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync>>> + Send>>,
 }
 
 /// 流首块守卫。
@@ -97,10 +97,7 @@ impl StreamGuard {
 
         // 检查首块是否包含错误（SSE 格式错误）
         let chunk_str = String::from_utf8_lossy(&first_chunk);
-        if chunk_str.contains("\"error\"")
-            || chunk_str.contains("\"type\":\"error\"")
-
-        {
+        if chunk_str.contains("\"error\"") || chunk_str.contains("\"type\":\"error\"") {
             let error_text = String::from_utf8_lossy(&first_chunk).to_string();
             // 提取状态码（如果有）
             if let Some(code) = extract_error_code(&error_text) {
@@ -123,7 +120,11 @@ impl StreamGuard {
 
         // 构建包含首块的完整流
         let remaining = futures::stream::once(futures::future::ready(Ok(first_chunk.clone())))
-            .chain(response_body.map(|r| r.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)));
+            .chain(
+                response_body.map(|r| {
+                    r.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                }),
+            );
 
         Ok(BufferedResult {
             first_chunk,

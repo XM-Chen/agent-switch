@@ -5,7 +5,6 @@
 /// 外层由 failover 状态机驱动。
 ///
 /// 参考 design.md §1 数据流图。
-
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -88,12 +87,14 @@ impl RouteProxy {
 
         let body_hash = RequestLogEntry::hash_body(&body_bytes);
         let req_json: Value = if !body_bytes.is_empty() {
-            serde_json::from_slice(&body_bytes)
-                .unwrap_or(Value::Null)
+            serde_json::from_slice(&body_bytes).unwrap_or(Value::Null)
         } else {
             Value::Null
         };
-        let original_model = req_json.get("model").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let original_model = req_json
+            .get("model")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
         // 加载路由设置
         let route_settings = load_route_settings(&self.db, route_id)
@@ -103,7 +104,8 @@ impl RouteProxy {
         // 初始化 selector
         let mut selector = EndpointSelector::new(&route_settings.protocol_type);
         selector.set_strategy(&route_settings.strategy);
-        selector.load_candidates(&self.db)
+        selector
+            .load_candidates(&self.db)
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
@@ -120,7 +122,11 @@ impl RouteProxy {
         let incoming_headers = parts.headers.clone();
 
         // 故障转移主循环
-        let mut final_result: Option<(Response<Body>, RequestLogEntry, Option<ModelMappingResult>)> = None;
+        let mut final_result: Option<(
+            Response<Body>,
+            RequestLogEntry,
+            Option<ModelMappingResult>,
+        )> = None;
 
         while failover.can_continue() {
             let endpoint = match selector.next(&failover.failed_ids, |eid| {
@@ -137,21 +143,20 @@ impl RouteProxy {
             let mut upstream_headers = HeaderMap::new();
 
             // 模型映射
-            let mapping_result =
-                match model_mapper.resolve_and_rewrite(&mut req_body_clone) {
-                    Ok(m) => {
-                        body_hash_sync(&mut req_body_clone, &body_hash);
-                        Some(m)
-                    }
-                    Err(e) => {
-                        failover.record_failure(
-                            &endpoint,
-                            &ProxyError::new(ProxyErrorKind::LocalError, e),
-                            attempt_start.elapsed().as_millis() as u64,
-                        );
-                        continue;
-                    }
-                };
+            let mapping_result = match model_mapper.resolve_and_rewrite(&mut req_body_clone) {
+                Ok(m) => {
+                    body_hash_sync(&mut req_body_clone, &body_hash);
+                    Some(m)
+                }
+                Err(e) => {
+                    failover.record_failure(
+                        &endpoint,
+                        &ProxyError::new(ProxyErrorKind::LocalError, e),
+                        attempt_start.elapsed().as_millis() as u64,
+                    );
+                    continue;
+                }
+            };
 
             // 复制入站 headers
             upstream_headers.extend(incoming_headers.clone().into_iter());
@@ -167,7 +172,11 @@ impl RouteProxy {
             )
             .await
             {
-                let cooldown_secs = failover.record_failure(&endpoint, &e, attempt_start.elapsed().as_millis() as u64);
+                let cooldown_secs = failover.record_failure(
+                    &endpoint,
+                    &e,
+                    attempt_start.elapsed().as_millis() as u64,
+                );
                 // 冷却
                 let _ = cooldown_secs;
                 continue;
@@ -179,10 +188,13 @@ impl RouteProxy {
             let protocol_from = route_settings.protocol_type.clone();
 
             let translated_body = if protocol_from != protocol_to {
-                match self.translator_registry.resolve(&protocol_from, &protocol_to) {
+                match self
+                    .translator_registry
+                    .resolve(&protocol_from, &protocol_to)
+                {
                     Ok(translator) => {
-                        let mut body_bytes = serde_json::to_vec(&req_body_clone)
-                            .unwrap_or_default();
+                        let mut body_bytes =
+                            serde_json::to_vec(&req_body_clone).unwrap_or_default();
                         // single-arg translator usage
                         let _ = translator;
                         body_bytes
@@ -201,7 +213,8 @@ impl RouteProxy {
             };
 
             // 转发请求到上游
-            let upstream_req = self.http_client
+            let upstream_req = self
+                .http_client
                 .request(method.clone(), &target_url)
                 .headers(upstream_headers)
                 .body(translated_body)
@@ -219,7 +232,11 @@ impl RouteProxy {
                             ProxyErrorKind::UpstreamError(status_code),
                             format!("上游返回 {}", status_code),
                         );
-                        let cooldown_secs = failover.record_failure(&endpoint, &err, attempt_start.elapsed().as_millis() as u64);
+                        let cooldown_secs = failover.record_failure(
+                            &endpoint,
+                            &err,
+                            attempt_start.elapsed().as_millis() as u64,
+                        );
                         let _ = cooldown_secs;
                         continue;
                     }
@@ -261,12 +278,20 @@ impl RouteProxy {
                 }
                 Err(e) => {
                     let err = ProxyError::new(
-                        if e.is_timeout() { ProxyErrorKind::Timeout }
-                        else if e.is_connect() { ProxyErrorKind::NetworkError }
-                        else { ProxyErrorKind::UpstreamError(502) },
+                        if e.is_timeout() {
+                            ProxyErrorKind::Timeout
+                        } else if e.is_connect() {
+                            ProxyErrorKind::NetworkError
+                        } else {
+                            ProxyErrorKind::UpstreamError(502)
+                        },
                         format!("上游请求失败: {}", e),
                     );
-                    let cooldown_secs = failover.record_failure(&endpoint, &err, attempt_start.elapsed().as_millis() as u64);
+                    let cooldown_secs = failover.record_failure(
+                        &endpoint,
+                        &err,
+                        attempt_start.elapsed().as_millis() as u64,
+                    );
                     let _ = cooldown_secs;
                     continue;
                 }
@@ -274,13 +299,21 @@ impl RouteProxy {
         }
 
         // 全部失败
-        let last_error = failover.last_error.as_ref()
+        let last_error = failover
+            .last_error
+            .as_ref()
             .map(|e| format!("{}", e))
             .unwrap_or_else(|| "所有候选端点均已失败".to_string());
 
         // 写错误日志
         let mut log_entry = RequestLogEntry::new(&request_id, Some(route_id), &path);
-        log_entry.status = Some(failover.last_error.as_ref().map(|e| e.status as i64).unwrap_or(502));
+        log_entry.status = Some(
+            failover
+                .last_error
+                .as_ref()
+                .map(|e| e.status as i64)
+                .unwrap_or(502),
+        );
         log_entry.error_kind = Some(last_error.clone());
         log_entry.fallback_chain = Some(failover.chain_to_json());
         log_entry.request_body_hash = Some(body_hash);
@@ -301,8 +334,7 @@ async fn load_route_settings(
     route_id: &str,
 ) -> Result<RouteSettingsRow, String> {
     use crate::db::dao::route_settings;
-    route_settings::get(db, route_id)?
-        .ok_or_else(|| format!("路由 '{}' 未配置", route_id))
+    route_settings::get(db, route_id)?.ok_or_else(|| format!("路由 '{}' 未配置", route_id))
 }
 
 fn build_upstream_url(endpoint: &crate::db::dao::endpoints::EndpointRow, path: &str) -> String {

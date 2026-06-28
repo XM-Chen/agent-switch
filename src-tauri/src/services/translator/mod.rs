@@ -11,18 +11,17 @@
 /// let t = registry.resolve("anthropic", "openai-chat")?;
 /// t.translate_request(&mut body, "gpt-4")?;
 /// ```
-
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-mod native;
 mod anthropic_openai;
-mod openai_responses;
 pub mod helpers;
+mod native;
+mod openai_responses;
 
-pub use native::PassthroughTranslator;
 pub use anthropic_openai::{AnthropicToChatTranslator, ChatToAnthropicTranslator};
+pub use native::PassthroughTranslator;
 pub use openai_responses::{ChatToResponsesTranslator, ResponsesToChatTranslator};
 
 /// 流式转换上下文。
@@ -86,7 +85,11 @@ pub trait Translator: Send + Sync {
     /// `line` 是一行原始 SSE 数据（可能为 `data: {...}`、`event: ...` 或空行）。
     /// `context` 提供累积的流上下文。
     /// 返回转换后的 SSE 行（包含 `\n` 或 `\n\n` 后缀），或空字符串以跳过该行。
-    fn translate_stream_line(&self, line: &str, context: &mut StreamContext) -> Result<String, String>;
+    fn translate_stream_line(
+        &self,
+        line: &str,
+        context: &mut StreamContext,
+    ) -> Result<String, String>;
 }
 
 /// 转换器注册表。
@@ -122,7 +125,9 @@ impl TranslatorRegistry {
 
     /// 按方向精确查找转换器。
     pub fn get(&self, from: &str, to: &str) -> Option<Arc<dyn Translator>> {
-        self.translators.get(&(from.to_string(), to.to_string())).cloned()
+        self.translators
+            .get(&(from.to_string(), to.to_string()))
+            .cloned()
     }
 
     /// 解析转换器，自动处理 Passthrough（from == to）。
@@ -218,7 +223,9 @@ mod tests {
     fn test_passthrough_translate_stream_line() {
         let t = PassthroughTranslator;
         let mut ctx = StreamContext::new("msg_1", "model", 12345);
-        let result = t.translate_stream_line("data: {\"key\":\"val\"}", &mut ctx).unwrap();
+        let result = t
+            .translate_stream_line("data: {\"key\":\"val\"}", &mut ctx)
+            .unwrap();
         assert_eq!(result, "data: {\"key\":\"val\"}\n");
     }
 
@@ -226,7 +233,9 @@ mod tests {
     fn test_custom_translator() {
         struct Dummy;
         impl Translator for Dummy {
-            fn key(&self) -> (&'static str, &'static str) { ("test-a", "test-b") }
+            fn key(&self) -> (&'static str, &'static str) {
+                ("test-a", "test-b")
+            }
             fn translate_request(&self, body: &mut Value, _model: &str) -> Result<(), String> {
                 body["custom"] = json!(true);
                 Ok(())
@@ -235,7 +244,11 @@ mod tests {
                 body["custom_resp"] = json!(true);
                 Ok(())
             }
-            fn translate_stream_line(&self, line: &str, _ctx: &mut StreamContext) -> Result<String, String> {
+            fn translate_stream_line(
+                &self,
+                line: &str,
+                _ctx: &mut StreamContext,
+            ) -> Result<String, String> {
                 Ok(line.to_string())
             }
         }

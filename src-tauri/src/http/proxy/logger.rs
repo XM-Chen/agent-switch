@@ -3,7 +3,6 @@
 /// 提供 `RequestLogEntry` 结构体（匹配 `request_logs` 表字段）
 /// 和 `write_log` 方法将日志写入 DB。
 /// 请求体哈希使用 SHA256 散列。
-
 use std::sync::Mutex;
 
 use rusqlite::Connection;

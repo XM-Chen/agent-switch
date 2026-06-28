@@ -14,7 +14,6 @@
 /// | `finish_reason` | `status: "completed" \| "incomplete" \| "failed"` |
 /// | SSE `choices[0].delta` | SSE `response.text.delta` / `response.output_item.*` |
 /// | `data: [DONE]` | `event: response.done` / `response.completed` |
-
 use crate::services::translator::helpers;
 use crate::services::translator::{StreamContext, Translator};
 use serde_json::{json, Value};
@@ -41,10 +40,7 @@ impl Translator for ChatToResponsesTranslator {
             let input_items: Vec<Value> = messages
                 .iter()
                 .map(|msg| {
-                    let role = msg
-                        .get("role")
-                        .and_then(|r| r.as_str())
-                        .unwrap_or("user");
+                    let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("user");
                     let content = msg.get("content").cloned().unwrap_or(json!(""));
                     match role {
                         "system" => json!({
@@ -70,10 +66,8 @@ impl Translator for ChatToResponsesTranslator {
                                 let fc_items: Vec<Value> = tool_calls
                                     .iter()
                                     .map(|tc| {
-                                        let tc_id = tc
-                                            .get("id")
-                                            .and_then(|i| i.as_str())
-                                            .unwrap_or("");
+                                        let tc_id =
+                                            tc.get("id").and_then(|i| i.as_str()).unwrap_or("");
                                         let tc_name = tc
                                             .get("function")
                                             .and_then(|f| f.get("name"))
@@ -129,10 +123,7 @@ impl Translator for ChatToResponsesTranslator {
                 .map(|t| {
                     if t.get("type").and_then(|tt| tt.as_str()) == Some("function") {
                         let func = t.get("function").unwrap();
-                        let name = func
-                            .get("name")
-                            .and_then(|n| n.as_str())
-                            .unwrap_or("");
+                        let name = func.get("name").and_then(|n| n.as_str()).unwrap_or("");
                         let desc = func
                             .get("description")
                             .and_then(|d| d.as_str())
@@ -190,10 +181,7 @@ impl Translator for ChatToResponsesTranslator {
             .get("id")
             .and_then(|i| i.as_str())
             .unwrap_or("chatcmpl_unknown");
-        let model = body
-            .get("model")
-            .and_then(|m| m.as_str())
-            .unwrap_or("");
+        let model = body.get("model").and_then(|m| m.as_str()).unwrap_or("");
 
         let choice = body
             .get("choices")
@@ -218,10 +206,7 @@ impl Translator for ChatToResponsesTranslator {
         let mut output_items: Vec<Value> = Vec::new();
 
         if let Some(msg) = message {
-            let content = msg
-                .get("content")
-                .and_then(|c| c.as_str())
-                .unwrap_or("");
+            let content = msg.get("content").and_then(|c| c.as_str()).unwrap_or("");
 
             // 消息输出
             let msg_item = json!({
@@ -287,7 +272,11 @@ impl Translator for ChatToResponsesTranslator {
     }
 
     /// 将 Chat SSE 行转换为 Responses API SSE 行。
-    fn translate_stream_line(&self, line: &str, context: &mut StreamContext) -> Result<String, String> {
+    fn translate_stream_line(
+        &self,
+        line: &str,
+        context: &mut StreamContext,
+    ) -> Result<String, String> {
         let data = match helpers::extract_sse_data(line) {
             Some(d) => d,
             None => return Ok(line.to_string()),
@@ -312,7 +301,9 @@ impl Translator for ChatToResponsesTranslator {
 
         let delta = choice.get("delta");
         let finish_reason = choice.get("finish_reason").and_then(|f| f.as_str());
-        let content = delta.and_then(|d| d.get("content")).and_then(|c| c.as_str());
+        let content = delta
+            .and_then(|d| d.get("content"))
+            .and_then(|c| c.as_str());
         let role = delta.and_then(|d| d.get("role")).and_then(|r| r.as_str());
 
         let mut output = String::new();
@@ -352,7 +343,10 @@ impl Translator for ChatToResponsesTranslator {
         }
 
         // tool_calls delta → function_call_arguments.delta
-        if let Some(tool_calls) = delta.and_then(|d| d.get("tool_calls")).and_then(|t| t.as_array()) {
+        if let Some(tool_calls) = delta
+            .and_then(|d| d.get("tool_calls"))
+            .and_then(|t| t.as_array())
+        {
             for tc in tool_calls {
                 if let Some(args) = tc
                     .get("function")
@@ -429,30 +423,17 @@ impl Translator for ResponsesToChatTranslator {
                         .unwrap_or("message");
                     match item_type {
                         "message" => {
-                            let role = item
-                                .get("role")
-                                .and_then(|r| r.as_str())
-                                .unwrap_or("user");
+                            let role = item.get("role").and_then(|r| r.as_str()).unwrap_or("user");
                             // 映射 developer → system
-                            let chat_role = if role == "developer" {
-                                "system"
-                            } else {
-                                role
-                            };
+                            let chat_role = if role == "developer" { "system" } else { role };
                             json!({
                                 "role": chat_role,
                                 "content": item.get("content").cloned().unwrap_or(json!(""))
                             })
                         }
                         "function_call" => {
-                            let fc_id = item
-                                .get("id")
-                                .and_then(|i| i.as_str())
-                                .unwrap_or("");
-                            let fc_name = item
-                                .get("name")
-                                .and_then(|n| n.as_str())
-                                .unwrap_or("");
+                            let fc_id = item.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                            let fc_name = item.get("name").and_then(|n| n.as_str()).unwrap_or("");
                             let fc_args = item
                                 .get("arguments")
                                 .and_then(|a| a.as_str())
@@ -476,10 +457,8 @@ impl Translator for ResponsesToChatTranslator {
                             })
                         }
                         "function_call_output" => {
-                            let call_id = item
-                                .get("call_id")
-                                .and_then(|i| i.as_str())
-                                .unwrap_or("");
+                            let call_id =
+                                item.get("call_id").and_then(|i| i.as_str()).unwrap_or("");
                             json!({
                                 "role": "tool",
                                 "tool_call_id": call_id,
@@ -506,10 +485,7 @@ impl Translator for ResponsesToChatTranslator {
                 .iter()
                 .map(|t| {
                     let name = t.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                    let desc = t
-                        .get("description")
-                        .and_then(|d| d.as_str())
-                        .unwrap_or("");
+                    let desc = t.get("description").and_then(|d| d.as_str()).unwrap_or("");
                     let params = t
                         .get("parameters")
                         .or_else(|| t.get("parametersJsonSchema"))
@@ -552,10 +528,7 @@ impl Translator for ResponsesToChatTranslator {
             .get("id")
             .and_then(|i| i.as_str())
             .unwrap_or("resp_unknown");
-        let model = body
-            .get("model")
-            .and_then(|m| m.as_str())
-            .unwrap_or("");
+        let model = body.get("model").and_then(|m| m.as_str()).unwrap_or("");
         let status = body
             .get("status")
             .and_then(|s| s.as_str())
@@ -570,7 +543,11 @@ impl Translator for ResponsesToChatTranslator {
         };
 
         // 提取 output 中的消息内容
-        let output = body.get("output").and_then(|o| o.as_array()).cloned().unwrap_or_default();
+        let output = body
+            .get("output")
+            .and_then(|o| o.as_array())
+            .cloned()
+            .unwrap_or_default();
         let mut content_text = String::new();
         let mut tool_calls = Vec::new();
 
@@ -586,14 +563,8 @@ impl Translator for ResponsesToChatTranslator {
                     }
                 }
                 Some("function_call") => {
-                    let fc_id = item
-                        .get("id")
-                        .and_then(|i| i.as_str())
-                        .unwrap_or("");
-                    let fc_name = item
-                        .get("name")
-                        .and_then(|n| n.as_str())
-                        .unwrap_or("");
+                    let fc_id = item.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                    let fc_name = item.get("name").and_then(|n| n.as_str()).unwrap_or("");
                     let fc_args = item
                         .get("arguments")
                         .and_then(|a| a.as_str())
@@ -620,10 +591,7 @@ impl Translator for ResponsesToChatTranslator {
         let usage = body.get("usage");
         let (prompt_tokens, completion_tokens) = if let Some(u) = usage {
             let inp = u.get("input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-            let out = u
-                .get("output_tokens")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
+            let out = u.get("output_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
             (inp, out)
         } else {
             (0, 0)
@@ -662,7 +630,11 @@ impl Translator for ResponsesToChatTranslator {
     }
 
     /// 将 Responses API SSE 行转换为 Chat SSE 行。
-    fn translate_stream_line(&self, line: &str, context: &mut StreamContext) -> Result<String, String> {
+    fn translate_stream_line(
+        &self,
+        line: &str,
+        context: &mut StreamContext,
+    ) -> Result<String, String> {
         // 检查 event 类型
         if let Some(_event_name) = helpers::is_sse_event_type(line) {
             context.content_block_index = 0;
@@ -691,10 +663,7 @@ impl Translator for ResponsesToChatTranslator {
                         .get("id")
                         .and_then(|i| i.as_str())
                         .unwrap_or("resp_unknown");
-                    let model_name = response
-                        .get("model")
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("");
+                    let model_name = response.get("model").and_then(|m| m.as_str()).unwrap_or("");
 
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -730,10 +699,7 @@ impl Translator for ResponsesToChatTranslator {
 
             "response.text.delta" => {
                 // text delta → content delta
-                let text = parsed
-                    .get("delta")
-                    .and_then(|d| d.as_str())
-                    .unwrap_or("");
+                let text = parsed.get("delta").and_then(|d| d.as_str()).unwrap_or("");
                 let chunk = json!({
                     "choices": [
                         {
@@ -755,10 +721,7 @@ impl Translator for ResponsesToChatTranslator {
 
             "response.function_call_arguments.delta" => {
                 // function call arguments delta
-                let text = parsed
-                    .get("delta")
-                    .and_then(|d| d.as_str())
-                    .unwrap_or("");
+                let text = parsed.get("delta").and_then(|d| d.as_str()).unwrap_or("");
                 let chunk = json!({
                     "choices": [
                         {

@@ -2,14 +2,13 @@
 ///
 /// 检查 Codex OAuth 凭据是否即将过期，若需要则使用 refresh_token 获取新 token。
 /// 将新凭据加密后写回 DB。使用 `tokio::sync::Mutex` 防止同一账号并发刷新。
-
 use std::sync::Mutex;
 
 use reqwest::Client;
 use rusqlite::Connection;
 use serde::Deserialize;
-use time::OffsetDateTime;
 use time::format_description::well_known::Iso8601;
+use time::OffsetDateTime;
 
 use crate::db::dao::accounts;
 use crate::db::dao::endpoints::EndpointRow;
@@ -118,7 +117,10 @@ async fn refresh_token(
         .send()
         .await
         .map_err(|e| {
-            ProxyError::new(ProxyErrorKind::NetworkError, format!("Token 刷新请求失败: {}", e))
+            ProxyError::new(
+                ProxyErrorKind::NetworkError,
+                format!("Token 刷新请求失败: {}", e),
+            )
         })?;
 
     if !resp.status().is_success() {
@@ -146,19 +148,12 @@ async fn refresh_token(
     // 更新过期时间
     if let Some(expires_in) = token_resp.expires_in {
         let expires_at = OffsetDateTime::now_utc() + time::Duration::seconds(expires_in as i64);
-        new_credentials.expires_at = Some(
-            expires_at
-                .format(&Iso8601::DEFAULT)
-                .unwrap_or_default(),
-        );
+        new_credentials.expires_at = Some(expires_at.format(&Iso8601::DEFAULT).unwrap_or_default());
     }
 
     // 加密并写回 DB
     let json = serde_json::to_vec(&new_credentials).map_err(|e| {
-        ProxyError::new(
-            ProxyErrorKind::LocalError,
-            format!("序列化凭据失败: {}", e),
-        )
+        ProxyError::new(ProxyErrorKind::LocalError, format!("序列化凭据失败: {}", e))
     })?;
     let encrypted = crypto
         .encrypt(&json, account_id.as_bytes())

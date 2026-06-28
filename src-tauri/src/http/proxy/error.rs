@@ -3,7 +3,6 @@
 /// 定义 `ProxyError`（全链路错误结构）、`ProxyErrorKind`（错误分类）
 /// 以及 `should_failover()` 方法，用于判断是否应触发故障转移切换。
 /// 参考 prd.md 错误分类规则。
-
 use std::fmt;
 
 /// 代理错误分类。

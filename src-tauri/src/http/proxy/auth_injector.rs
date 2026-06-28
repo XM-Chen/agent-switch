@@ -3,7 +3,6 @@
 /// 根据端点的认证模式为上游请求注入认证 Header。
 /// 支持 API Key 模式（解密 → 注入 Bearer / x-api-key）和 OAuth Codex 模式（通过 oauth_refresh 获取 token）。
 /// 注入前清除请求中原有的 Authorization 和 x-api-key 头。
-
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -12,8 +11,8 @@ use rusqlite::Connection;
 
 use crate::db::dao::endpoints::EndpointRow;
 use crate::http::proxy::error::{ProxyError, ProxyErrorKind};
-use crate::services::crypto::CryptoService;
 use crate::services::codex_oauth::CodexOAuthService;
+use crate::services::crypto::CryptoService;
 
 /// 认证注入结果。
 #[derive(Debug, Clone)]
@@ -46,17 +45,7 @@ pub async fn inject_auth(
 
     match endpoint.auth_mode.as_str() {
         "apikey" => inject_apikey(endpoint, crypto, headers),
-        "oauth_codex" => {
-            inject_oauth(
-                endpoint,
-                crypto,
-                codex_oauth,
-                data_dir,
-                db,
-                headers,
-            )
-            .await
-        }
+        "oauth_codex" => inject_oauth(endpoint, crypto, codex_oauth, data_dir, db, headers).await,
         other => Err(ProxyError::new(
             ProxyErrorKind::LocalError,
             format!("不支持的认证模式: {}", other),
@@ -71,7 +60,10 @@ fn inject_apikey(
     headers: &mut HeaderMap,
 ) -> Result<AuthResult, ProxyError> {
     let crypto = crypto.ok_or_else(|| {
-        ProxyError::new(ProxyErrorKind::LocalError, "加密服务不可用，无法解密 API Key")
+        ProxyError::new(
+            ProxyErrorKind::LocalError,
+            "加密服务不可用，无法解密 API Key",
+        )
     })?;
 
     let encrypted = endpoint.api_key_encrypted.as_ref().ok_or_else(|| {
@@ -83,17 +75,28 @@ fn inject_apikey(
 
     let plaintext = crypto
         .decrypt(encrypted, endpoint.id.as_bytes())
-        .map_err(|e| ProxyError::new(ProxyErrorKind::LocalError, format!("解密 API Key 失败: {}", e)))?;
+        .map_err(|e| {
+            ProxyError::new(
+                ProxyErrorKind::LocalError,
+                format!("解密 API Key 失败: {}", e),
+            )
+        })?;
 
     let json: serde_json::Value = serde_json::from_slice(&plaintext).map_err(|e| {
-        ProxyError::new(ProxyErrorKind::LocalError, format!("解析 API Key JSON 失败: {}", e))
+        ProxyError::new(
+            ProxyErrorKind::LocalError,
+            format!("解析 API Key JSON 失败: {}", e),
+        )
     })?;
 
     let api_key = json
         .get("api_key")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
-            ProxyError::new(ProxyErrorKind::LocalError, "API Key 格式无效：缺少 api_key 字段".to_string())
+            ProxyError::new(
+                ProxyErrorKind::LocalError,
+                "API Key 格式无效：缺少 api_key 字段".to_string(),
+            )
         })?;
 
     // 根据协议类型选择 Header
@@ -101,16 +104,18 @@ fn inject_apikey(
         // Anthropic 使用 x-api-key
         headers.insert(
             "x-api-key",
-            HeaderValue::from_str(api_key)
-                .map_err(|e| ProxyError::new(ProxyErrorKind::LocalError, format!("无效 Header 值: {}", e)))?,
+            HeaderValue::from_str(api_key).map_err(|e| {
+                ProxyError::new(ProxyErrorKind::LocalError, format!("无效 Header 值: {}", e))
+            })?,
         );
     } else {
         // OpenAI 系列使用 Bearer token
         let bearer = format!("Bearer {}", api_key);
         headers.insert(
             axum::http::header::AUTHORIZATION,
-            HeaderValue::from_str(&bearer)
-                .map_err(|e| ProxyError::new(ProxyErrorKind::LocalError, format!("无效 Header 值: {}", e)))?,
+            HeaderValue::from_str(&bearer).map_err(|e| {
+                ProxyError::new(ProxyErrorKind::LocalError, format!("无效 Header 值: {}", e))
+            })?,
         );
     }
 
@@ -130,7 +135,10 @@ async fn inject_oauth(
     headers: &mut HeaderMap,
 ) -> Result<AuthResult, ProxyError> {
     let crypto = crypto.ok_or_else(|| {
-        ProxyError::new(ProxyErrorKind::LocalError, "加密服务不可用，无法处理 OAuth 凭据")
+        ProxyError::new(
+            ProxyErrorKind::LocalError,
+            "加密服务不可用，无法处理 OAuth 凭据",
+        )
     })?;
 
     let token = crate::http::proxy::oauth_refresh::ensure_valid_token(endpoint, crypto, db).await?;
@@ -138,8 +146,9 @@ async fn inject_oauth(
     let bearer = format!("Bearer {}", token);
     headers.insert(
         axum::http::header::AUTHORIZATION,
-        HeaderValue::from_str(&bearer)
-            .map_err(|e| ProxyError::new(ProxyErrorKind::LocalError, format!("无效 Header 值: {}", e)))?,
+        HeaderValue::from_str(&bearer).map_err(|e| {
+            ProxyError::new(ProxyErrorKind::LocalError, format!("无效 Header 值: {}", e))
+        })?,
     );
 
     Ok(AuthResult {

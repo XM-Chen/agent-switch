@@ -2,7 +2,6 @@
 ///
 /// 解析请求体中的 `model` 字段，通过 `model_alias::resolve` 查找别名映射。
 /// 如果别名未匹配则执行角色名映射（ccs 风格），最后改写 body["model"] 为上游模型名。
-
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
@@ -67,17 +66,16 @@ impl ModelMapper {
         };
         let resolved = model_alias::resolve(&self.db, &original_model, &ctx);
 
-        let (upstream_model, resolved_alias, resolved_scope) =
-            if !resolved.candidates.is_empty() {
-                // 取最高优先级候选
-                let first = &resolved.candidates[0];
-                let upstream = first.model_name.clone();
-                (upstream, resolved.alias_name, resolved.matched_scope)
-            } else {
-                // 2. 未匹配别名，执行角色名映射
-                let upstream = self.role_mapping(&original_model);
-                (upstream, "".to_string(), "role_mapping".to_string())
-            };
+        let (upstream_model, resolved_alias, resolved_scope) = if !resolved.candidates.is_empty() {
+            // 取最高优先级候选
+            let first = &resolved.candidates[0];
+            let upstream = first.model_name.clone();
+            (upstream, resolved.alias_name, resolved.matched_scope)
+        } else {
+            // 2. 未匹配别名，执行角色名映射
+            let upstream = self.role_mapping(&original_model);
+            (upstream, "".to_string(), "role_mapping".to_string())
+        };
 
         // 3. 改写 body["model"]
         body["model"] = serde_json::json!(upstream_model);
@@ -105,10 +103,11 @@ impl ModelMapper {
             "opus" => "claude-sonnet-4-20250514",
             "fable" => "claude-sonnet-4-20250514",
             // 其他角色名称保持原样（不作隐式映射）
-            other if other.contains("haiku")
-                || other.contains("sonnet")
-                || other.contains("opus")
-                || other.contains("fable") =>
+            other
+                if other.contains("haiku")
+                    || other.contains("sonnet")
+                    || other.contains("opus")
+                    || other.contains("fable") =>
             {
                 cleaned
             }
