@@ -2,7 +2,7 @@
 ///
 /// 从 DB 中按协议类型加载候选端点，提供 Fill-First 和 Round-Robin 两种选择策略。
 /// 自动跳过已禁用、冷却中、已失败的端点。
-/// 支持模型锁检查回调。
+/// 支持模型锁检查回调和能力过滤。
 use std::collections::HashSet;
 use std::sync::Mutex;
 
@@ -10,12 +10,13 @@ use rusqlite::Connection;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
 
+use crate::db::dao::endpoint_models;
 use crate::db::dao::endpoints::{self, EndpointRow};
 use crate::http::proxy::constants;
 
 /// 端点选择器。
 pub struct EndpointSelector {
-    /// 协议类型（olny 查询条件）。
+    /// 协议类型（查询条件）。
     protocol_type: String,
     /// 已加载的候选端点（按 priority ASC 排序）。
     candidates: Vec<EndpointRow>,
@@ -23,6 +24,8 @@ pub struct EndpointSelector {
     cursor: u64,
     /// 选择策略：fill-first 或 round-robin。
     strategy: String,
+    /// 必需的模型能力（None 表示不限制）。
+    required_capability: Option<String>,
 }
 
 impl EndpointSelector {
@@ -33,6 +36,7 @@ impl EndpointSelector {
             candidates: Vec::new(),
             cursor: 0,
             strategy: constants::FILL_FIRST.to_string(),
+            required_capability: None,
         }
     }
 
@@ -51,6 +55,38 @@ impl EndpointSelector {
             constants::ROUND_ROBIN => self.strategy = constants::ROUND_ROBIN.to_string(),
             _ => tracing::warn!("未知选择策略: {}，使用 fill-first", strategy),
         }
+    }
+
+    /// 设置必需的模型能力（无则不限制）。
+    ///
+    /// 设置后，`next()` 会在遍历候选时自动跳过没有任何模型具备该能力的端点。
+    pub fn set_required_capability(&mut self, capability: &str) {
+        self.required_capability = Some(capability.to_string());
+    }
+
+    /// 在加载候选后调用，过滤掉没有任何 capable 模型的端点。
+    ///
+    /// 复用 `has_capable_model` DAO 查询该端点是否有至少一个可用模型
+    /// 的 `capabilities` 字段包含 required_capability。
+    pub fn filter_by_capability(&mut self, db: &Mutex<Connection>) -> Result<(), String> {
+        let Some(ref cap) = self.required_capability else {
+            return Ok(());
+        };
+        let mut retained = Vec::new();
+        for ep in self.candidates.drain(..) {
+            match endpoint_models::has_capable_model(db, &ep.id, cap) {
+                Ok(true) => retained.push(ep),
+                Ok(false) => {
+                    tracing::debug!("端点 '{}' 无 {} 能力模型，已从候选排除", ep.name, cap);
+                }
+                Err(e) => {
+                    tracing::warn!("查询端点 '{}' 能力模型失败: {}，保留候选", ep.name, e);
+                    retained.push(ep);
+                }
+            }
+        }
+        self.candidates = retained;
+        Ok(())
     }
 
     /// 选择下一个可用端点。

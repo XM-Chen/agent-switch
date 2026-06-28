@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::app_state::AppState;
+use crate::db::dao::endpoint_models;
 use crate::db::dao::model_aliases::{self, ModelAliasRow, NewModelAlias};
 
 #[derive(Serialize)]
@@ -56,6 +57,9 @@ pub struct CreateAliasRequest {
     pub target_endpoint_id: Option<String>,
     pub target_model_name: String,
     pub priority: Option<i64>,
+    /// 可选：创建时校验目标模型是否具备该能力（如 "chat"、"images"）。
+    /// 仅当指定时进行校验，不指定则不做能力校验。
+    pub capability: Option<String>,
 }
 
 pub fn routes() -> Router<Arc<AppState>> {
@@ -77,6 +81,23 @@ async fn create(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateAliasRequest>,
 ) -> Result<(StatusCode, Json<AliasResponse>), (StatusCode, String)> {
+    // 能力校验：请求中指定了 capability 字段时，检查目标模型是否具备该能力
+    if let Some(ref cap) = req.capability {
+        if let Some(ref eid) = req.target_endpoint_id {
+            let capable = endpoint_models::has_capable_model(&state.db, eid, cap)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            if !capable {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!(
+                        "模型 '{}' (端点 '{}') 不具备 {} 能力，无法创建别名",
+                        req.target_model_name, eid, cap,
+                    ),
+                ));
+            }
+        }
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     let new = NewModelAlias {
         id,

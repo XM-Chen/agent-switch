@@ -34,6 +34,14 @@ pub struct RequestLogEntry {
     pub cache_creation_tokens: Option<i64>,
     pub cache_read_tokens: Option<i64>,
     pub request_body_hash: Option<String>,
+
+    // ── 媒体日志字段（images/audio 透明流转） ──
+    /// 上游响应的 Content-Type（如 image/png、audio/mpeg）。
+    pub media_type: Option<String>,
+    /// 上游响应体的字节长度。
+    pub content_length: Option<i64>,
+    /// 上游响应体的 SHA256 哈希（不含媒体内容本身）。
+    pub body_sha256_hash: Option<String>,
 }
 
 impl RequestLogEntry {
@@ -62,6 +70,9 @@ impl RequestLogEntry {
             cache_creation_tokens: None,
             cache_read_tokens: None,
             request_body_hash: None,
+            media_type: None,
+            content_length: None,
+            body_sha256_hash: None,
         }
     }
 
@@ -89,8 +100,8 @@ pub fn write_log(db: &Mutex<Connection>, entry: RequestLogEntry) -> Result<(), S
             upstream_endpoint, protocol_from, protocol_to, status, error_kind,
             fallback_chain, stream, duration_ms, first_token_ms,
             input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
-            request_body_hash, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+            request_body_hash, media_type, content_length, body_sha256_hash, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
         rusqlite::params![
             id,
             entry.request_id,
@@ -115,6 +126,9 @@ pub fn write_log(db: &Mutex<Connection>, entry: RequestLogEntry) -> Result<(), S
             entry.cache_creation_tokens,
             entry.cache_read_tokens,
             entry.request_body_hash,
+            entry.media_type,
+            entry.content_length,
+            entry.body_sha256_hash,
             now,
         ],
     )

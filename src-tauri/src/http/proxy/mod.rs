@@ -13,9 +13,11 @@ use axum::http::{HeaderMap, Method, Request, StatusCode};
 use axum::response::Response;
 use rusqlite::Connection;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::db::dao::route_settings::RouteSettingsRow;
 use crate::http::proxy::auth_injector::inject_auth;
+use crate::http::proxy::capability::{capability_to_protocol, path_to_capability};
 use crate::http::proxy::error::{ProxyError, ProxyErrorKind};
 use crate::http::proxy::failover::FailoverState;
 use crate::http::proxy::logger::{write_log, RequestLogEntry};
@@ -24,6 +26,7 @@ use crate::http::proxy::selector::EndpointSelector;
 use crate::services::translator::TranslatorRegistry;
 
 pub mod auth_injector;
+pub mod capability;
 pub mod constants;
 pub mod error;
 pub mod failover;
@@ -68,6 +71,7 @@ impl RouteProxy {
     /// 路由请求主入口。
     ///
     /// 驱动故障转移循环，依次执行：selector → model_mapper → auth → translator → forward。
+    /// 对于 v1 路由，会根据子路径解析 required_capability 并传递给各管道组件。
     pub async fn proxy_request(
         &self,
         route_id: &str,
@@ -101,15 +105,60 @@ impl RouteProxy {
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
+        // v1 路由：从子路径解析 required_capability
+        let required_capability = if route_id == "v1" {
+            path_to_capability(&path)
+        } else {
+            None
+        };
+
+        // 判断是否媒体透明流转模式（images/audio 不经过 translator）
+        let is_passthrough = matches!(required_capability, Some("images") | Some("audio"));
+
+        // v1 路由：根据 capability 解析实际协议类型
+        let actual_protocol_type =
+            if route_settings.protocol_type == constants::PROTOCOL_OPENAI_COMPATIBLE {
+                match required_capability {
+                    Some(cap) => capability_to_protocol(cap)
+                        .unwrap_or(&route_settings.protocol_type)
+                        .to_string(),
+                    None => {
+                        // /v1/models 不走代理管道（在 router 层已拦截），
+                        // 未识别子路径默认回退为 openai-chat
+                        constants::PROTOCOL_OPENAI_CHAT.to_string()
+                    }
+                }
+            } else {
+                route_settings.protocol_type.clone()
+            };
+
         // 初始化 selector
-        let mut selector = EndpointSelector::new(&route_settings.protocol_type);
+        let mut selector = EndpointSelector::new(&actual_protocol_type);
         selector.set_strategy(&route_settings.strategy);
         selector
             .load_candidates(&self.db)
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-        let model_mapper = ModelMapper::new(self.db.clone(), route_id);
+        // 能力预筛（v1 路由）
+        if let Some(cap) = required_capability {
+            selector.set_required_capability(cap);
+            selector
+                .filter_by_capability(&self.db)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+            if selector.candidates().is_empty() {
+                return Err((
+                    StatusCode::BAD_GATEWAY,
+                    format!("无可用端点具备 {} 能力", cap),
+                ));
+            }
+        }
+
+        let mut model_mapper = ModelMapper::new(self.db.clone(), route_id);
+        if let Some(cap) = required_capability {
+            model_mapper.set_required_capability(cap);
+        }
 
         // 故障转移状态机
         let mut failover = FailoverState::new(
@@ -122,11 +171,8 @@ impl RouteProxy {
         let incoming_headers = parts.headers.clone();
 
         // 故障转移主循环
-        let mut final_result: Option<(
-            Response<Body>,
-            RequestLogEntry,
-            Option<ModelMappingResult>,
-        )> = None;
+        let final_result: Option<(Response<Body>, RequestLogEntry, Option<ModelMappingResult>)> =
+            None;
 
         while failover.can_continue() {
             let endpoint = match selector.next(&failover.failed_ids, |eid| {
@@ -182,19 +228,21 @@ impl RouteProxy {
                 continue;
             }
 
-            // 协议转换
+            // 协议转换（passthrough 模式跳过 translator）
             let target_url = build_upstream_url(&endpoint, &path);
             let protocol_to = endpoint.protocol_type.clone();
             let protocol_from = route_settings.protocol_type.clone();
 
-            let translated_body = if protocol_from != protocol_to {
+            let translated_body = if is_passthrough {
+                // 媒体透明流转：使用原始二进制 body，不经过 JSON 翻译器
+                body_bytes.to_vec()
+            } else if protocol_from != protocol_to {
                 match self
                     .translator_registry
                     .resolve(&protocol_from, &protocol_to)
                 {
                     Ok(translator) => {
-                        let mut body_bytes =
-                            serde_json::to_vec(&req_body_clone).unwrap_or_default();
+                        let body_bytes = serde_json::to_vec(&req_body_clone).unwrap_or_default();
                         // single-arg translator usage
                         let _ = translator;
                         body_bytes
@@ -228,6 +276,36 @@ impl RouteProxy {
 
                     if !is_success {
                         let status_code = status.as_u16();
+
+                        // 媒体首块探测：检查是否 JSON error wrapper（可触发 failover）
+                        if is_passthrough && status_code >= 400 {
+                            let content_type = resp
+                                .headers()
+                                .get("content-type")
+                                .and_then(|v| v.to_str().ok())
+                                .unwrap_or("");
+                            if content_type.contains("application/json") {
+                                // JSON error 响应，可探测
+                                match resp.bytes().await {
+                                    Ok(err_bytes) => {
+                                        let _ = err_bytes; // 暂不解析 JSON error
+                                    }
+                                    Err(_) => {}
+                                }
+                                let err = ProxyError::new(
+                                    ProxyErrorKind::UpstreamError(status_code),
+                                    format!("上游返回 {}", status_code),
+                                );
+                                let cooldown_secs = failover.record_failure(
+                                    &endpoint,
+                                    &err,
+                                    attempt_start.elapsed().as_millis() as u64,
+                                );
+                                let _ = cooldown_secs;
+                                continue;
+                            }
+                        }
+
                         let err = ProxyError::new(
                             ProxyErrorKind::UpstreamError(status_code),
                             format!("上游返回 {}", status_code),
@@ -242,11 +320,30 @@ impl RouteProxy {
                     }
 
                     // 构建响应
+                    let upstream_content_type = resp
+                        .headers()
+                        .get("content-type")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "application/json".to_string());
+                    let content_length = resp
+                        .headers()
+                        .get("content-length")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|s| s.parse::<i64>().ok());
+
                     let resp_bytes = resp.bytes().await.unwrap_or_default();
+
+                    // 媒体响应 SHA256 哈希（仅记录哈希，不存储内容）
+                    let media_body_hash = if is_passthrough {
+                        Some(hash_bytes(&resp_bytes))
+                    } else {
+                        None
+                    };
 
                     let response = Response::builder()
                         .status(status)
-                        .header("content-type", "application/json")
+                        .header("content-type", &upstream_content_type)
                         .body(Body::from(resp_bytes))
                         .unwrap();
 
@@ -270,6 +367,13 @@ impl RouteProxy {
                         log_entry.resolved_scope = Some(m.resolved_scope.clone());
                     } else {
                         log_entry.requested_model = original_model.clone();
+                    }
+
+                    // 媒体日志字段
+                    if is_passthrough {
+                        log_entry.media_type = Some(upstream_content_type);
+                        log_entry.content_length = content_length;
+                        log_entry.body_sha256_hash = media_body_hash;
                     }
 
                     let _ = write_log(&self.db, log_entry);
@@ -345,4 +449,11 @@ fn build_upstream_url(endpoint: &crate::db::dao::endpoints::EndpointRow, path: &
 fn body_hash_sync(body: &mut Value, hash: &str) {
     // 占位：同步模型改写后的 hash
     let _ = (body, hash);
+}
+
+/// 计算字节数组的 SHA256 哈希（用于媒体响应日志）。
+fn hash_bytes(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    format!("{:x}", hasher.finalize())
 }

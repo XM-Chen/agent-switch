@@ -2,11 +2,13 @@
 ///
 /// 解析请求体中的 `model` 字段，通过 `model_alias::resolve` 查找别名映射。
 /// 如果别名未匹配则执行角色名映射（ccs 风格），最后改写 body["model"] 为上游模型名。
+/// 支持能力后校验（v1 路由需要）。
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
+use crate::db::dao::endpoint_models;
 use crate::services::model_alias::{self, ResolutionContext};
 
 /// 模型映射结果。
@@ -26,6 +28,8 @@ pub struct ModelMappingResult {
 pub struct ModelMapper {
     db: Arc<Mutex<Connection>>,
     tool: String,
+    /// 必需的模型能力（None 表示不限制）。
+    required_capability: Option<String>,
 }
 
 impl ModelMapper {
@@ -37,7 +41,16 @@ impl ModelMapper {
         Self {
             db,
             tool: tool.to_string(),
+            required_capability: None,
         }
+    }
+
+    /// 设置必需的模型能力（None 表示不限制）。
+    ///
+    /// 设置后，`resolve_and_rewrite` 会在选定上游模型后校验该模型
+    /// 是否具备指定能力。
+    pub fn set_required_capability(&mut self, capability: &str) {
+        self.required_capability = Some(capability.to_string());
     }
 
     /// 解析模型名并改写请求体。
@@ -47,7 +60,8 @@ impl ModelMapper {
     /// 2. 调用 `model_alias::resolve` 查找别名。
     /// 3. 若别名未匹配，执行角色名映射。
     /// 4. 将 body["model"] 改写为上游模型名。
-    /// 5. 返回 ModelMappingResult。
+    /// 5. 若设置了 required_capability，校验上游模型能力。
+    /// 6. 返回 ModelMappingResult。
     pub fn resolve_and_rewrite(
         &self,
         body: &mut serde_json::Value,
@@ -77,7 +91,22 @@ impl ModelMapper {
             (upstream, "".to_string(), "role_mapping".to_string())
         };
 
-        // 3. 改写 body["model"]
+        // 3. 能力后校验
+        if let Some(ref cap) = self.required_capability {
+            if !resolved.candidates.is_empty() {
+                // 通过别名匹配的，检查目标端点模型能力
+                let first = &resolved.candidates[0];
+                if let Some(ref eid) = first.endpoint_id {
+                    self.validate_capability(eid, &first.model_name, cap)?;
+                }
+            } else {
+                // 未匹配别名的，无法校验具体端点模型（因为还不知道 target_endpoint_id）
+                // 这种情况会在 selector 预筛阶段处理，此处仅记录日志
+                tracing::debug!("模型映射未匹配别名（{}），跳过能力后校验", original_model);
+            }
+        }
+
+        // 4. 改写 body["model"]
         body["model"] = serde_json::json!(upstream_model);
 
         Ok(ModelMappingResult {
@@ -86,6 +115,28 @@ impl ModelMapper {
             resolved_alias,
             resolved_scope,
         })
+    }
+
+    /// 校验指定端点的模型是否具备给定能力。
+    ///
+    /// 查询 `endpoint_models` 表，检查 `capabilities` 字段是否包含目标能力。
+    /// 若不包含则返回错误，触发故障转移到下一候选端点。
+    fn validate_capability(
+        &self,
+        endpoint_id: &str,
+        model_name: &str,
+        capability: &str,
+    ) -> Result<(), String> {
+        let rows = endpoint_models::list_capable(&self.db, endpoint_id, capability)?;
+        let found = rows.iter().any(|r| r.model_name == model_name);
+        if found {
+            Ok(())
+        } else {
+            Err(format!(
+                "模型 '{}' (端点 '{}') 不具备 {} 能力",
+                model_name, endpoint_id, capability
+            ))
+        }
     }
 
     /// 角色名映射（ccs 风格）。

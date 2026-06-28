@@ -10,6 +10,8 @@ pub const PROTOCOL_ANTHROPIC: &str = "anthropic";
 pub const PROTOCOL_OPENAI_CHAT: &str = "openai-chat";
 /// OpenAI Responses API 协议。
 pub const PROTOCOL_OPENAI_RESPONSES: &str = "openai-responses";
+/// OpenAI-compatible v1 多协议路由（仅用于 route_settings，不用于 endpoint 管理 UI 校验）。
+pub const PROTOCOL_OPENAI_COMPATIBLE: &str = "openai-compatible";
 
 // ── 选择策略 ────────────────────────────────────────────
 /// 按优先级固定顺序选择，失败后递进下一候选。

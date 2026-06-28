@@ -124,6 +124,15 @@ const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_tool_backups ON tool_takeover_backups(tool, created_at);",
     },
     Migration {
+        version: 6,
+        name: "add_v1_route_and_media_log_fields",
+        sql: "INSERT OR IGNORE INTO route_settings (id, label, strategy, protocol_type, failover_enabled, max_switches, same_account_retries, cooldown_multiplier, updated_at)
+        VALUES ('v1', 'OpenAI v1', 'fill-first', 'openai-compatible', 1, 10, 3, 1.0, datetime('now'));
+        ALTER TABLE request_logs ADD COLUMN media_type TEXT;
+        ALTER TABLE request_logs ADD COLUMN content_length INTEGER;
+        ALTER TABLE request_logs ADD COLUMN body_sha256_hash TEXT;",
+    },
+    Migration {
         version: 5,
         name: "create_route_settings_request_logs_model_locks",
         sql: "CREATE TABLE IF NOT EXISTS route_settings (

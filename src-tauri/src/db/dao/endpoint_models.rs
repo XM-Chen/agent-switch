@@ -205,3 +205,33 @@ pub fn delete(db: &Mutex<Connection>, id: &str) -> Result<(), String> {
         .map_err(|e| format!("删除模型失败: {}", e))?;
     Ok(())
 }
+
+/// 检查指定端点是否至少有一个可用模型具备给定能力。
+///
+/// SQL: SELECT COUNT(*) FROM endpoint_models
+///       WHERE endpoint_id=? AND is_available=1
+///         AND capabilities LIKE '%' || cap || '%'
+pub fn has_capable_model(
+    db: &Mutex<Connection>,
+    endpoint_id: &str,
+    capability: &str,
+) -> Result<bool, String> {
+    let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
+    let count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM endpoint_models WHERE endpoint_id = ?1 AND is_available = 1 AND capabilities LIKE '%' || ?2 || '%'",
+            params![endpoint_id, capability],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("查询端点能力模型失败: {}", e))?;
+    Ok(count > 0)
+}
+
+/// 查询某端点具备指定能力的模型列表。
+pub fn list_capable(
+    db: &Mutex<Connection>,
+    endpoint_id: &str,
+    capability: &str,
+) -> Result<Vec<EndpointModelRow>, String> {
+    list(db, Some(endpoint_id), None, Some(capability))
+}
