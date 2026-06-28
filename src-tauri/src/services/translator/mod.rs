@@ -14,6 +14,7 @@
 
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 mod native;
 mod anthropic_openai;
@@ -90,10 +91,11 @@ pub trait Translator: Send + Sync {
 
 /// 转换器注册表。
 ///
-/// 按 `(from, to)` 注册 `Box<dyn Translator>`。`resolve` 方法自动处理 from==to 返回 Passthrough。
+/// 按 `(from, to)` 注册 `Box<dyn Translator>`，内部转为 `Arc<dyn Translator>` 以便在流式任务中共享。
+/// `resolve` 返回 `Arc<dyn Translator>`，支持 Deref 自动解引用到 Translator。
 pub struct TranslatorRegistry {
-    translators: HashMap<(String, String), Box<dyn Translator>>,
-    passthrough: Box<dyn Translator>,
+    translators: HashMap<(String, String), Arc<dyn Translator>>,
+    passthrough: Arc<dyn Translator>,
 }
 
 impl TranslatorRegistry {
@@ -101,7 +103,7 @@ impl TranslatorRegistry {
     pub fn new() -> Self {
         let mut registry = Self {
             translators: HashMap::new(),
-            passthrough: Box::new(PassthroughTranslator),
+            passthrough: Arc::new(PassthroughTranslator),
         };
         // 注册内置转换器
         registry.register(Box::new(AnthropicToChatTranslator));
@@ -111,25 +113,25 @@ impl TranslatorRegistry {
         registry
     }
 
-    /// 注册一个转换器。
+    /// 注册一个转换器（Box → Arc 内部转换）。
     pub fn register(&mut self, translator: Box<dyn Translator>) {
         let (from, to) = translator.key();
         self.translators
-            .insert((from.to_string(), to.to_string()), translator);
+            .insert((from.to_string(), to.to_string()), translator.into());
     }
 
     /// 按方向精确查找转换器。
-    pub fn get(&self, from: &str, to: &str) -> Option<&Box<dyn Translator>> {
-        self.translators.get(&(from.to_string(), to.to_string()))
+    pub fn get(&self, from: &str, to: &str) -> Option<Arc<dyn Translator>> {
+        self.translators.get(&(from.to_string(), to.to_string())).cloned()
     }
 
     /// 解析转换器，自动处理 Passthrough（from == to）。
     ///
     /// - 若 `from == to`，返回 Passthrough（native passthrough）。
     /// - 否则从注册表查找；未找到返回错误。
-    pub fn resolve(&self, from: &str, to: &str) -> Result<&Box<dyn Translator>, String> {
+    pub fn resolve(&self, from: &str, to: &str) -> Result<Arc<dyn Translator>, String> {
         if from == to {
-            return Ok(&self.passthrough);
+            return Ok(self.passthrough.clone());
         }
         self.get(from, to)
             .ok_or_else(|| format!("无可用转换器: {} → {}", from, to))

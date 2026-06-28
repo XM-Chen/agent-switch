@@ -2,6 +2,7 @@ pub mod api;
 pub mod error;
 pub mod health;
 pub mod placeholders;
+pub mod proxy;
 pub mod router;
 
 use axum::Router;

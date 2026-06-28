@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 
+use crate::http::proxy::RouteProxy;
 use crate::services::codex_oauth::CodexOAuthService;
 use crate::services::crypto::CryptoService;
 use crate::services::model_sync::ModelSyncService;
@@ -23,4 +24,6 @@ pub struct AppState {
     pub codex_oauth: Arc<CodexOAuthService>,
     /// 模型刷新服务。
     pub model_sync: Arc<ModelSyncService>,
+    /// 代理转发服务（初始化后设置）。
+    pub route_proxy: tokio::sync::RwLock<Option<Arc<RouteProxy>>>,
 }

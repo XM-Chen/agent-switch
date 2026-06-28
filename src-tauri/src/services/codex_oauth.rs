@@ -13,7 +13,7 @@ use crate::db::dao::accounts;
 /// Codex OAuth 元数据，参考 9router / cpa。
 const AUTH_URL: &str = "https://auth.openai.com/oauth/authorize";
 const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
-const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+pub const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const SCOPE: &str = "openid profile email offline_access";
 const CODE_CHALLENGE_METHOD: &str = "S256";
