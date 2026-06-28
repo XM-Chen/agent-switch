@@ -4,5 +4,6 @@ pub mod auth;
 pub mod endpoints;
 pub mod models;
 pub mod settings;
+pub mod tests;
 pub mod tools;
 pub mod v1_models;

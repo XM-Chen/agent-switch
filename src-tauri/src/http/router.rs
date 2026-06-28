@@ -1,6 +1,6 @@
 use axum::extract::{Path, Request, State};
 use axum::http::StatusCode;
-use axum::routing::{any, get};
+use axum::routing::{any, get, post};
 use axum::{body::Body, response::IntoResponse, Router};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -26,6 +26,7 @@ pub fn build(state: Arc<AppState>) -> Router {
         .nest("/api/models/aliases", api::aliases::routes())
         .nest("/api/settings", api::settings::routes())
         .nest("/api/tools", api::tools::routes())
+        .route("/api/tests", post(api::tests::run_test))
         .route("/api/{*path}", any(placeholders::not_implemented))
         // Claude Code 代理路由
         .route("/claude-code/{*path}", any(claude_code_proxy))
@@ -44,7 +45,7 @@ async fn claude_code_proxy(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let route_proxy = state.route_proxy.read().await;
     match route_proxy.as_ref() {
-        Some(proxy) => proxy.proxy_request("claude-code", req).await,
+        Some(proxy) => proxy.proxy_request("claude-code", req, false).await,
         None => Err((
             StatusCode::SERVICE_UNAVAILABLE,
             "代理服务未初始化".to_string(),
@@ -59,7 +60,7 @@ async fn codex_proxy(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let route_proxy = state.route_proxy.read().await;
     match route_proxy.as_ref() {
-        Some(proxy) => proxy.proxy_request("codex", req).await,
+        Some(proxy) => proxy.proxy_request("codex", req, false).await,
         None => Err((
             StatusCode::SERVICE_UNAVAILABLE,
             "代理服务未初始化".to_string(),
@@ -108,7 +109,7 @@ async fn v1_handler(
     // 其他 /v1/* → 代理管道
     let route_proxy = state.route_proxy.read().await;
     match route_proxy.as_ref() {
-        Some(proxy) => proxy.proxy_request("v1", req).await,
+        Some(proxy) => proxy.proxy_request("v1", req, false).await,
         None => Err((
             StatusCode::SERVICE_UNAVAILABLE,
             "代理服务未初始化".to_string(),

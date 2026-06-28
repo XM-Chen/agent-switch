@@ -26,6 +26,8 @@ pub struct EndpointSelector {
     strategy: String,
     /// 必需的模型能力（None 表示不限制）。
     required_capability: Option<String>,
+    /// 是否跳过冷却检查（测试模式）。
+    skip_cooldown: bool,
 }
 
 impl EndpointSelector {
@@ -37,7 +39,13 @@ impl EndpointSelector {
             cursor: 0,
             strategy: constants::FILL_FIRST.to_string(),
             required_capability: None,
+            skip_cooldown: false,
         }
+    }
+
+    /// 设置是否跳过冷却检查（测试模式使用）。
+    pub fn set_skip_cooldown(&mut self, val: bool) {
+        self.skip_cooldown = val;
     }
 
     /// 从 DB 加载候选端点（已启用 + 匹配协议类型，按 priority ASC）。
@@ -119,8 +127,8 @@ impl EndpointSelector {
                 continue;
             }
 
-            // 跳过冷却中的
-            if Self::is_on_cooldown(candidate) {
+            // 跳过冷却中的（测试模式跳过此检查）
+            if !self.skip_cooldown && Self::is_on_cooldown(candidate) {
                 continue;
             }
 

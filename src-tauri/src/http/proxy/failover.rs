@@ -56,14 +56,26 @@ pub struct FailoverState {
     pub chain: Vec<FallbackHop>,
     /// 请求开始时间（Unix 毫秒）。
     pub start_time_ms: u64,
+    /// 是否为测试模式（不写冷却/故障转移状态）。
+    pub test_only: bool,
 }
 
 impl FailoverState {
     /// 创建故障转移状态。
-    pub fn new(failover_enabled: bool, max_switches: u32, max_retries: u32) -> Self {
+    ///
+    /// - `test_only`：为 true 时进入测试模式，`record_failure` 不产生冷却值（返回 0），
+    ///   并且允许遍历所有端点（不受 max_switches 限制）。
+    pub fn new(failover_enabled: bool, max_switches: u32, max_retries: u32, test_only: bool) -> Self {
         Self {
             switch_count: 0,
-            max_switches: if failover_enabled { max_switches } else { 1 },
+            max_switches: if test_only {
+                // 测试模式：允许遍历所有端点
+                999
+            } else if failover_enabled {
+                max_switches
+            } else {
+                1
+            },
             failed_ids: HashSet::new(),
             retry_counts: HashMap::new(),
             max_retries,
@@ -71,6 +83,7 @@ impl FailoverState {
             stream_started: false,
             chain: Vec::new(),
             start_time_ms: current_time_millis(),
+            test_only,
         }
     }
 
@@ -82,12 +95,26 @@ impl FailoverState {
     /// 记录端点失败（增 switch_count、记录 chain、标记冷却）。
     ///
     /// 返回此端点的通用冷却时长（秒），供调用方设置 `cooldown_until`。
+    /// 测试模式下始终返回 0（不产生冷却）。
     pub fn record_failure(
         &mut self,
         endpoint: &EndpointRow,
         error: &ProxyError,
         latency_ms: u64,
     ) -> i64 {
+        if self.test_only {
+            // 测试模式：不增加 switch_count、不加入 failed_ids，仅记录 chain
+            self.last_error = Some(error.clone());
+            self.chain.push(FallbackHop {
+                endpoint_id: endpoint.id.clone(),
+                model: None,
+                status: "failed".to_string(),
+                error_message: Some(error.message.clone()),
+                latency_ms: Some(latency_ms),
+            });
+            return 0;
+        }
+
         self.switch_count += 1;
         self.failed_ids.insert(endpoint.id.clone());
         self.last_error = Some(error.clone());

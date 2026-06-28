@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { routesApi, type RouteSettings } from '../lib/api';
+import { routesApi, testsApi, type RouteSettings, type TestResponse } from '../lib/api';
 import { useState } from 'react';
 
 /** 策略选项。 */
@@ -7,6 +7,13 @@ const STRATEGY_OPTIONS = [
   { value: 'fill-first', label: 'Fill-First（按优先级）' },
   { value: 'round-robin', label: 'Round-Robin（轮询）' },
 ];
+
+/** 每个路由的默认测试路径。 */
+const DEFAULT_TEST_PATHS: Record<string, string> = {
+  'claude-code': '/v1/messages',
+  'codex': '/v1/responses',
+  'v1': '/v1/chat/completions',
+};
 
 export function RoutesPage() {
   const { data: routes = [], isLoading, error } = useQuery({
@@ -44,6 +51,7 @@ export function RoutesPage() {
 /** 单条路由卡片。 */
 function RouteCard({ route }: { route: RouteSettings }) {
   const [editing, setEditing] = useState(false);
+  const [showTest, setShowTest] = useState(false);
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden">
@@ -86,15 +94,28 @@ function RouteCard({ route }: { route: RouteSettings }) {
                 <p className="font-medium">{route.cooldown_multiplier}x</p>
               </div>
             </div>
-            <button
-              onClick={() => setEditing(true)}
-              className="text-sm text-blue-600 hover:text-blue-700"
-            >
-              编辑设置
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setEditing(true)}
+                className="text-sm text-blue-600 hover:text-blue-700"
+              >
+                编辑设置
+              </button>
+              <button
+                onClick={() => setShowTest(!showTest)}
+                className="text-sm text-green-600 hover:text-green-700"
+              >
+                {showTest ? '收起测试' : '链路测试'}
+              </button>
+            </div>
           </>
         )}
       </div>
+
+      {/* 测试面板 */}
+      {showTest && (
+        <TestPanel routeId={route.id} routeLabel={route.label} />
+      )}
 
       {/* 候选端点列表 */}
       <div className="border-t border-gray-100 dark:border-gray-800">
@@ -119,6 +140,135 @@ function RouteCard({ route }: { route: RouteSettings }) {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** 链路测试面板。 */
+function TestPanel({ routeId, routeLabel }: { routeId: string; routeLabel: string }) {
+  const [path, setPath] = useState(DEFAULT_TEST_PATHS[routeId] || '/v1/messages');
+  const [model, setModel] = useState('');
+  const [prompt, setPrompt] = useState('Hello!');
+  const [stream, setStream] = useState(true);
+  const [result, setResult] = useState<TestResponse | null>(null);
+
+  const testMutation = useMutation({
+    mutationFn: () =>
+      testsApi.run({
+        route: routeId,
+        path,
+        model: model || undefined,
+        prompt,
+        stream,
+      }),
+    onSuccess: (data) => setResult(data),
+    onError: (e: Error) => {
+      setResult({ status: 0, body: {}, duration_ms: 0, endpoint_id: null, error: e.message });
+    },
+  });
+
+  return (
+    <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/20">
+      <div className="space-y-3">
+        {/* 配置区 */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">转发路径</label>
+            <input
+              type="text"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-sm bg-transparent"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">模型（可选）</label>
+            <input
+              type="text"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="留空使用默认"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-sm bg-transparent"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Prompt</label>
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            rows={2}
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-sm bg-transparent resize-vertical font-mono"
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={stream}
+              onChange={(e) => setStream(e.target.checked)}
+              className="rounded"
+            />
+            流式模式
+          </label>
+
+          <button
+            onClick={() => testMutation.mutate()}
+            disabled={testMutation.isPending || !prompt.trim()}
+            className="px-4 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 disabled:opacity-50"
+          >
+            {testMutation.isPending ? '测试中...' : '发送测试'}
+          </button>
+
+          <span className="text-xs text-orange-600 dark:text-orange-400">
+            * 测试将消耗 token
+          </span>
+        </div>
+
+        {/* 结果区 */}
+        {testMutation.isPending && (
+          <div className="text-sm text-gray-500 animate-pulse">
+            正在发送测试请求到 {routeLabel}...
+          </div>
+        )}
+
+        {result && (
+          <div className="border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden">
+            {/* 统计栏 */}
+            <div className="flex flex-wrap gap-3 px-3 py-2 bg-gray-100 dark:bg-gray-800 text-xs">
+              <span>
+                状态: <span className={result.status >= 200 && result.status < 300 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>{result.status}</span>
+              </span>
+              <span>
+                耗时: <span className="font-mono">{result.duration_ms}ms</span>
+              </span>
+              {result.endpoint_id && (
+                <span>
+                  端点: <span className="font-mono">{result.endpoint_id}</span>
+                </span>
+              )}
+            </div>
+
+            {/* 错误信息 */}
+            {result.error && (
+              <div className="px-3 py-2 bg-red-50 dark:bg-red-900/10 border-t border-gray-200 dark:border-gray-700">
+                <p className="text-sm text-red-600 dark:text-red-400 font-medium">错误</p>
+                <p className="text-xs text-red-500 mt-0.5 font-mono whitespace-pre-wrap">{result.error}</p>
+              </div>
+            )}
+
+            {/* 响应体 */}
+            <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700">
+              <p className="text-xs text-gray-500 mb-1">响应体</p>
+              <pre className="text-xs font-mono bg-gray-100 dark:bg-gray-800 p-2 rounded overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
+                {JSON.stringify(result.body, null, 2)}
+              </pre>
+            </div>
           </div>
         )}
       </div>

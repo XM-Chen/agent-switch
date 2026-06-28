@@ -355,3 +355,28 @@ export const logsApi = {
   },
   get: (id: string) => request<LogDetail>(`/logs/${id}`),
 };
+
+// ── 链路测试 ─────────────────────────────────────────────
+
+export interface TestRequest {
+  route: string;
+  path: string;
+  model?: string;
+  prompt: string;
+  stream?: boolean;
+}
+
+export interface TestResponse {
+  status: number;
+  body: Record<string, unknown>;
+  duration_ms: number;
+  endpoint_id: string | null;
+  error: string | null;
+}
+
+export const testsApi = {
+  run: (data: TestRequest) => request<TestResponse>('/tests', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+};

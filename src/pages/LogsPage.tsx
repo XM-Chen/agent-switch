@@ -4,13 +4,21 @@ import { useState, useMemo } from 'react';
 
 /** 工具选项。 */
 const TOOL_OPTIONS = [
-  { value: '', label: '全部工具' },
+  { value: '', label: '全部' },
   { value: 'claude-code', label: 'Claude Code' },
   { value: 'codex', label: 'Codex' },
 ];
 
+/** 日志类型过滤选项。 */
+const LOG_TYPE_OPTIONS = [
+  { value: '', label: '全部' },
+  { value: 'production', label: '生产' },
+  { value: 'test', label: '测试' },
+];
+
 export function LogsPage() {
   const [tool, setTool] = useState('');
+  const [logType, setLogType] = useState('');
   const [status, setStatus] = useState('');
   const [limit, setLimit] = useState(50);
   const [offset, setOffset] = useState(0);
@@ -18,13 +26,17 @@ export function LogsPage() {
 
   // 日志列表查询
   const params = useMemo(
-    () => ({
-      tool: tool || undefined,
-      status: status ? Number(status) : undefined,
-      limit,
-      offset,
-    }),
-    [tool, status, limit, offset],
+    () => {
+      // 类型过滤：测试类型对应 tool=test
+      const effectiveTool = tool || (logType === 'test' ? 'test' : undefined);
+      return {
+        tool: effectiveTool,
+        status: status ? Number(status) : undefined,
+        limit,
+        offset,
+      };
+    },
+    [tool, logType, status, limit, offset],
   );
 
   const { data, isLoading, error } = useQuery({
@@ -63,6 +75,18 @@ export function LogsPage() {
             className="px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-sm bg-transparent"
           >
             {TOOL_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">类型</label>
+          <select
+            value={logType}
+            onChange={(e) => { setLogType(e.target.value); setOffset(0); }}
+            className="px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-sm bg-transparent"
+          >
+            {LOG_TYPE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>

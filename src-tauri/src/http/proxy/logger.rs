@@ -42,6 +42,10 @@ pub struct RequestLogEntry {
     pub content_length: Option<i64>,
     /// 上游响应体的 SHA256 哈希（不含媒体内容本身）。
     pub body_sha256_hash: Option<String>,
+
+    // ── 测试模式 ──
+    /// 是否为链路测试请求。
+    pub is_test: bool,
 }
 
 impl RequestLogEntry {
@@ -73,6 +77,7 @@ impl RequestLogEntry {
             media_type: None,
             content_length: None,
             body_sha256_hash: None,
+            is_test: false,
         }
     }
 
@@ -85,7 +90,14 @@ impl RequestLogEntry {
 }
 
 /// 将日志条目写入 `request_logs` 表。
-pub fn write_log(db: &Mutex<Connection>, entry: RequestLogEntry) -> Result<(), String> {
+///
+/// 如果 `entry.is_test == true`，强制设置 `tool = "test"`。
+pub fn write_log(db: &Mutex<Connection>, mut entry: RequestLogEntry) -> Result<(), String> {
+    // 测试模式：覆写 tool 为 "test"
+    if entry.is_test {
+        entry.tool = Some("test".to_string());
+    }
+
     let now = time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Iso8601::DEFAULT)
         .map_err(|e| format!("时间格式化失败: {}", e))?;

@@ -72,10 +72,13 @@ impl RouteProxy {
     ///
     /// 驱动故障转移循环，依次执行：selector → model_mapper → auth → translator → forward。
     /// 对于 v1 路由，会根据子路径解析 required_capability 并传递给各管道组件。
+    ///
+    /// - `test_only`：测试模式，不禁用冷却中的端点，不写故障转移状态，日志标记 tool=test。
     pub async fn proxy_request(
         &self,
         route_id: &str,
         req: Request<Body>,
+        test_only: bool,
     ) -> Result<Response<Body>, (StatusCode, String)> {
         let request_id = uuid::Uuid::new_v4().to_string();
         let start = Instant::now();
@@ -135,6 +138,9 @@ impl RouteProxy {
         // 初始化 selector
         let mut selector = EndpointSelector::new(&actual_protocol_type);
         selector.set_strategy(&route_settings.strategy);
+        if test_only {
+            selector.set_skip_cooldown(true);
+        }
         selector
             .load_candidates(&self.db)
             .await
@@ -165,6 +171,7 @@ impl RouteProxy {
             route_settings.failover_enabled,
             route_settings.max_switches as u32,
             route_settings.same_account_retries as u32,
+            test_only,
         );
 
         // 暂存 headers 用于复用
@@ -360,6 +367,9 @@ impl RouteProxy {
                     log_entry.duration_ms = Some(start.elapsed().as_millis() as i64);
                     log_entry.request_body_hash = Some(body_hash);
                     log_entry.fallback_chain = Some(failover.chain_to_json());
+                    if test_only {
+                        log_entry.is_test = true;
+                    }
                     if let Some(ref m) = mapping_result {
                         log_entry.requested_model = Some(m.original_model.clone());
                         log_entry.upstream_model = Some(m.upstream_model.clone());
@@ -422,6 +432,9 @@ impl RouteProxy {
         log_entry.fallback_chain = Some(failover.chain_to_json());
         log_entry.request_body_hash = Some(body_hash);
         log_entry.duration_ms = Some(start.elapsed().as_millis() as i64);
+        if test_only {
+            log_entry.is_test = true;
+        }
         if let Some(ref m) = final_result.as_ref().and_then(|(_, _, m)| m.as_ref()) {
             log_entry.requested_model = Some(m.original_model.clone());
         } else {
