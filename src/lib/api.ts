@@ -251,3 +251,107 @@ export const toolsApi = {
     request<void>(`/tools/${tool}/reapply`, { method: 'POST' }),
   backups: (tool: string) => request<ToolBackup[]>(`/tools/${tool}/backups`),
 };
+
+// ── 路由设置 ──────────────────────────────────────────────
+
+export interface RouteCandidate {
+  id: string;
+  name: string;
+  base_url: string;
+  protocol_type: string;
+  priority: number;
+  enabled: boolean;
+  cooldown_until: string | null;
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  last_error_kind: string | null;
+}
+
+export interface RouteSettings {
+  id: string;
+  label: string;
+  strategy: string;
+  protocol_type: string;
+  failover_enabled: boolean;
+  max_switches: number;
+  same_account_retries: number;
+  cooldown_multiplier: number;
+  updated_at: string;
+  candidates: RouteCandidate[];
+}
+
+export interface UpdateRouteRequest {
+  strategy?: string;
+  failover_enabled?: boolean;
+  max_switches?: number;
+  same_account_retries?: number;
+  cooldown_multiplier?: number;
+}
+
+export const routesApi = {
+  list: () => request<RouteSettings[]>('/routes'),
+  get: (id: string) => request<RouteSettings>(`/routes/${id}`),
+  update: (id: string, data: UpdateRouteRequest) =>
+    request<void>(`/routes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+};
+
+// ── 请求日志 ──────────────────────────────────────────────
+
+export interface LogEntry {
+  id: string;
+  request_id: string;
+  tool: string | null;
+  inbound_endpoint: string;
+  requested_model: string | null;
+  resolved_alias: string | null;
+  resolved_scope: string | null;
+  target_endpoint_id: string | null;
+  upstream_model: string | null;
+  status: number | null;
+  error_kind: string | null;
+  fallback_chain: string | null;
+  stream: boolean;
+  duration_ms: number | null;
+  first_token_ms: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  created_at: string;
+}
+
+export interface LogDetail extends LogEntry {
+  upstream_endpoint: string | null;
+  protocol_from: string | null;
+  protocol_to: string | null;
+  cache_creation_tokens: number | null;
+  cache_read_tokens: number | null;
+  request_body_hash: string | null;
+}
+
+export interface LogListResponse {
+  items: LogEntry[];
+  total: number;
+}
+
+export interface LogListParams {
+  tool?: string;
+  status?: number;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export const logsApi = {
+  list: (params?: LogListParams) => {
+    const qs = new URLSearchParams();
+    if (params?.tool) qs.set('tool', params.tool);
+    if (params?.status !== undefined) qs.set('status', String(params.status));
+    if (params?.from) qs.set('from', params.from);
+    if (params?.to) qs.set('to', params.to);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.offset) qs.set('offset', String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<LogListResponse>(`/logs${suffix}`);
+  },
+  get: (id: string) => request<LogDetail>(`/logs/${id}`),
+};
