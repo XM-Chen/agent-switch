@@ -1,3 +1,6 @@
 pub mod accounts;
+pub mod aliases;
 pub mod auth;
 pub mod endpoints;
+pub mod models;
+pub mod settings;

@@ -5,6 +5,7 @@ use tokio::sync::oneshot;
 
 use crate::services::codex_oauth::CodexOAuthService;
 use crate::services::crypto::CryptoService;
+use crate::services::model_sync::ModelSyncService;
 
 /// Shared application state accessible across Tauri commands, HTTP handlers, and services.
 pub struct AppState {
@@ -20,4 +21,6 @@ pub struct AppState {
     pub crypto: Option<Arc<CryptoService>>,
     /// Codex OAuth 登录管理器。
     pub codex_oauth: Arc<CodexOAuthService>,
+    /// 模型刷新服务。
+    pub model_sync: Arc<ModelSyncService>,
 }

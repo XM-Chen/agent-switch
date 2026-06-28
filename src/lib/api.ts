@@ -110,3 +110,112 @@ export const authApi = {
     request<CodexLoginResponse>('/auth/codex/login', { method: 'POST' }),
   codexStatus: () => request<CodexStatus>('/auth/codex/status'),
 };
+
+export interface ModelItem {
+  id: string;
+  endpoint_id: string;
+  model_name: string;
+  display_name: string;
+  source: string;
+  capabilities: string[];
+  context_window: number | null;
+  is_available: boolean;
+  last_seen_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SyncReport {
+  synced_at: string;
+  succeeded: { endpoint_id: string; endpoint_name: string; model_count: number }[];
+  failed: { endpoint_id: string; endpoint_name: string; model_count: number }[];
+  errors: string[];
+}
+
+export interface AliasItem {
+  id: string;
+  scope_type: string;
+  scope_id: string | null;
+  alias_name: string;
+  target_endpoint_id: string | null;
+  target_model_name: string;
+  priority: number;
+  enabled: boolean;
+  invalid_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResolvedAlias {
+  alias_name: string;
+  matched_scope: string;
+  candidates: {
+    endpoint_id: string | null;
+    model_name: string;
+    priority: number;
+    is_valid: boolean;
+    invalid_reason: string | null;
+  }[];
+}
+
+export interface AutoRefreshState {
+  enabled: boolean;
+  last_sync_at: string | null;
+  last_sync_error: string | null;
+}
+
+export const modelsApi = {
+  list: (params?: { endpoint_id?: string; source?: string; capability?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.endpoint_id) qs.set('endpoint_id', params.endpoint_id);
+    if (params?.source) qs.set('source', params.source);
+    if (params?.capability) qs.set('capability', params.capability);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<ModelItem[]>(`/models${suffix}`);
+  },
+  sync: () => request<SyncReport>('/models/sync', { method: 'POST' }),
+  createCustom: (data: {
+    endpoint_id: string;
+    model_name: string;
+    display_name?: string;
+    capabilities?: string[];
+    context_window?: number;
+  }) => request<ModelItem>('/models/custom', { method: 'POST', body: JSON.stringify(data) }),
+  delete: (id: string) => request<void>(`/models/${id}`, { method: 'DELETE' }),
+};
+
+export const aliasesApi = {
+  list: (params?: { scope_type?: string; scope_id?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.scope_type) qs.set('scope_type', params.scope_type);
+    if (params?.scope_id) qs.set('scope_id', params.scope_id);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<AliasItem[]>(`/models/aliases${suffix}`);
+  },
+  create: (data: {
+    scope_type: string;
+    scope_id?: string | null;
+    alias_name: string;
+    target_endpoint_id?: string | null;
+    target_model_name: string;
+    priority?: number;
+  }) => request<AliasItem>('/models/aliases', { method: 'POST', body: JSON.stringify(data) }),
+  delete: (id: string) => request<void>(`/models/aliases/${id}`, { method: 'DELETE' }),
+  resolve: (alias: string, params?: { tool?: string; route_id?: string; endpoint_id?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.tool) qs.set('tool', params.tool);
+    if (params?.route_id) qs.set('route_id', params.route_id);
+    if (params?.endpoint_id) qs.set('endpoint_id', params.endpoint_id);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<ResolvedAlias>(`/models/resolve/${encodeURIComponent(alias)}${suffix}`);
+  },
+};
+
+export const settingsApi = {
+  getAutoRefresh: () => request<AutoRefreshState>('/settings/auto-model-refresh'),
+  setAutoRefresh: (enabled: boolean) =>
+    request<void>('/settings/auto-model-refresh', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
+};

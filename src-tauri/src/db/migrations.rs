@@ -61,6 +61,46 @@ const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_endpoints_account_id ON endpoints(account_id);
         CREATE INDEX IF NOT EXISTS idx_endpoints_enabled_priority ON endpoints(enabled, priority);",
     },
+    Migration {
+        version: 3,
+        name: "create_models_and_aliases",
+        sql: "CREATE TABLE IF NOT EXISTS app_metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS endpoint_models (
+            id TEXT PRIMARY KEY,
+            endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
+            model_name TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'synced',
+            capabilities TEXT,
+            context_window INTEGER,
+            is_available INTEGER NOT NULL DEFAULT 1,
+            last_seen_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(endpoint_id, model_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_models_endpoint ON endpoint_models(endpoint_id);
+        CREATE INDEX IF NOT EXISTS idx_models_source ON endpoint_models(source);
+        CREATE TABLE IF NOT EXISTS model_aliases (
+            id TEXT PRIMARY KEY,
+            scope_type TEXT NOT NULL,
+            scope_id TEXT,
+            alias_name TEXT NOT NULL,
+            target_endpoint_id TEXT REFERENCES endpoints(id) ON DELETE SET NULL,
+            target_model_name TEXT NOT NULL,
+            priority INTEGER NOT NULL DEFAULT 0,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            invalid_reason TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_aliases_scope ON model_aliases(scope_type, scope_id);
+        CREATE INDEX IF NOT EXISTS idx_aliases_name ON model_aliases(alias_name);",
+    },
 ];
 
 /// Ensure the migration tracking table exists, then run pending migrations.

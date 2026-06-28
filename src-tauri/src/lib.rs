@@ -64,6 +64,7 @@ pub fn run() {
             };
 
             let codex_oauth = Arc::new(services::codex_oauth::CodexOAuthService::new());
+            let model_sync = Arc::new(services::model_sync::ModelSyncService::new());
 
             // Create the shared shutdown channel
             let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -77,10 +78,22 @@ pub fn run() {
                 web_dist_dir,
                 crypto,
                 codex_oauth,
+                model_sync,
             });
 
             // Register as managed state
             handle.manage(app_state.clone());
+
+            // 如果启用自动刷新，启动后异步执行一次模型刷新。
+            let sync_state = app_state.clone();
+            tauri::async_runtime::spawn(async move {
+                if services::model_sync::ModelSyncService::is_auto_refresh_enabled(&sync_state.db) {
+                    tracing::info!("自动刷新已启用，启动时刷新上游模型");
+                    if let Err(e) = sync_state.model_sync.sync_all(sync_state.clone()).await {
+                        tracing::warn!("启动模型刷新失败: {}", e);
+                    }
+                }
+            });
 
             // Start HTTP server with the shutdown receiver
             let http_state = app_state.clone();

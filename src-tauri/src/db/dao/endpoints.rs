@@ -98,6 +98,21 @@ pub fn list(db: &Mutex<Connection>) -> Result<Vec<EndpointRow>, String> {
     Ok(out)
 }
 
+pub fn list_enabled(db: &Mutex<Connection>) -> Result<Vec<EndpointRow>, String> {
+    let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
+    let mut stmt = db
+        .prepare("SELECT * FROM endpoints WHERE enabled = 1 ORDER BY priority ASC, created_at ASC")
+        .map_err(|e| format!("查询启用端点失败: {}", e))?;
+    let rows = stmt
+        .query_map([], row_to_endpoint)
+        .map_err(|e| format!("读取端点失败: {}", e))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| format!("端点行解析失败: {}", e))?);
+    }
+    Ok(out)
+}
+
 pub fn get(db: &Mutex<Connection>, id: &str) -> Result<Option<EndpointRow>, String> {
     let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
     let mut stmt = db
