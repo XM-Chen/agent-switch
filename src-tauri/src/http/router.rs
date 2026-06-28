@@ -1,7 +1,7 @@
 use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::routing::{any, get};
-use axum::{Router, body::Body, response::IntoResponse};
+use axum::{body::Body, response::IntoResponse, Router};
 use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -44,7 +44,10 @@ async fn claude_code_proxy(
     let route_proxy = state.route_proxy.read().await;
     match route_proxy.as_ref() {
         Some(proxy) => proxy.proxy_request("claude-code", req).await,
-        None => Err((StatusCode::SERVICE_UNAVAILABLE, "代理服务未初始化".to_string())),
+        None => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "代理服务未初始化".to_string(),
+        )),
     }
 }
 
@@ -56,6 +59,9 @@ async fn codex_proxy(
     let route_proxy = state.route_proxy.read().await;
     match route_proxy.as_ref() {
         Some(proxy) => proxy.proxy_request("codex", req).await,
-        None => Err((StatusCode::SERVICE_UNAVAILABLE, "代理服务未初始化".to_string())),
+        None => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "代理服务未初始化".to_string(),
+        )),
     }
 }

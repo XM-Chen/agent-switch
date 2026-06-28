@@ -4,7 +4,6 @@
 /// 对应 design.md §3 中的 Passthrough 模式 - 零损失高保真直转，效仿 9router 的 Native Passthrough。
 ///
 /// 模型字段由外部 `model_mapper` 改写，本转换器不再重复处理。
-
 use crate::services::translator::{StreamContext, Translator};
 use serde_json::Value;
 
@@ -33,7 +32,11 @@ impl Translator for PassthroughTranslator {
     }
 
     /// 流式行原样返回，追加 `\n`。
-    fn translate_stream_line(&self, line: &str, _context: &mut StreamContext) -> Result<String, String> {
+    fn translate_stream_line(
+        &self,
+        line: &str,
+        _context: &mut StreamContext,
+    ) -> Result<String, String> {
         Ok(format!("{}\n", line))
     }
 }
@@ -42,13 +45,14 @@ impl Translator for PassthroughTranslator {
 mod tests {
     use super::*;
     use crate::services::translator::StreamContext;
-    use std::collections::HashMap;
     use serde_json::json;
+    use std::collections::HashMap;
 
     #[test]
     fn test_passthrough_request() {
         let t = PassthroughTranslator;
-        let mut body = json!({"model": "test-model", "messages": [{"role": "user", "content": "hi"}]});
+        let mut body =
+            json!({"model": "test-model", "messages": [{"role": "user", "content": "hi"}]});
         t.translate_request(&mut body, "test-model").unwrap();
         assert_eq!(body["model"], "test-model");
         assert_eq!(body["messages"][0]["content"], "hi");
@@ -74,7 +78,9 @@ mod tests {
             has_content: false,
             content_block_index: 0,
         };
-        let result = t.translate_stream_line("data: {\"key\":\"val\"}", &mut ctx).unwrap();
+        let result = t
+            .translate_stream_line("data: {\"key\":\"val\"}", &mut ctx)
+            .unwrap();
         assert_eq!(result, "data: {\"key\":\"val\"}\n");
     }
 

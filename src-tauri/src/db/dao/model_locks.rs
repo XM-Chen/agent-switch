@@ -85,7 +85,10 @@ pub fn clear_expired(db: &Mutex<Connection>) -> Result<u64, String> {
     let now = now_iso()?;
     let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
     let count = db
-        .execute("DELETE FROM model_locks WHERE locked_until <= ?1", params![now])
+        .execute(
+            "DELETE FROM model_locks WHERE locked_until <= ?1",
+            params![now],
+        )
         .map_err(|e| format!("清除过期模型锁失败: {}", e))?;
     Ok(count as u64)
 }

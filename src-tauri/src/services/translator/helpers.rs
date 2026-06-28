@@ -2,7 +2,6 @@
 ///
 /// 提供角色映射、内容提取、SSE 行解析、错误事件合成等跨转换器通用能力。
 /// 参考 design.md §3 协议转换器契约。
-
 use serde_json::Value;
 
 /// 映射角色名（Anthropic ↔ OpenAI Chat / Responses）。
@@ -157,7 +156,9 @@ pub fn anthropic_stop_reason_to_chat(reason: &str) -> &'static str {
 
 /// 判断 body 是否为流式请求（`stream` 字段为 true）。
 pub fn is_streaming(body: &Value) -> bool {
-    body.get("stream").and_then(|v| v.as_bool()).unwrap_or(false)
+    body.get("stream")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 /// 从 Anthropic 内容块提取文本，支持 text_delta / input_json_delta。
@@ -212,7 +213,8 @@ pub fn reasoning_effort_to_anthropic_thinking(body: &mut Value) {
             }
             _ => {
                 // low, medium, high → adaptive with effort
-                body["thinking"] = serde_json::json!({"type": "adaptive", "output_config": {"effort": effort}});
+                body["thinking"] =
+                    serde_json::json!({"type": "adaptive", "output_config": {"effort": effort}});
             }
         }
         body.as_object_mut().map(|m| m.remove("reasoning_effort"));
@@ -275,7 +277,10 @@ mod tests {
 
     #[test]
     fn test_extract_sse_data() {
-        assert_eq!(extract_sse_data("data: {\"key\":\"val\"}"), Some("{\"key\":\"val\"}"));
+        assert_eq!(
+            extract_sse_data("data: {\"key\":\"val\"}"),
+            Some("{\"key\":\"val\"}")
+        );
         assert_eq!(extract_sse_data(" event: x"), None);
     }
 

@@ -167,10 +167,7 @@ pub fn upsert_partial(
     param_values.push(Box::new(now));
     param_values.push(Box::new(id.to_string()));
 
-    let sql = format!(
-        "UPDATE route_settings SET {} WHERE id = ?",
-        sets.join(", ")
-    );
+    let sql = format!("UPDATE route_settings SET {} WHERE id = ?", sets.join(", "));
     let param_refs: Vec<&dyn rusqlite::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
     db.execute(&sql, param_refs.as_slice())
         .map_err(|e| format!("更新路由设置失败: {}", e))?;
