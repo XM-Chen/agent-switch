@@ -123,6 +123,63 @@ const MIGRATIONS: &[Migration] = &[
         );
         CREATE INDEX IF NOT EXISTS idx_tool_backups ON tool_takeover_backups(tool, created_at);",
     },
+    Migration {
+        version: 5,
+        name: "create_route_settings_request_logs_model_locks",
+        sql: "CREATE TABLE IF NOT EXISTS route_settings (
+            id          TEXT PRIMARY KEY,
+            label       TEXT NOT NULL,
+            strategy    TEXT NOT NULL DEFAULT 'fill-first',
+            protocol_type TEXT NOT NULL,
+            failover_enabled INTEGER NOT NULL DEFAULT 1,
+            max_switches INTEGER NOT NULL DEFAULT 10,
+            same_account_retries INTEGER NOT NULL DEFAULT 3,
+            cooldown_multiplier REAL NOT NULL DEFAULT 1.0,
+            updated_at  TEXT NOT NULL
+        );
+        INSERT OR IGNORE INTO route_settings (id, label, strategy, protocol_type, updated_at)
+        VALUES ('claude-code', 'Claude Code', 'fill-first', 'anthropic', datetime('now'));
+        INSERT OR IGNORE INTO route_settings (id, label, strategy, protocol_type, updated_at)
+        VALUES ('codex', 'Codex', 'fill-first', 'openai-responses', datetime('now'));
+        CREATE TABLE IF NOT EXISTS request_logs (
+            id                TEXT PRIMARY KEY,
+            request_id        TEXT NOT NULL,
+            tool              TEXT,
+            inbound_endpoint  TEXT NOT NULL,
+            requested_model   TEXT,
+            resolved_alias    TEXT,
+            resolved_scope    TEXT,
+            target_endpoint_id TEXT,
+            upstream_model    TEXT,
+            upstream_endpoint TEXT,
+            protocol_from     TEXT,
+            protocol_to       TEXT,
+            status            INTEGER,
+            error_kind        TEXT,
+            fallback_chain    TEXT,
+            stream            INTEGER NOT NULL DEFAULT 0,
+            duration_ms       INTEGER,
+            first_token_ms    INTEGER,
+            input_tokens      INTEGER,
+            output_tokens     INTEGER,
+            cache_creation_tokens INTEGER,
+            cache_read_tokens     INTEGER,
+            request_body_hash TEXT,
+            created_at        TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_request_logs_tool ON request_logs(tool);
+        CREATE INDEX IF NOT EXISTS idx_request_logs_status ON request_logs(status);
+        CREATE INDEX IF NOT EXISTS idx_request_logs_created ON request_logs(created_at DESC);
+        CREATE TABLE IF NOT EXISTS model_locks (
+            id          TEXT PRIMARY KEY,
+            endpoint_id TEXT NOT NULL,
+            model_name  TEXT NOT NULL,
+            locked_until TEXT NOT NULL,
+            lock_reason TEXT,
+            created_at  TEXT NOT NULL,
+            UNIQUE(endpoint_id, model_name)
+        );",
+    },
 ];
 
 /// Ensure the migration tracking table exists, then run pending migrations.

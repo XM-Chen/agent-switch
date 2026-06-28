@@ -229,6 +229,27 @@ pub fn update(db: &Mutex<Connection>, id: &str, update: EndpointUpdate) -> Resul
     Ok(())
 }
 
+/// 按协议类型列出启用的端点。
+pub fn list_by_protocol(
+    db: &Mutex<Connection>,
+    protocol_type: &str,
+) -> Result<Vec<EndpointRow>, String> {
+    let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
+    let mut stmt = db
+        .prepare(
+            "SELECT * FROM endpoints WHERE enabled = 1 AND protocol_type = ?1 ORDER BY priority ASC, created_at ASC",
+        )
+        .map_err(|e| format!("查询协议端点失败: {}", e))?;
+    let rows = stmt
+        .query_map(params![protocol_type], row_to_endpoint)
+        .map_err(|e| format!("读取端点失败: {}", e))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| format!("端点行解析失败: {}", e))?);
+    }
+    Ok(out)
+}
+
 pub fn delete(db: &Mutex<Connection>, id: &str) -> Result<(), String> {
     let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
     db.execute("DELETE FROM endpoints WHERE id = ?1", params![id])
