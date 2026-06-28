@@ -22,6 +22,7 @@ pub fn build(state: Arc<AppState>) -> Router {
         .nest("/api/models", api::models::routes())
         .nest("/api/models/aliases", api::aliases::routes())
         .nest("/api/settings", api::settings::routes())
+        .nest("/api/tools", api::tools::routes())
         .route("/api/{*path}", any(placeholders::not_implemented))
         .route("/claude-code/{*path}", any(placeholders::not_implemented))
         .route("/codex/{*path}", any(placeholders::not_implemented))

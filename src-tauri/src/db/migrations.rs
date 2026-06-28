@@ -101,6 +101,28 @@ const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_aliases_scope ON model_aliases(scope_type, scope_id);
         CREATE INDEX IF NOT EXISTS idx_aliases_name ON model_aliases(alias_name);",
     },
+    Migration {
+        version: 4,
+        name: "create_tool_takeover",
+        sql: "CREATE TABLE IF NOT EXISTS tool_takeover (
+            tool TEXT PRIMARY KEY,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            last_applied_at TEXT,
+            last_target TEXT,
+            last_error TEXT,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS tool_takeover_backups (
+            id TEXT PRIMARY KEY,
+            tool TEXT NOT NULL,
+            original_path TEXT NOT NULL,
+            backup_path TEXT NOT NULL,
+            original_existed INTEGER NOT NULL DEFAULT 1,
+            takeover_target TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_tool_backups ON tool_takeover_backups(tool, created_at);",
+    },
 ];
 
 /// Ensure the migration tracking table exists, then run pending migrations.

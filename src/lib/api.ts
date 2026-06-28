@@ -219,3 +219,35 @@ export const settingsApi = {
       body: JSON.stringify({ enabled }),
     }),
 };
+
+export interface ToolStatus {
+  tool: string;
+  supports_takeover: boolean;
+  enabled: boolean;
+  live_category: string;
+  last_applied_at: string | null;
+  last_target: string | null;
+  last_error: string | null;
+}
+
+export interface ToolBackup {
+  id: string;
+  original_path: string;
+  backup_path: string;
+  original_existed: boolean;
+  takeover_target: string | null;
+  created_at: string;
+}
+
+export const toolsApi = {
+  list: () => request<ToolStatus[]>('/tools'),
+  get: (tool: string) => request<ToolStatus>(`/tools/${tool}`),
+  setTakeover: (tool: string, enabled: boolean) =>
+    request<void>(`/tools/${tool}/takeover`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }),
+  reapply: (tool: string) =>
+    request<void>(`/tools/${tool}/reapply`, { method: 'POST' }),
+  backups: (tool: string) => request<ToolBackup[]>(`/tools/${tool}/backups`),
+};

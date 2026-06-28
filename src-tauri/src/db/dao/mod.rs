@@ -7,3 +7,4 @@ pub mod app_metadata;
 pub mod endpoint_models;
 pub mod endpoints;
 pub mod model_aliases;
+pub mod tool_takeover;
