@@ -283,40 +283,60 @@ impl RouteProxy {
 
                     if !is_success {
                         let status_code = status.as_u16();
+                        let err_content_type = resp
+                            .headers()
+                            .get("content-type")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| "application/json".to_string());
 
-                        // 媒体首块探测：检查是否 JSON error wrapper（可触发 failover）
-                        if is_passthrough && status_code >= 400 {
-                            let content_type = resp
-                                .headers()
-                                .get("content-type")
-                                .and_then(|v| v.to_str().ok())
-                                .unwrap_or("");
-                            if content_type.contains("application/json") {
-                                // JSON error 响应，可探测
-                                match resp.bytes().await {
-                                    Ok(err_bytes) => {
-                                        let _ = err_bytes; // 暂不解析 JSON error
-                                    }
-                                    Err(_) => {}
-                                }
-                                let err = ProxyError::new(
-                                    ProxyErrorKind::UpstreamError(status_code),
-                                    format!("上游返回 {}", status_code),
-                                );
-                                let cooldown_secs = failover.record_failure(
-                                    &endpoint,
-                                    &err,
-                                    attempt_start.elapsed().as_millis() as u64,
-                                );
-                                let _ = cooldown_secs;
-                                continue;
-                            }
-                        }
+                        // 缓冲错误响应体一次，供探测 / 回传客户端复用
+                        let err_bytes = resp.bytes().await.unwrap_or_default();
 
                         let err = ProxyError::new(
                             ProxyErrorKind::UpstreamError(status_code),
                             format!("上游返回 {}", status_code),
                         );
+
+                        // 错误分类：非可退避错误（400/405/406/413/414/415/422/501、
+                        // 协议错误、本地错误等）不切换，直接把上游响应回传客户端。
+                        // 参考 prd.md 故障转移策略与 design.md 状态机。
+                        if !err.should_failover() || failover.stream_started {
+                            // 写一条日志后直接返回上游错误响应
+                            let mut log_entry =
+                                RequestLogEntry::new(&request_id, Some(route_id), &path);
+                            log_entry.status = Some(status_code as i64);
+                            log_entry.target_endpoint_id = Some(endpoint.id.clone());
+                            log_entry.upstream_endpoint = Some(target_url.clone());
+                            log_entry.protocol_from = Some(protocol_from.clone());
+                            log_entry.protocol_to = Some(protocol_to.clone());
+                            log_entry.stream = is_stream;
+                            log_entry.duration_ms = Some(start.elapsed().as_millis() as i64);
+                            log_entry.request_body_hash = Some(body_hash);
+                            log_entry.error_kind = Some(format!("{}", err));
+                            log_entry.fallback_chain = Some(failover.chain_to_json());
+                            if test_only {
+                                log_entry.is_test = true;
+                            }
+                            if let Some(ref m) = mapping_result {
+                                log_entry.requested_model = Some(m.original_model.clone());
+                                log_entry.upstream_model = Some(m.upstream_model.clone());
+                                log_entry.resolved_alias = Some(m.resolved_alias.clone());
+                                log_entry.resolved_scope = Some(m.resolved_scope.clone());
+                            } else {
+                                log_entry.requested_model = original_model.clone();
+                            }
+                            let _ = write_log(&self.db, log_entry);
+
+                            let response = Response::builder()
+                                .status(status)
+                                .header("content-type", &err_content_type)
+                                .body(Body::from(err_bytes))
+                                .unwrap();
+                            return Ok(response);
+                        }
+
+                        // 可退避错误：记录失败 + 冷却，继续下一个候选
                         let cooldown_secs = failover.record_failure(
                             &endpoint,
                             &err,

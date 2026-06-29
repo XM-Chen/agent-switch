@@ -81,8 +81,8 @@ pub fn routes() -> Router<Arc<AppState>> {
 async fn list(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<RouteDetailResponse>>, (StatusCode, String)> {
-    let settings_list = route_settings::list_all(&state.db)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let settings_list =
+        route_settings::list_all(&state.db).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     let mut out = Vec::new();
     for s in settings_list {
@@ -143,7 +143,10 @@ async fn update(
         if strategy != "fill-first" && strategy != "round-robin" {
             return Err((
                 StatusCode::BAD_REQUEST,
-                format!("无效的策略类型: {}，允许的值: fill-first, round-robin", strategy),
+                format!(
+                    "无效的策略类型: {}，允许的值: fill-first, round-robin",
+                    strategy
+                ),
             ));
         }
     }
@@ -151,17 +154,26 @@ async fn update(
     // 验证 max_switches / retries 不为负数
     if let Some(v) = req.max_switches {
         if v < 1 {
-            return Err((StatusCode::BAD_REQUEST, "max_switches 必须 >= 1".to_string()));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "max_switches 必须 >= 1".to_string(),
+            ));
         }
     }
     if let Some(v) = req.same_account_retries {
         if v < 0 {
-            return Err((StatusCode::BAD_REQUEST, "same_account_retries 必须 >= 0".to_string()));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "same_account_retries 必须 >= 0".to_string(),
+            ));
         }
     }
     if let Some(v) = req.cooldown_multiplier {
         if v <= 0.0 {
-            return Err((StatusCode::BAD_REQUEST, "cooldown_multiplier 必须 > 0".to_string()));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "cooldown_multiplier 必须 > 0".to_string(),
+            ));
         }
     }
 
@@ -169,9 +181,9 @@ async fn update(
     route_settings::upsert_partial(
         &state.db,
         &id,
-        None,          // label — 不更新
+        None, // label — 不更新
         req.strategy.as_deref(),
-        None,          // protocol_type — 不更新
+        None, // protocol_type — 不更新
         req.failover_enabled,
         req.max_switches,
         req.same_account_retries,

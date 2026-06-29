@@ -26,6 +26,8 @@ pub fn build(state: Arc<AppState>) -> Router {
         .nest("/api/models/aliases", api::aliases::routes())
         .nest("/api/settings", api::settings::routes())
         .nest("/api/tools", api::tools::routes())
+        .nest("/api/routes", api::routes::routes())
+        .nest("/api/logs", api::logs::routes())
         .route("/api/tests", post(api::tests::run_test))
         .route("/api/{*path}", any(placeholders::not_implemented))
         // Claude Code 代理路由
