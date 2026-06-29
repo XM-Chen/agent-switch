@@ -1,5 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { settingsApi } from '../lib/api';
+import { useRef, useState } from 'react';
+import { settingsApi, portabilityApi } from '../lib/api';
+import type { ImportResult } from '../lib/api';
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -71,6 +73,261 @@ export function SettingsPage() {
               </span>
             </div>
           </div>
+        </div>
+      )}
+
+      <PortabilityCard />
+    </div>
+  );
+}
+
+// ── 配置导入导出卡片 ─────────────────────────────────────
+
+/// 生成导出包下载文件名：含 mode + 时间戳，完整备份 .asbak，脱敏 .ascfg。
+function buildDownloadName(mode: 'full_backup' | 'portable'): string {
+  const ts = new Date()
+    .toISOString()
+    .replace(/[:T]/g, '-')
+    .replace(/\..+/, '');
+  const ext = mode === 'full_backup' ? 'asbak' : 'ascfg';
+  return `agent-switch-${mode}-${ts}.${ext}`;
+}
+
+/// 触发浏览器下载导出包文本。
+function downloadPackage(packageText: string, mode: 'full_backup' | 'portable') {
+  const blob = new Blob([packageText], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = buildDownloadName(mode);
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function PortabilityCard() {
+  const queryClient = useQueryClient();
+
+  // 脱敏导出密码
+  const [portablePassword, setPortablePassword] = useState('');
+  // 导入：文件名 + 包文本 + 密码
+  const [importFileName, setImportFileName] = useState('');
+  const [importPackage, setImportPackage] = useState('');
+  const [importPassword, setImportPassword] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 导出/导入反馈
+  const [exportWarnings, setExportWarnings] = useState<string[] | null>(null);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  const exportFull = useMutation({
+    mutationFn: () => portabilityApi.exportConfig('full_backup'),
+    onSuccess: (result) => {
+      downloadPackage(result.package, 'full_backup');
+      setExportWarnings(result.warnings.length ? result.warnings : null);
+      setExportMsg('完整备份导出成功，已触发下载。');
+      setImportResult(null);
+      setImportError(null);
+    },
+    onError: (e: Error) => {
+      setExportMsg(`完整备份导出失败：${e.message}`);
+      setExportWarnings(null);
+    },
+  });
+
+  const exportPortable = useMutation({
+    mutationFn: () => portabilityApi.exportConfig('portable', portablePassword),
+    onSuccess: (result) => {
+      downloadPackage(result.package, 'portable');
+      setExportWarnings(result.warnings.length ? result.warnings : null);
+      setExportMsg('脱敏配置导出成功，已触发下载。');
+    },
+    onError: (e: Error) => {
+      setExportMsg(`脱敏导出失败：${e.message}`);
+      setExportWarnings(null);
+    },
+  });
+
+  const importConfig = useMutation({
+    mutationFn: () =>
+      portabilityApi.importConfig({
+        package: importPackage,
+        password: importPassword || undefined,
+      }),
+    onSuccess: (result) => {
+      setImportResult(result);
+      setImportError(null);
+      // 导入会改变账号/端点/模型等，刷新相关查询缓存。
+      queryClient.invalidateQueries();
+    },
+    onError: (e: Error) => {
+      setImportError(`导入失败：${e.message}`);
+      setImportResult(null);
+    },
+  });
+
+  // 读取导入文件文本作为 package。
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImportPackage(typeof reader.result === 'string' ? reader.result : '');
+    };
+    reader.onerror = () => {
+      setImportError('读取文件失败，请重试。');
+    };
+    reader.readAsText(file);
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-5 space-y-5">
+      <div>
+        <h2 className="font-semibold">配置导入导出</h2>
+        <p className="text-xs text-gray-500 mt-0.5">
+          本机加密完整备份或可迁移脱敏配置，导入后自动接管状态统一关闭、不会写入 Claude Code / Codex 配置。
+        </p>
+      </div>
+
+      {/* 风险提示 */}
+      <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 text-xs text-amber-700 dark:text-amber-300 space-y-1">
+        <p className="font-medium">风险提示</p>
+        <ul className="list-disc list-inside space-y-0.5">
+          <li>完整备份包含凭据，绑定本机主密钥，跨机器无法恢复敏感凭据。</li>
+          <li>脱敏包跨机器可迁移，但不含凭据，导入后需重新录入 API Key / OAuth 登录。</li>
+          <li>完整备份导入会覆盖现有配置，脱敏导入按匹配键合并，请谨慎操作。</li>
+          <li>任一导入完成后自动接管状态统一关闭，不会自动写入工具配置。</li>
+        </ul>
+      </div>
+
+      {/* 完整备份导出 */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium">完整备份导出（含凭据，绑定本机）</p>
+        <p className="text-xs text-gray-500">
+          用系统主密钥加密，含账号/端点凭据，适合本机或同凭据环境恢复。主密钥不可用时无法导出。
+        </p>
+        <button
+          onClick={() => exportFull.mutate()}
+          disabled={exportFull.isPending}
+          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
+        >
+          {exportFull.isPending ? '导出中...' : '导出完整备份'}
+        </button>
+      </div>
+
+      {/* 脱敏导出 */}
+      <div className="space-y-2 border-t border-gray-200 dark:border-gray-800 pt-4">
+        <p className="text-sm font-medium">脱敏配置导出（跨机器可迁移）</p>
+        <p className="text-xs text-gray-500">
+          不含 API Key / OAuth token / 日志，设置导出密码（Argon2id 派生密钥）后可跨机器解密。
+        </p>
+        <div className="flex gap-2 items-center">
+          <input
+            type="password"
+            value={portablePassword}
+            onChange={(e) => setPortablePassword(e.target.value)}
+            placeholder="设置导出密码"
+            className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-sm bg-white dark:bg-gray-800"
+          />
+          <button
+            onClick={() => exportPortable.mutate()}
+            disabled={exportPortable.isPending || !portablePassword}
+            className="px-4 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 disabled:opacity-50"
+          >
+            {exportPortable.isPending ? '导出中...' : '导出脱敏配置'}
+          </button>
+        </div>
+      </div>
+
+      {/* 导出反馈 */}
+      {exportMsg && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3 text-sm text-blue-700 dark:text-blue-300">
+          {exportMsg}
+        </div>
+      )}
+      {exportWarnings && exportWarnings.length > 0 && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 text-xs text-amber-700 dark:text-amber-300 space-y-1">
+          <p className="font-medium">导出警告</p>
+          <ul className="list-disc list-inside">
+            {exportWarnings.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* 导入 */}
+      <div className="space-y-2 border-t border-gray-200 dark:border-gray-800 pt-4">
+        <p className="text-sm font-medium">导入配置</p>
+        <p className="text-xs text-gray-500">
+          选择导出包文件（.asbak / .ascfg）。脱敏包需输入导出密码；完整备份可留空（用本机主密钥解密）。
+        </p>
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2 items-center">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".asbak,.ascfg,.json,application/json,text/plain"
+              onChange={handleFileChange}
+              className="text-sm text-gray-600 dark:text-gray-300 file:mr-2 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-gray-100 dark:file:bg-gray-700 file:text-gray-700 dark:file:text-gray-200"
+            />
+            {importFileName && (
+              <span className="text-xs text-gray-500 truncate">{importFileName}</span>
+            )}
+          </div>
+          <input
+            type="password"
+            value={importPassword}
+            onChange={(e) => setImportPassword(e.target.value)}
+            placeholder="导出密码（脱敏包必填，完整备份留空）"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-sm bg-white dark:bg-gray-800"
+          />
+          <button
+            onClick={() => importConfig.mutate()}
+            disabled={importConfig.isPending || !importPackage}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50 self-start"
+          >
+            {importConfig.isPending ? '导入中...' : '导入配置'}
+          </button>
+        </div>
+      </div>
+
+      {/* 导入反馈 */}
+      {importError && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-3 text-sm text-red-700 dark:text-red-300 whitespace-pre-wrap">
+          {importError}
+        </div>
+      )}
+      {importResult && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3 text-sm text-blue-700 dark:text-blue-300 space-y-2">
+          <p className="font-medium">导入完成</p>
+          <ul className="text-xs space-y-0.5">
+            <li>账号：{importResult.imported.accounts}</li>
+            <li>端点：{importResult.imported.endpoints}</li>
+            <li>模型：{importResult.imported.endpoint_models}</li>
+            <li>别名：{importResult.imported.model_aliases}</li>
+            <li>路由设置：{importResult.imported.route_settings}</li>
+            <li>自动接管：已全部关闭（{importResult.imported.tool_takeover} 项重置）</li>
+          </ul>
+          {importResult.pre_import_backup && (
+            <p className="text-xs">
+              导入前已自动备份当前数据库到：
+              <span className="font-mono break-all">
+                {importResult.pre_import_backup}
+              </span>
+            </p>
+          )}
+          {importResult.warnings.length > 0 && (
+            <ul className="text-xs list-disc list-inside">
+              {importResult.warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>

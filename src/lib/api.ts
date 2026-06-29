@@ -220,6 +220,52 @@ export const settingsApi = {
     }),
 };
 
+// ── 配置导入导出 ──────────────────────────────────────────
+
+export type PortabilityMode = 'full_backup' | 'portable';
+
+/// 各表导入计数（与后端 ImportReport 字段一一对应）。
+export interface ImportReport {
+  accounts: number;
+  endpoints: number;
+  endpoint_models: number;
+  model_aliases: number;
+  route_settings: number;
+  tool_takeover: number;
+}
+
+/// 导出结果：package 为导出包 JSON 文本（前端触发下载），warnings 含弱密码等提示。
+export interface ExportResult {
+  package: string;
+  warnings: string[];
+}
+
+/// 导入结果：imported 为各表计数，pre_import_backup 仅 full_backup 导入前自动备份路径。
+export interface ImportResult {
+  imported: ImportReport;
+  pre_import_backup?: string | null;
+  warnings: string[];
+}
+
+export const portabilityApi = {
+  /// 导出配置。full_backup 忽略 password（用主密钥），portable 必带 password。
+  exportConfig: (mode: PortabilityMode, password?: string) =>
+    request<ExportResult>('/settings/export', {
+      method: 'POST',
+      body: JSON.stringify({ mode, password }),
+    }),
+  /// 导入配置。package 为导出包 JSON 文本，portable 包需带 password。
+  importConfig: (data: {
+    package: string;
+    password?: string;
+    conflict_mode?: string;
+  }) =>
+    request<ImportResult>('/settings/import', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+};
+
 export interface ToolStatus {
   tool: string;
   supports_takeover: boolean;

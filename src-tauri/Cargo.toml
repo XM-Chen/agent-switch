@@ -46,6 +46,10 @@ urlencoding = "2"
 # 工具接管 TOML 编辑
 toml_edit = "0.22"
 
+# 导入导出：脱敏包密码派生 + gzip 压缩
+argon2 = "0.5"
+flate2 = "1"
+
 # 代理转发
 futures = "0.3"
 bytes = "1"
