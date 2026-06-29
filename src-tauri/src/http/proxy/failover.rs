@@ -65,7 +65,12 @@ impl FailoverState {
     ///
     /// - `test_only`：为 true 时进入测试模式，`record_failure` 不产生冷却值（返回 0），
     ///   并且允许遍历所有端点（不受 max_switches 限制）。
-    pub fn new(failover_enabled: bool, max_switches: u32, max_retries: u32, test_only: bool) -> Self {
+    pub fn new(
+        failover_enabled: bool,
+        max_switches: u32,
+        max_retries: u32,
+        test_only: bool,
+    ) -> Self {
         Self {
             switch_count: 0,
             max_switches: if test_only {

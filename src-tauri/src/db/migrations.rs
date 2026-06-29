@@ -276,22 +276,31 @@ mod tests {
             .prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('route_settings','request_logs')")
             .unwrap();
         let table_count: i64 = stmt.query_row([], |row| row.get(0)).unwrap();
-        assert_eq!(table_count, 2, "route_settings 与 request_logs 表应均已创建");
+        assert_eq!(
+            table_count, 2,
+            "route_settings 与 request_logs 表应均已创建"
+        );
 
         // v6 的 ALTER COLUMN 应已落在 request_logs 上
-        let mut stmt = db
-            .prepare("PRAGMA table_info(request_logs)")
-            .unwrap();
+        let mut stmt = db.prepare("PRAGMA table_info(request_logs)").unwrap();
         let columns: Vec<String> = stmt
             .query_map([], |row| row.get::<_, String>(1))
             .unwrap()
             .filter_map(|r| r.ok())
             .collect();
-        assert!(columns.iter().any(|c| c == "media_type"), "request_logs.media_type 应存在");
-        assert!(columns.iter().any(|c| c == "body_sha256_hash"), "request_logs.body_sha256_hash 应存在");
+        assert!(
+            columns.iter().any(|c| c == "media_type"),
+            "request_logs.media_type 应存在"
+        );
+        assert!(
+            columns.iter().any(|c| c == "body_sha256_hash"),
+            "request_logs.body_sha256_hash 应存在"
+        );
 
         // 所有迁移版本均已记录
-        let mut stmt = db.prepare("SELECT count(*) FROM schema_migrations").unwrap();
+        let mut stmt = db
+            .prepare("SELECT count(*) FROM schema_migrations")
+            .unwrap();
         let applied: i64 = stmt.query_row([], |row| row.get(0)).unwrap();
         assert_eq!(applied, MIGRATIONS.len() as i64, "全部迁移应已记录");
     }

@@ -64,8 +64,12 @@ pub async fn run_test(
     let body_value = build_test_body(&test_req)?;
 
     // 构建 Axum Request
-    let body_bytes = serde_json::to_vec(&body_value)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("序列化请求体失败: {}", e)))?;
+    let body_bytes = serde_json::to_vec(&body_value).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("序列化请求体失败: {}", e),
+        )
+    })?;
 
     let req = Request::builder()
         .method(Method::POST)
@@ -76,9 +80,12 @@ pub async fn run_test(
 
     // 获取 RouteProxy 并调用
     let route_proxy = state.route_proxy.read().await;
-    let proxy = route_proxy
-        .as_ref()
-        .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, "代理服务未初始化".to_string()))?;
+    let proxy = route_proxy.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "代理服务未初始化".to_string(),
+        )
+    })?;
 
     let upstream_resp = proxy.proxy_request(&test_req.route, req, true).await?;
 
@@ -159,10 +166,7 @@ fn build_test_body(req: &TestRequest) -> Result<Value, (StatusCode, String)> {
             }))
         }
         "v1" => {
-            let model = req
-                .model
-                .clone()
-                .unwrap_or_else(|| "gpt-4o".to_string());
+            let model = req.model.clone().unwrap_or_else(|| "gpt-4o".to_string());
             Ok(serde_json::json!({
                 "model": model,
                 "messages": [
