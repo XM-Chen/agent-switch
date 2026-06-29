@@ -124,15 +124,6 @@ const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_tool_backups ON tool_takeover_backups(tool, created_at);",
     },
     Migration {
-        version: 6,
-        name: "add_v1_route_and_media_log_fields",
-        sql: "INSERT OR IGNORE INTO route_settings (id, label, strategy, protocol_type, failover_enabled, max_switches, same_account_retries, cooldown_multiplier, updated_at)
-        VALUES ('v1', 'OpenAI v1', 'fill-first', 'openai-compatible', 1, 10, 3, 1.0, datetime('now'));
-        ALTER TABLE request_logs ADD COLUMN media_type TEXT;
-        ALTER TABLE request_logs ADD COLUMN content_length INTEGER;
-        ALTER TABLE request_logs ADD COLUMN body_sha256_hash TEXT;",
-    },
-    Migration {
         version: 5,
         name: "create_route_settings_request_logs_model_locks",
         sql: "CREATE TABLE IF NOT EXISTS route_settings (
@@ -188,6 +179,15 @@ const MIGRATIONS: &[Migration] = &[
             created_at  TEXT NOT NULL,
             UNIQUE(endpoint_id, model_name)
         );",
+    },
+    Migration {
+        version: 6,
+        name: "add_v1_route_and_media_log_fields",
+        sql: "INSERT OR IGNORE INTO route_settings (id, label, strategy, protocol_type, failover_enabled, max_switches, same_account_retries, cooldown_multiplier, updated_at)
+        VALUES ('v1', 'OpenAI v1', 'fill-first', 'openai-compatible', 1, 10, 3, 1.0, datetime('now'));
+        ALTER TABLE request_logs ADD COLUMN media_type TEXT;
+        ALTER TABLE request_logs ADD COLUMN content_length INTEGER;
+        ALTER TABLE request_logs ADD COLUMN body_sha256_hash TEXT;",
     },
 ];
 
@@ -253,4 +253,61 @@ pub fn run_migrations(conn: &Mutex<Connection>) -> Result<(), String> {
 
     tracing::info!("数据库迁移：{} 项迁移已执行", pending.len());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 全新数据库必须能按数组顺序跑完全部迁移，且不得因依赖表缺失而失败。
+    ///
+    /// 防止 v6（依赖 v5 创建的 route_settings / request_logs）排在 v5 之前
+    /// 导致全新机器首次启动崩溃。
+    #[test]
+    fn fresh_db_runs_all_migrations_in_order() {
+        let conn = Connection::open_in_memory().expect("无法创建内存数据库");
+        let db = Mutex::new(conn);
+
+        run_migrations(&db).expect("全新数据库迁移应成功完成");
+
+        // v6 依赖的两张表必须在迁移后存在
+        let db = db.lock().unwrap();
+        let mut stmt = db
+            .prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('route_settings','request_logs')")
+            .unwrap();
+        let table_count: i64 = stmt.query_row([], |row| row.get(0)).unwrap();
+        assert_eq!(table_count, 2, "route_settings 与 request_logs 表应均已创建");
+
+        // v6 的 ALTER COLUMN 应已落在 request_logs 上
+        let mut stmt = db
+            .prepare("PRAGMA table_info(request_logs)")
+            .unwrap();
+        let columns: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert!(columns.iter().any(|c| c == "media_type"), "request_logs.media_type 应存在");
+        assert!(columns.iter().any(|c| c == "body_sha256_hash"), "request_logs.body_sha256_hash 应存在");
+
+        // 所有迁移版本均已记录
+        let mut stmt = db.prepare("SELECT count(*) FROM schema_migrations").unwrap();
+        let applied: i64 = stmt.query_row([], |row| row.get(0)).unwrap();
+        assert_eq!(applied, MIGRATIONS.len() as i64, "全部迁移应已记录");
+    }
+
+    /// 迁移数组版本号应单调递增，防止顺序错乱导致的依赖缺失。
+    #[test]
+    fn migration_versions_are_ascending() {
+        let mut prev: i64 = 0;
+        for m in MIGRATIONS {
+            assert!(
+                m.version > prev,
+                "迁移版本号应单调递增，但 v{} 出现在 v{} 之后",
+                m.version,
+                prev
+            );
+            prev = m.version;
+        }
+    }
 }
