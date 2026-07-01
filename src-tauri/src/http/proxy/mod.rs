@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use axum::body::Body;
-use axum::http::{HeaderMap, Method, Request, StatusCode};
+use axum::http::{HeaderMap, Request, StatusCode};
 use axum::response::Response;
 use rusqlite::Connection;
 use serde_json::Value;
@@ -23,6 +23,7 @@ use crate::http::proxy::failover::FailoverState;
 use crate::http::proxy::logger::{write_log, RequestLogEntry};
 use crate::http::proxy::model_mapper::{ModelMapper, ModelMappingResult};
 use crate::http::proxy::selector::EndpointSelector;
+use crate::services::translator::helpers;
 use crate::services::translator::TranslatorRegistry;
 
 pub mod auth_injector;
@@ -34,7 +35,9 @@ pub mod logger;
 pub mod model_mapper;
 pub mod oauth_refresh;
 pub mod selector;
+pub mod sse;
 pub mod stream_guard;
+pub mod translate;
 
 /// 代理转发编排器。
 pub struct RouteProxy {
@@ -84,7 +87,6 @@ impl RouteProxy {
         let start = Instant::now();
         let path = req.uri().path().to_string();
         let method = req.method().clone();
-        let is_stream = method == Method::POST;
 
         // 拆解请求
         let (parts, body) = req.into_parts();
@@ -98,6 +100,8 @@ impl RouteProxy {
         } else {
             Value::Null
         };
+        // 流式判定以请求体 stream 字段为准，而非 HTTP 方法（method==POST 是错误启发式）。
+        let is_stream = helpers::is_streaming(&req_json);
         let original_model = req_json
             .get("model")
             .and_then(|v| v.as_str())
@@ -178,14 +182,26 @@ impl RouteProxy {
         let incoming_headers = parts.headers.clone();
 
         // 故障转移主循环
-        let final_result: Option<(Response<Body>, RequestLogEntry, Option<ModelMappingResult>)> =
-            None;
+        // 跟踪最后一次成功的模型映射结果，供"全部失败"日志使用（替代已删除的 final_result 死变量）。
+        let mut last_mapping: Option<ModelMappingResult> = None;
 
         while failover.can_continue() {
             let endpoint = match selector.next(&failover.failed_ids, |eid| {
-                // 模型锁检查（暂不实现全模型锁表查询，简化跳过）
-                let _ = eid;
-                true
+                // 模型级锁检查：锁键 = endpoint_id + 原始请求 model 名。
+                // 有未过期锁 → 跳过该端点（该端点此前对该模型返回 404/model_not_found）。
+                match original_model.as_ref() {
+                    Some(model) => {
+                        match crate::db::dao::model_locks::get_active_lock(&self.db, eid, model) {
+                            Ok(Some(_)) => false,
+                            Ok(None) => true,
+                            Err(e) => {
+                                tracing::warn!("查询模型锁失败 ({}:{}): {}", eid, model, e);
+                                true // 查询失败不阻塞，保守放行
+                            }
+                        }
+                    }
+                    None => true, // 无 model 字段的请求不查锁
+                }
             }) {
                 Some((ep, _)) => ep,
                 None => break, // 无可用端点
@@ -194,11 +210,17 @@ impl RouteProxy {
             let attempt_start = Instant::now();
             let mut req_body_clone = req_json.clone();
             let mut upstream_headers = HeaderMap::new();
+            // 模型改写后重算 body hash（仅日志用途）。model_mapper 失败则 continue，
+            // 不会到达使用点，故用确定赋值而非预初始化（避免 unused_assignments）。
+            let loop_body_hash: String;
 
             // 模型映射
             let mapping_result = match model_mapper.resolve_and_rewrite(&mut req_body_clone) {
                 Ok(m) => {
-                    body_hash_sync(&mut req_body_clone, &body_hash);
+                    last_mapping = Some(m.clone());
+                    loop_body_hash = RequestLogEntry::hash_body(
+                        &serde_json::to_vec(&req_body_clone).unwrap_or_default(),
+                    );
                     Some(m)
                 }
                 Err(e) => {
@@ -212,7 +234,7 @@ impl RouteProxy {
             };
 
             // 复制入站 headers
-            upstream_headers.extend(incoming_headers.clone().into_iter());
+            upstream_headers.extend(incoming_headers.clone());
 
             // 认证注入
             if let Err(e) = inject_auth(
@@ -230,8 +252,7 @@ impl RouteProxy {
                     &e,
                     attempt_start.elapsed().as_millis() as u64,
                 );
-                // 冷却
-                let _ = cooldown_secs;
+                persist_cooldown(&self.db, &endpoint.id, cooldown_secs, &e);
                 continue;
             }
 
@@ -243,28 +264,28 @@ impl RouteProxy {
             let translated_body = if is_passthrough {
                 // 媒体透明流转：使用原始二进制 body，不经过 JSON 翻译器
                 body_bytes.to_vec()
-            } else if protocol_from != protocol_to {
-                match self
-                    .translator_registry
-                    .resolve(&protocol_from, &protocol_to)
-                {
-                    Ok(translator) => {
-                        let body_bytes = serde_json::to_vec(&req_body_clone).unwrap_or_default();
-                        // single-arg translator usage
-                        let _ = translator;
-                        body_bytes
-                    }
+            } else {
+                let upstream_model = mapping_result
+                    .as_ref()
+                    .map(|m| m.upstream_model.as_str())
+                    .unwrap_or("");
+                match translate::build_translated_request_body(
+                    &self.translator_registry,
+                    &protocol_from,
+                    &protocol_to,
+                    &req_body_clone,
+                    upstream_model,
+                ) {
+                    Ok(b) => b,
                     Err(e) => {
-                        failover.record_failure(
-                            &endpoint,
-                            &ProxyError::new(ProxyErrorKind::ProtocolError, e),
-                            attempt_start.elapsed().as_millis() as u64,
-                        );
+                        let elapsed = attempt_start.elapsed().as_millis() as u64;
+                        let cooldown_secs = failover.record_failure(&endpoint, &e, elapsed);
+                        if !test_only {
+                            persist_cooldown(&self.db, &endpoint.id, cooldown_secs, &e);
+                        }
                         continue;
                     }
                 }
-            } else {
-                serde_json::to_vec(&req_body_clone).unwrap_or_default()
             };
 
             // 转发请求到上游
@@ -298,6 +319,32 @@ impl RouteProxy {
                             format!("上游返回 {}", status_code),
                         );
 
+                        // 404/model_not_found：写模型级锁（endpoint_id + 原始请求 model 名，长冷却 1h），
+                        // 未来同模型请求在 selector 阶段跳过该端点。
+                        if status_code == 404 {
+                            if let Some(ref model) = original_model {
+                                let now = time::OffsetDateTime::now_utc();
+                                let until = now + time::Duration::seconds(3600);
+                                let until_iso = until
+                                    .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                                    .unwrap_or_default();
+                                if let Err(e) = crate::db::dao::model_locks::set_lock(
+                                    &self.db,
+                                    &endpoint.id,
+                                    model,
+                                    &until_iso,
+                                    Some("model_not_found"),
+                                ) {
+                                    tracing::warn!(
+                                        "写入模型锁失败 ({}:{}): {}",
+                                        endpoint.id,
+                                        model,
+                                        e
+                                    );
+                                }
+                            }
+                        }
+
                         // 错误分类：非可退避错误（400/405/406/413/414/415/422/501、
                         // 协议错误、本地错误等）不切换，直接把上游响应回传客户端。
                         // 参考 prd.md 故障转移策略与 design.md 状态机。
@@ -312,7 +359,7 @@ impl RouteProxy {
                             log_entry.protocol_to = Some(protocol_to.clone());
                             log_entry.stream = is_stream;
                             log_entry.duration_ms = Some(start.elapsed().as_millis() as i64);
-                            log_entry.request_body_hash = Some(body_hash);
+                            log_entry.request_body_hash = Some(loop_body_hash.clone());
                             log_entry.error_kind = Some(format!("{}", err));
                             log_entry.fallback_chain = Some(failover.chain_to_json());
                             if test_only {
@@ -342,11 +389,11 @@ impl RouteProxy {
                             &err,
                             attempt_start.elapsed().as_millis() as u64,
                         );
-                        let _ = cooldown_secs;
+                        persist_cooldown(&self.db, &endpoint.id, cooldown_secs, &err);
                         continue;
                     }
 
-                    // 构建响应
+                    // 成功响应：按 is_stream 分流式 / 非流式路径
                     let upstream_content_type = resp
                         .headers()
                         .get("content-type")
@@ -359,11 +406,155 @@ impl RouteProxy {
                         .and_then(|v| v.to_str().ok())
                         .and_then(|s| s.parse::<i64>().ok());
 
+                    // ── 流式路径：bytes_stream + StreamGuard 首块探测 ──
+                    if is_stream && !is_passthrough {
+                        let upstream_stream = Box::pin(resp.bytes_stream());
+                        let mut guard = stream_guard::StreamGuard::new();
+                        match guard
+                            .buffer_first_chunk(is_stream, status, upstream_stream)
+                            .await
+                        {
+                            Err(e) => {
+                                // 首块错误：未向客户端发送任何 SSE 数据，按错误分类决定 fallback。
+                                if e.should_failover() && !failover.stream_started {
+                                    let cooldown_secs = failover.record_failure(
+                                        &endpoint,
+                                        &e,
+                                        attempt_start.elapsed().as_millis() as u64,
+                                    );
+                                    persist_cooldown(&self.db, &endpoint.id, cooldown_secs, &e);
+                                    continue;
+                                }
+                                // 不可切换：回传错误响应（未发 SSE header，客户端收到普通错误）
+                                let err_kind = format!("{}", e);
+                                let mut log_entry =
+                                    RequestLogEntry::new(&request_id, Some(route_id), &path);
+                                log_entry.status = Some(e.status as i64);
+                                log_entry.target_endpoint_id = Some(endpoint.id.clone());
+                                log_entry.upstream_endpoint = Some(target_url.clone());
+                                log_entry.protocol_from = Some(protocol_from.clone());
+                                log_entry.protocol_to = Some(protocol_to.clone());
+                                log_entry.stream = true;
+                                log_entry.duration_ms = Some(start.elapsed().as_millis() as i64);
+                                log_entry.request_body_hash = Some(loop_body_hash.clone());
+                                log_entry.error_kind = Some(err_kind);
+                                log_entry.fallback_chain = Some(failover.chain_to_json());
+                                if test_only {
+                                    log_entry.is_test = true;
+                                }
+                                if let Some(ref m) = mapping_result {
+                                    log_entry.requested_model = Some(m.original_model.clone());
+                                    log_entry.upstream_model = Some(m.upstream_model.clone());
+                                    log_entry.resolved_alias = Some(m.resolved_alias.clone());
+                                    log_entry.resolved_scope = Some(m.resolved_scope.clone());
+                                } else {
+                                    log_entry.requested_model = original_model.clone();
+                                }
+                                let _ = write_log(&self.db, log_entry);
+
+                                let body = serde_json::to_vec(&serde_json::json!({
+                                    "error": {"type": "upstream_error", "message": format!("{}", e)}
+                                }))
+                                .unwrap_or_default();
+                                let response = Response::builder()
+                                    .status(e.status)
+                                    .header("content-type", "application/json")
+                                    .body(Body::from(body))
+                                    .unwrap();
+                                return Ok(response);
+                            }
+                            Ok(buffered) => {
+                                // 首块正常：置 stream_started，此后禁止 fallback。
+                                failover.stream_started = guard.is_stream_started();
+                                let first_token_ms = start.elapsed().as_millis() as i64;
+
+                                let out_stream: sse::ByteStream = if protocol_from != protocol_to {
+                                    // 跨协议流式：逐行 translate_stream_line。
+                                    // resolve 失败时退回 Passthrough（同协议直转），避免客户端挂起。
+                                    let translator = self
+                                        .translator_registry
+                                        .resolve(&protocol_to, &protocol_from)
+                                        .unwrap_or_else(|_| {
+                                            self.translator_registry
+                                                .resolve(&protocol_from, &protocol_from)
+                                                .unwrap()
+                                        });
+                                    let model = mapping_result
+                                        .as_ref()
+                                        .map(|m| m.upstream_model.clone())
+                                        .unwrap_or_default();
+                                    sse::translate_stream(
+                                        buffered.remaining_stream,
+                                        translator,
+                                        model,
+                                        &protocol_from,
+                                    )
+                                } else {
+                                    // 同协议流式：直通
+                                    buffered.remaining_stream
+                                };
+
+                                let response = Response::builder()
+                                    .status(status)
+                                    .header("content-type", "text/event-stream")
+                                    .header("cache-control", "no-cache")
+                                    .header("connection", "keep-alive")
+                                    .body(Body::from_stream(out_stream))
+                                    .unwrap();
+
+                                failover.record_success(
+                                    &endpoint,
+                                    attempt_start.elapsed().as_millis() as u64,
+                                );
+
+                                let mut log_entry =
+                                    RequestLogEntry::new(&request_id, Some(route_id), &path);
+                                log_entry.status = Some(status.as_u16() as i64);
+                                log_entry.target_endpoint_id = Some(endpoint.id.clone());
+                                log_entry.upstream_endpoint = Some(target_url.clone());
+                                log_entry.protocol_from = Some(protocol_from.clone());
+                                log_entry.protocol_to = Some(protocol_to.clone());
+                                log_entry.stream = true;
+                                log_entry.duration_ms = Some(start.elapsed().as_millis() as i64);
+                                log_entry.first_token_ms = Some(first_token_ms);
+                                log_entry.request_body_hash = Some(loop_body_hash.clone());
+                                log_entry.fallback_chain = Some(failover.chain_to_json());
+                                if test_only {
+                                    log_entry.is_test = true;
+                                }
+                                if let Some(ref m) = mapping_result {
+                                    log_entry.requested_model = Some(m.original_model.clone());
+                                    log_entry.upstream_model = Some(m.upstream_model.clone());
+                                    log_entry.resolved_alias = Some(m.resolved_alias.clone());
+                                    log_entry.resolved_scope = Some(m.resolved_scope.clone());
+                                } else {
+                                    log_entry.requested_model = original_model.clone();
+                                }
+                                let _ = write_log(&self.db, log_entry);
+
+                                return Ok(response);
+                            }
+                        }
+                    }
+
+                    // ── 非流式路径（含 passthrough 媒体透明流转）──
                     let resp_bytes = resp.bytes().await.unwrap_or_default();
+
+                    // 跨协议响应转换（方向反转：to → from，将上游协议响应转回入站协议）
+                    let out_bytes = if !is_passthrough && protocol_from != protocol_to {
+                        translate::translate_response_body(
+                            &self.translator_registry,
+                            &protocol_to,
+                            &protocol_from,
+                            &resp_bytes,
+                        )
+                    } else {
+                        resp_bytes.to_vec()
+                    };
 
                     // 媒体响应 SHA256 哈希（仅记录哈希，不存储内容）
                     let media_body_hash = if is_passthrough {
-                        Some(hash_bytes(&resp_bytes))
+                        Some(hash_bytes(&out_bytes))
                     } else {
                         None
                     };
@@ -371,7 +562,7 @@ impl RouteProxy {
                     let response = Response::builder()
                         .status(status)
                         .header("content-type", &upstream_content_type)
-                        .body(Body::from(resp_bytes))
+                        .body(Body::from(out_bytes))
                         .unwrap();
 
                     failover.record_success(&endpoint, attempt_start.elapsed().as_millis() as u64);
@@ -385,7 +576,7 @@ impl RouteProxy {
                     log_entry.protocol_to = Some(protocol_to);
                     log_entry.stream = is_stream;
                     log_entry.duration_ms = Some(start.elapsed().as_millis() as i64);
-                    log_entry.request_body_hash = Some(body_hash);
+                    log_entry.request_body_hash = Some(loop_body_hash);
                     log_entry.fallback_chain = Some(failover.chain_to_json());
                     if test_only {
                         log_entry.is_test = true;
@@ -426,7 +617,7 @@ impl RouteProxy {
                         &err,
                         attempt_start.elapsed().as_millis() as u64,
                     );
-                    let _ = cooldown_secs;
+                    persist_cooldown(&self.db, &endpoint.id, cooldown_secs, &err);
                     continue;
                 }
             }
@@ -455,7 +646,7 @@ impl RouteProxy {
         if test_only {
             log_entry.is_test = true;
         }
-        if let Some(ref m) = final_result.as_ref().and_then(|(_, _, m)| m.as_ref()) {
+        if let Some(ref m) = last_mapping {
             log_entry.requested_model = Some(m.original_model.clone());
         } else {
             log_entry.requested_model = original_model;
@@ -479,9 +670,39 @@ fn build_upstream_url(endpoint: &crate::db::dao::endpoints::EndpointRow, path: &
     format!("{}{}", base, path)
 }
 
-fn body_hash_sync(body: &mut Value, hash: &str) {
-    // 占位：同步模型改写后的 hash
-    let _ = (body, hash);
+/// 将端点冷却时长持久化到 DB（写 `cooldown_until` / `last_failure_at` / `last_error_kind`）。
+///
+/// `cooldown_secs <= 0`（含 test_only 模式 record_failure 返回 0）时直接返回，不写。
+/// 写失败只记日志，不中断故障转移主流程。
+fn persist_cooldown(
+    db: &Mutex<Connection>,
+    endpoint_id: &str,
+    cooldown_secs: i64,
+    err: &ProxyError,
+) {
+    use crate::db::dao::endpoints::{self, EndpointUpdate};
+    use time::format_description::well_known::Iso8601;
+
+    if cooldown_secs <= 0 {
+        return;
+    }
+
+    let now = time::OffsetDateTime::now_utc();
+    let until = now + time::Duration::seconds(cooldown_secs);
+    let fmt = |dt: time::OffsetDateTime| dt.format(&Iso8601::DEFAULT).unwrap_or_default();
+
+    if let Err(e) = endpoints::update(
+        db,
+        endpoint_id,
+        EndpointUpdate {
+            cooldown_until: Some(Some(fmt(until))),
+            last_failure_at: Some(Some(fmt(now))),
+            last_error_kind: Some(Some(format!("{}", err.kind))),
+            ..Default::default()
+        },
+    ) {
+        tracing::warn!("写入端点 '{}' 冷却失败: {}", endpoint_id, e);
+    }
 }
 
 /// 计算字节数组的 SHA256 哈希（用于媒体响应日志）。

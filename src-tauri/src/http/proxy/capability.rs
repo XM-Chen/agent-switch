@@ -1,8 +1,11 @@
-/// OpenAI v1 子路径 → 模型能力映射工具。
-///
-/// 将 `/v1/chat/completions`、`/v1/images/generations` 等路径
-/// 映射为对应的模型能力标签，供 selector 和 model_mapper 做双重过滤。
-/// 同时提供能力→协议类型解析，用于 v1 路由的协议类型推导。
+//! OpenAI v1 子路径 → 模型能力映射工具。
+//!
+//! 将 `/v1/chat/completions`、`/v1/images/generations` 等路径
+//! 映射为对应的模型能力标签，供 selector 和 model_mapper 做双重过滤。
+//! 同时提供能力→协议类型解析，用于 v1 路由的协议类型推导。
+//!
+//! `ALL_CAPABILITIES` / `is_known_capability` 为能力校验预留。
+#![allow(dead_code)]
 use crate::http::proxy::constants;
 
 /// 子路径 → 模型能力映射。

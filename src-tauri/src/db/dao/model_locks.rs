@@ -1,7 +1,10 @@
-/// 模型级锁 DAO。
-///
-/// 对应设计文档 §2 数据模型 `model_locks` 表（可选方案，也可用内存集替代）。
-/// 锁定键为 `{endpoint_id}_{model}`，用于限制特定端点的特定模型在冷却期内不被选中。
+//! 模型级锁 DAO。
+//!
+//! 对应设计文档 §2 数据模型 `model_locks` 表（可选方案，也可用内存集替代）。
+//! 锁定键为 `{endpoint_id}_{model}`，用于限制特定端点的特定模型在冷却期内不被选中。
+//!
+//! 部分行字段与 `clear_expired` 为路由管理层预留，尚未在主循环全量接线。
+#![allow(dead_code)]
 use rusqlite::{params, Connection};
 use std::sync::Mutex;
 use time::OffsetDateTime;

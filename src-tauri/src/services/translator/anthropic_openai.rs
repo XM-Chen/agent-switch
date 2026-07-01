@@ -43,7 +43,7 @@ impl Translator for AnthropicToChatTranslator {
 
         // 2. 处理 system → messages[0]（system 消息）
         let system = body.get("system");
-        let system_text = system.and_then(|s| helpers::extract_content_text(s));
+        let system_text = system.and_then(helpers::extract_content_text);
         if let Some(ref sys_text) = system_text {
             // 在 messages 数组开头插入 system 消息
             let sys_msg = json!({"role": "system", "content": sys_text});
@@ -381,7 +381,7 @@ impl Translator for AnthropicToChatTranslator {
                         }
                     });
                     context.has_content = true;
-                    Ok(format!("data: {}\n\n", chunk.to_string()))
+                    Ok(format!("data: {}\n\n", chunk))
                 } else {
                     Ok("".to_string())
                 }
@@ -414,7 +414,7 @@ impl Translator for AnthropicToChatTranslator {
                             ]
                         });
                         context.has_content = true;
-                        Ok(format!("data: {}\n\n", chunk.to_string()))
+                        Ok(format!("data: {}\n\n", chunk))
                     }
                     "tool_use" => {
                         let tc_id = block
@@ -459,7 +459,7 @@ impl Translator for AnthropicToChatTranslator {
                             ]
                         });
                         context.has_content = true;
-                        Ok(format!("data: {}\n\n", chunk.to_string()))
+                        Ok(format!("data: {}\n\n", chunk))
                     }
                     _ => Ok("".to_string()),
                 }
@@ -491,7 +491,7 @@ impl Translator for AnthropicToChatTranslator {
                             ]
                         });
                         context.has_content = true;
-                        Ok(format!("data: {}\n\n", chunk.to_string()))
+                        Ok(format!("data: {}\n\n", chunk))
                     }
                     "input_json_delta" => {
                         let partial = delta
@@ -522,7 +522,7 @@ impl Translator for AnthropicToChatTranslator {
                                 }
                             ]
                         });
-                        Ok(format!("data: {}\n\n", chunk.to_string()))
+                        Ok(format!("data: {}\n\n", chunk))
                     }
                     _ => Ok("".to_string()),
                 }
@@ -564,7 +564,7 @@ impl Translator for AnthropicToChatTranslator {
                     });
                 }
 
-                Ok(format!("data: {}\n\n", chunk.to_string()))
+                Ok(format!("data: {}\n\n", chunk))
             }
 
             "message_stop" => {
@@ -907,10 +907,7 @@ impl Translator for ChatToAnthropicTranslator {
                     .and_then(|f| f.get("arguments"))
                     .and_then(|a| a.as_str());
 
-                let acc = context
-                    .tool_calls
-                    .entry(tc_index)
-                    .or_insert_with(|| ToolCallAcc::default());
+                let acc = context.tool_calls.entry(tc_index).or_default();
 
                 if !tc_id.is_empty() && acc.id.is_empty() {
                     acc.id = tc_id.to_string();

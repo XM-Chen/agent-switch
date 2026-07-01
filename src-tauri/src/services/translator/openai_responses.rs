@@ -438,11 +438,7 @@ impl Translator for ResponsesToChatTranslator {
                                 .get("arguments")
                                 .and_then(|a| a.as_str())
                                 .unwrap_or("{}");
-                            let call_id = if fc_id.starts_with("fc_") {
-                                &fc_id[3..]
-                            } else {
-                                fc_id
-                            };
+                            let call_id = fc_id.strip_prefix("fc_").unwrap_or(fc_id);
                             json!({
                                 "role": "assistant",
                                 "content": "",
@@ -569,11 +565,7 @@ impl Translator for ResponsesToChatTranslator {
                         .get("arguments")
                         .and_then(|a| a.as_str())
                         .unwrap_or("{}");
-                    let call_id = if fc_id.starts_with("fc_") {
-                        &fc_id[3..]
-                    } else {
-                        fc_id
-                    };
+                    let call_id = fc_id.strip_prefix("fc_").unwrap_or(fc_id);
                     tool_calls.push(json!({
                         "id": call_id,
                         "type": "function",
@@ -691,7 +683,7 @@ impl Translator for ResponsesToChatTranslator {
                         ]
                     });
                     context.has_content = true;
-                    Ok(format!("data: {}\n\n", chunk.to_string()))
+                    Ok(format!("data: {}\n\n", chunk))
                 } else {
                     Ok("".to_string())
                 }
@@ -711,7 +703,7 @@ impl Translator for ResponsesToChatTranslator {
                         }
                     ]
                 });
-                Ok(format!("data: {}\n\n", chunk.to_string()))
+                Ok(format!("data: {}\n\n", chunk))
             }
 
             "response.output_item.added" | "response.output_item.done" => {
@@ -740,7 +732,7 @@ impl Translator for ResponsesToChatTranslator {
                         }
                     ]
                 });
-                Ok(format!("data: {}\n\n", chunk.to_string()))
+                Ok(format!("data: {}\n\n", chunk))
             }
 
             "response.completed" | "response.done" => {

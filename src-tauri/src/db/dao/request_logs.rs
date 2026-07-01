@@ -1,7 +1,10 @@
-/// 请求日志 DAO。
-///
-/// 对应设计文档 §2 数据模型 `request_logs` 表。
-/// 每次转发写一条记录；支持按 tool/status/时间范围/limit/offset 筛选查询。
+//! 请求日志 DAO。
+//!
+//! 对应设计文档 §2 数据模型 `request_logs` 表。
+//! 每次转发写一条记录；支持按 tool/status/时间范围/limit/offset 筛选查询。
+//!
+//! 写入侧 `insert`/`new_log`/`now_iso` 为主循环日志接线预留。
+#![allow(dead_code)]
 use rusqlite::{params, Connection};
 use std::sync::Mutex;
 use time::OffsetDateTime;

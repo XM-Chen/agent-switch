@@ -13,13 +13,18 @@ use futures::stream::{Stream, StreamExt};
 
 use crate::http::proxy::error::{ProxyError, ProxyErrorKind};
 
+/// 字节流类型别名：向客户端转发的 SSE/字节数据流。
+pub type ByteStream =
+    Pin<Box<dyn Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync>>> + Send>>;
+
 /// 缓冲首块后的结果。
 pub struct BufferedResult {
-    /// 第一个 data chunk（若为流式且成功）。
+    /// 第一个 data chunk（若为流式且成功）。已合并进 `remaining_stream`，
+    /// 单独保留供调用方做首块检查/调试。
+    #[allow(dead_code)]
     pub first_chunk: Bytes,
     /// 包含首块 + 剩余数据的完整流（供客户端消费）。
-    pub remaining_stream:
-        Pin<Box<dyn Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync>>> + Send>>,
+    pub remaining_stream: ByteStream,
 }
 
 /// 流首块守卫。

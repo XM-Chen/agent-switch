@@ -1,8 +1,11 @@
-/// 认证注入器。
-///
-/// 根据端点的认证模式为上游请求注入认证 Header。
-/// 支持 API Key 模式（解密 → 注入 Bearer / x-api-key）和 OAuth Codex 模式（通过 oauth_refresh 获取 token）。
-/// 注入前清除请求中原有的 Authorization 和 x-api-key 头。
+//! 认证注入器。
+//!
+//! 根据端点的认证模式为上游请求注入认证 Header。
+//! 支持 API Key 模式（解密 → 注入 Bearer / x-api-key）和 OAuth Codex 模式（通过 oauth_refresh 获取 token）。
+//! 注入前清除请求中原有的 Authorization 和 x-api-key 头。
+//!
+//! `AuthResult` 的 `auth_type` / `endpoint_id` 字段为可观测性/日志侧预留。
+#![allow(dead_code)]
 use std::path::Path;
 use std::sync::Mutex;
 

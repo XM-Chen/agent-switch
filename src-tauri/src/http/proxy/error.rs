@@ -1,8 +1,12 @@
-/// 代理转发错误类型与故障转移决策。
-///
-/// 定义 `ProxyError`（全链路错误结构）、`ProxyErrorKind`（错误分类）
-/// 以及 `should_failover()` 方法，用于判断是否应触发故障转移切换。
-/// 参考 prd.md 错误分类规则。
+//! 代理转发错误类型与故障转移决策。
+//!
+//! 定义 `ProxyError`（全链路错误结构）、`ProxyErrorKind`（错误分类）
+//! 以及 `should_failover()` 方法，用于判断是否应触发故障转移切换。
+//! 参考 prd.md 错误分类规则。
+//!
+//! `AllExhausted` 变体与 `retryable`/`stream_started` 方法为路由主循环
+//! 预留，尚未全量接线，保留以对齐设计契约。
+#![allow(dead_code)]
 use std::fmt;
 
 /// 代理错误分类。
@@ -66,11 +70,12 @@ impl ProxyError {
             ProxyErrorKind::NetworkError | ProxyErrorKind::Timeout => true,
             ProxyErrorKind::UpstreamError(status) => match *status {
                 408 | 429 | 529 => true,
-                500..=599 => true,
                 // 400/405/406/413/414/415/422/501 — 非退避错误
+                // （501 落在 5xx 区间内，必须先于 500..=599 匹配，否则会被误判为可退避）
                 400 | 405 | 406 | 413 | 414 | 415 | 422 | 501 => false,
                 // 401/403/404 — 谨慎处理，默认不退避
                 401 | 403 | 404 => false,
+                500..=599 => true,
                 _ => false,
             },
             // 协议错误、已全部耗尽、本地错误不退避

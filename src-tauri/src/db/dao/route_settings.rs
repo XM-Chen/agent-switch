@@ -1,7 +1,13 @@
-/// 路由设置 DAO。
-///
-/// 对应设计文档 §2 数据模型 `route_settings` 表。
-/// 每条路由（claude-code / codex）一行，存储选择策略与故障转移参数。
+//! 路由设置 DAO。
+//!
+//! 对应设计文档 §2 数据模型 `route_settings` 表。
+//! 每条路由（claude-code / codex）一行，存储选择策略与故障转移参数。
+//!
+//! `upsert` 为路由设置 UI 写入侧预留，尚未接线。
+//!
+//! `upsert` / `upsert_partial` 参数与 DB 列一一对应，故超出默认参数上限。
+#![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
 use rusqlite::{params, Connection};
 use std::sync::Mutex;
 use time::OffsetDateTime;

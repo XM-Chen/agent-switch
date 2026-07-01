@@ -36,6 +36,7 @@ pub fn map_role(role: &str, direction: &str) -> String {
 /// 处理两种形式：
 /// - 直接字符串 `"content": "hello"`
 /// - 内容块数组 `"content": [{"type":"text","text":"hello"}, ...]`
+///
 /// 返回第一个文本块的文本内容，或 None。
 pub fn extract_content_text(content: &Value) -> Option<String> {
     match content {
@@ -88,9 +89,7 @@ pub fn build_error_event(msg: &str, protocol: &str) -> String {
             )
         }
         "openai-chat" => {
-            format!(
-                "data: {{\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"error\"}}]}}\n\ndata: [DONE]\n\n"
-            )
+            "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"error\"}]}\n\ndata: [DONE]\n\n".to_string()
         }
         "openai-responses" => {
             let escaped = serde_json::to_string(msg).unwrap_or_else(|_| format!("\"{}\"", msg));
@@ -99,7 +98,7 @@ pub fn build_error_event(msg: &str, protocol: &str) -> String {
                 escaped
             )
         }
-        _ => format!("data: [DONE]\n\n"),
+        _ => "data: [DONE]\n\n".to_string(),
     }
 }
 

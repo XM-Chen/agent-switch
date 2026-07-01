@@ -1,7 +1,10 @@
-/// 故障转移引擎。
-///
-/// 管理端点切换状态、重试计数、冷却逻辑和回退链。
-/// `FailoverState` 提供状态追踪和辅助方法，`proxy_request` 内部驱动路由主循环。
+//! 故障转移引擎。
+//!
+//! 管理端点切换状态、重试计数、冷却逻辑和回退链。
+//! `FailoverState` 提供状态追踪和辅助方法，`proxy_request` 内部驱动路由主循环。
+//!
+//! `RouteAttempt` 与部分重试计数辅助方法为路由管理层预留，尚未在主循环全量接线。
+#![allow(dead_code)]
 use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
@@ -179,7 +182,7 @@ impl FailoverState {
             ProxyErrorKind::UpstreamError(429) => {
                 // 尝试从 error.message 解析 Retry-After
                 let retry_after = parse_retry_after(&error.message).unwrap_or(5);
-                retry_after + constants::COOLDOWN_429_RETRY_AFTER_BUFFER_SECS as i64
+                retry_after + constants::COOLDOWN_429_RETRY_AFTER_BUFFER_SECS
             }
             ProxyErrorKind::UpstreamError(503) | ProxyErrorKind::UpstreamError(529) => {
                 // 指数退避：2^switch_count 秒，最大 300s
