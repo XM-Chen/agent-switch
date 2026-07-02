@@ -39,75 +39,73 @@ impl Translator for ChatToResponsesTranslator {
         if let Some(messages) = body.get("messages").and_then(|m| m.as_array()) {
             let input_items: Vec<Value> = messages
                 .iter()
-                .map(|msg| {
+                .flat_map(|msg| {
                     let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("user");
                     let content = msg.get("content").cloned().unwrap_or(json!(""));
                     match role {
-                        "system" => json!({
+                        "system" => vec![json!({
                             "type": "message",
                             "role": "developer",
                             "content": content
-                        }),
-                        "user" => json!({
+                        })],
+                        "user" => vec![json!({
                             "type": "message",
                             "role": "user",
                             "content": content
-                        }),
+                        })],
                         "assistant" => {
-                            let mut item = json!({
+                            // assistant 消息作为 message item；
+                            // tool_calls 作为独立的 function_call item 平铺到 input（而非嵌在 message item 的 output 里）。
+                            let mut items: Vec<Value> = vec![json!({
                                 "type": "message",
                                 "role": "assistant",
                                 "content": content
-                            });
-                            // tool_calls → output items
+                            })];
                             if let Some(tool_calls) =
                                 msg.get("tool_calls").and_then(|t| t.as_array())
                             {
-                                let fc_items: Vec<Value> = tool_calls
-                                    .iter()
-                                    .map(|tc| {
-                                        let tc_id =
-                                            tc.get("id").and_then(|i| i.as_str()).unwrap_or("");
-                                        let tc_name = tc
-                                            .get("function")
-                                            .and_then(|f| f.get("name"))
-                                            .and_then(|n| n.as_str())
-                                            .unwrap_or("");
-                                        let tc_args = tc
-                                            .get("function")
-                                            .and_then(|f| f.get("arguments"))
-                                            .and_then(|a| a.as_str())
-                                            .unwrap_or("{}");
-                                        json!({
-                                            "type": "function_call",
-                                            "id": format!("fc_{}", tc_id),
-                                            "name": tc_name,
-                                            "arguments": tc_args,
-                                            "status": "completed"
-                                        })
-                                    })
-                                    .collect();
-                                item["output"] = json!(fc_items);
+                                for tc in tool_calls {
+                                    let tc_id =
+                                        tc.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                                    let tc_name = tc
+                                        .get("function")
+                                        .and_then(|f| f.get("name"))
+                                        .and_then(|n| n.as_str())
+                                        .unwrap_or("");
+                                    let tc_args = tc
+                                        .get("function")
+                                        .and_then(|f| f.get("arguments"))
+                                        .and_then(|a| a.as_str())
+                                        .unwrap_or("{}");
+                                    items.push(json!({
+                                        "type": "function_call",
+                                        "id": format!("fc_{}", tc_id),
+                                        "call_id": tc_id,
+                                        "name": tc_name,
+                                        "arguments": tc_args,
+                                        "status": "completed"
+                                    }));
+                                }
                             }
-                            item
+                            items
                         }
                         "tool" => {
                             let tc_id = msg
                                 .get("tool_call_id")
                                 .and_then(|i| i.as_str())
                                 .unwrap_or("");
-                            json!({
+                            vec![json!({
                                 "type": "function_call_output",
                                 "id": format!("fco_{}", tc_id),
                                 "call_id": tc_id,
                                 "output": content
-                            })
+                            })]
                         }
-                        _ => json!({
+                        _ => vec![json!({
                             "type": "message",
                             "role": "user",
                             "content": content
-                        }),
+                        })],
                     }
                 })
                 .collect();
@@ -335,9 +333,11 @@ impl Translator for ChatToResponsesTranslator {
         // content delta → response.text.delta
         if let Some(text) = content {
             if !text.is_empty() {
+                // 用 serde_json 正确转义，避免手动 replace 漏处理 \n/\r/\t/控制字符。
+                let escaped = serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_string());
                 output.push_str(&format!(
-                    "event: response.text.delta\ndata: {{\"type\":\"response.text.delta\",\"delta\":\"{}\"}}\n\n",
-                    text.replace('\\', "\\\\").replace('"', "\\\"")
+                    "event: response.text.delta\ndata: {{\"type\":\"response.text.delta\",\"delta\":{}}}\n\n",
+                    escaped
                 ));
             }
         }
@@ -348,16 +348,48 @@ impl Translator for ChatToResponsesTranslator {
             .and_then(|t| t.as_array())
         {
             for tc in tool_calls {
+                // 用 Chat 的 tool_call index 作为 item 标识，发 output_item.added/done
+                // 生命周期事件，并映射到 Responses 的 output_index/item_index。
+                let tc_index = tc.get("index").and_then(|i| i.as_i64()).unwrap_or(0) as i32;
+                let tc_id = tc.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                let tc_name = tc
+                    .get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("");
+
+                // 首次见到该 tool_call：发 output_item.added 创建 function_call item
+                if !tc_id.is_empty() && !context.tool_calls.contains_key(&tc_index) {
+                    let item_id = format!("fc_{}", tc_id);
+                    output.push_str(&format!(
+                        "event: response.output_item.added\ndata: {{\"type\":\"response.output_item.added\",\"output_index\":{},\"item\":{{\"type\":\"function_call\",\"id\":\"{}\",\"call_id\":\"{}\",\"name\":\"{}\",\"arguments\":\"\",\"status\":\"in_progress\"}}}}\n\n",
+                        tc_index, item_id, tc_id, tc_name
+                    ));
+                    context.tool_calls.insert(
+                        tc_index,
+                        crate::services::translator::ToolCallAcc {
+                            id: tc_id.to_string(),
+                            name: tc_name.to_string(),
+                            arguments: String::new(),
+                        },
+                    );
+                }
+
                 if let Some(args) = tc
                     .get("function")
                     .and_then(|f| f.get("arguments"))
                     .and_then(|a| a.as_str())
                 {
                     if !args.is_empty() {
+                        // 用 serde_json 正确转义 args（部分 JSON 字符串），避免双重转义损坏
+                        let escaped = serde_json::to_string(args).unwrap_or_else(|_| "\"\"".to_string());
                         output.push_str(&format!(
-                            "event: response.function_call_arguments.delta\ndata: {{\"type\":\"response.function_call_arguments.delta\",\"delta\":\"{}\"}}\n\n",
-                            args.replace('\\', "\\\\").replace('"', "\\\"")
+                            "event: response.function_call_arguments.delta\ndata: {{\"type\":\"response.function_call_arguments.delta\",\"output_index\":{},\"delta\":{}}}\n\n",
+                            tc_index, escaped
                         ));
+                        if let Some(acc) = context.tool_calls.get_mut(&tc_index) {
+                            acc.arguments.push_str(args);
+                        }
                     }
                 }
             }
@@ -500,12 +532,10 @@ impl Translator for ResponsesToChatTranslator {
             body["tools"] = json!(chat_tools);
         }
 
-        // 4. 移除 Responses 专有字段
+        // 4. 移除 Responses 专有字段（保留 temperature/top_p/max_tokens 等通用参数）
         let resp_only = [
             "previous_response_id",
             "truncation",
-            "temperature",
-            "top_p",
             "store",
             "metadata",
         ];
@@ -550,12 +580,30 @@ impl Translator for ResponsesToChatTranslator {
         for item in &output {
             match item.get("type").and_then(|t| t.as_str()) {
                 Some("message") => {
-                    let item_content = item.get("content").and_then(|c| c.as_str()).unwrap_or("");
-                    if !item_content.is_empty() {
+                    // content 可能是字符串或数组（多模态），统一提取文本
+                    let item_content = item.get("content");
+                    let text = match item_content {
+                        Some(Value::String(s)) => s.clone(),
+                        Some(Value::Array(arr)) => {
+                            // 提取数组里所有 text 块的文本
+                            arr.iter()
+                                .filter_map(|b| {
+                                    if b.get("type").and_then(|t| t.as_str()) == Some("text") {
+                                        b.get("text").and_then(|t| t.as_str()).map(String::from)
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join("")
+                        }
+                        _ => String::new(),
+                    };
+                    if !text.is_empty() {
                         if !content_text.is_empty() {
                             content_text.push('\n');
                         }
-                        content_text.push_str(item_content);
+                        content_text.push_str(&text);
                     }
                 }
                 Some("function_call") => {
@@ -706,14 +754,66 @@ impl Translator for ResponsesToChatTranslator {
                 Ok(format!("data: {}\n\n", chunk))
             }
 
-            "response.output_item.added" | "response.output_item.done" => {
-                // 跳过 item 生命周期事件
+            "response.output_item.added" => {
+                // 记录 function_call item 的 output_index → Chat tool_call index 映射。
+                // Responses 的 output_index 是所有 output item 的序号（message+function_call 混排），
+                // 而 Chat 的 tool_calls[].index 只计工具调用，从 0 开始。
+                if parsed.get("item").and_then(|i| i.get("type")).and_then(|t| t.as_str())
+                    == Some("function_call")
+                {
+                    let output_index =
+                        parsed.get("output_index").and_then(|i| i.as_i64()).unwrap_or(0) as i32;
+                    if !context.block_to_tool_index.contains_key(&output_index) {
+                        let tool_index = context.block_to_tool_index.len() as i32;
+                        context.block_to_tool_index.insert(output_index, tool_index);
+                        // 同时初始化累积器，并发出 tool_call 起始 delta（带 id/name）
+                        let item = parsed.get("item").unwrap();
+                        let fc_id = item.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                        let fc_name = item.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                        let call_id = item.get("call_id").and_then(|i| i.as_str()).unwrap_or(fc_id);
+                        context.tool_calls.insert(
+                            tool_index,
+                            crate::services::translator::ToolCallAcc {
+                                id: call_id.to_string(),
+                                name: fc_name.to_string(),
+                                arguments: String::new(),
+                            },
+                        );
+                        let chunk = json!({
+                            "choices": [{
+                                "index": 0,
+                                "delta": {
+                                    "tool_calls": [{
+                                        "index": tool_index,
+                                        "id": call_id,
+                                        "type": "function",
+                                        "function": { "name": fc_name, "arguments": "" }
+                                    }]
+                                },
+                                "finish_reason": null
+                            }]
+                        });
+                        return Ok(format!("data: {}\n\n", chunk));
+                    }
+                }
+                Ok("".to_string())
+            }
+
+            "response.output_item.done" => {
                 Ok("".to_string())
             }
 
             "response.function_call_arguments.delta" => {
                 // function call arguments delta
                 let text = parsed.get("delta").and_then(|d| d.as_str()).unwrap_or("");
+                let output_index =
+                    parsed.get("output_index").and_then(|i| i.as_i64()).unwrap_or(0) as i32;
+                // 用映射后的 Chat tool_call index，而非 Responses output_index
+                let tool_index = context
+                    .block_to_tool_index
+                    .get(&output_index)
+                    .copied()
+                    .unwrap_or(0);
                 let chunk = json!({
                     "choices": [
                         {
@@ -721,7 +821,7 @@ impl Translator for ResponsesToChatTranslator {
                             "delta": {
                                 "tool_calls": [
                                     {
-                                        "index": 0,
+                                        "index": tool_index,
                                         "function": {
                                             "arguments": text
                                         }
@@ -1020,5 +1120,67 @@ mod tests {
         assert_eq!(body["messages"][0]["role"], "system");
         assert_eq!(body["messages"][1]["role"], "user");
         assert_eq!(body["model"], "gpt-4o");
+    }
+
+    /// 回归 R4：assistant + tool_calls 应平铺为 message item + 独立 function_call items，
+    /// 而非把 function_call 嵌在 message item 的 output 字段里。
+    #[test]
+    fn test_chat_to_responses_request_assistant_tool_calls_flat() {
+        let t = ChatToResponsesTranslator;
+        let mut body = json!({
+            "model": "gpt-4",
+            "messages": [
+                {"role": "assistant", "content": "Let me check", "tool_calls": [
+                    {"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\":\"NYC\"}"}}
+                ]}
+            ]
+        });
+
+        t.translate_request(&mut body, "gpt-4").unwrap();
+
+        let input = body["input"].as_array().unwrap();
+        assert_eq!(input.len(), 2, "应拆成 1 个 message item + 1 个 function_call item");
+        assert_eq!(input[0]["type"], "message");
+        assert_eq!(input[0]["role"], "assistant");
+        assert_eq!(input[1]["type"], "function_call");
+        assert_eq!(input[1]["call_id"], "call_1");
+        assert_eq!(input[1]["name"], "get_weather");
+        // 确保没有错误嵌套的 output 字段
+        assert!(input[0].get("output").is_none());
+    }
+
+    /// 回归 R5：temperature/top_p 不应被移除。
+    #[test]
+    fn test_chat_to_responses_request_preserves_sampling_params() {
+        let t = ChatToResponsesTranslator;
+        let mut body = json!({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "hi"}],
+            "temperature": 0.7,
+            "top_p": 0.9
+        });
+
+        t.translate_request(&mut body, "gpt-4").unwrap();
+        assert_eq!(body["temperature"], 0.7);
+        assert_eq!(body["top_p"], 0.9);
+    }
+
+    /// 回归 R1：流式 text delta 含特殊字符时 SSE data 必须是合法 JSON。
+    #[test]
+    fn test_chat_to_responses_stream_text_special_chars() {
+        let t = ChatToResponsesTranslator;
+        let mut ctx = StreamContext::new("chatcmpl_abc", "gpt-4", 0);
+        let _ = t.translate_stream_line(
+            "data: {\"id\":\"resp_1\",\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}",
+            &mut ctx,
+        ).unwrap();
+        let out = t.translate_stream_line(
+            "data: {\"id\":\"resp_1\",\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"line1\\nline2 \\\"q\\\" \\\\p\"},\"finish_reason\":null}]}",
+            &mut ctx,
+        ).unwrap();
+        let data_line = out.lines().rev().find(|l| l.starts_with("data: ")).unwrap();
+        let payload = data_line.trim_start_matches("data: ");
+        let v: Value = serde_json::from_str(payload).expect("必须是合法 JSON");
+        assert_eq!(v["delta"], "line1\nline2 \"q\" \\p");
     }
 }
