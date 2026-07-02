@@ -33,7 +33,7 @@ time = { version = "0.3", features = ["formatting"] }
 # 凭据加密与 Keychain
 aes-gcm = "0.10"
 rand = "0.8"
-keyring = "3"
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
 base64 = "0.22"
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
