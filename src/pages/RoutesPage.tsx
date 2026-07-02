@@ -352,7 +352,7 @@ function RouteSettingsForm({ route, onSaved }: { route: RouteSettings; onSaved: 
           <input
             type="number"
             value={maxSwitches}
-            onChange={(e) => setMaxSwitches(Number(e.target.value))}
+            onChange={(e) => setMaxSwitches(Math.max(1, Number(e.target.value) || 1))}
             min={1}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-sm bg-transparent"
           />
@@ -362,7 +362,7 @@ function RouteSettingsForm({ route, onSaved }: { route: RouteSettings; onSaved: 
           <input
             type="number"
             value={sameAccountRetries}
-            onChange={(e) => setSameAccountRetries(Number(e.target.value))}
+            onChange={(e) => setSameAccountRetries(Math.max(0, Number(e.target.value) || 0))}
             min={0}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-sm bg-transparent"
           />
@@ -374,7 +374,7 @@ function RouteSettingsForm({ route, onSaved }: { route: RouteSettings; onSaved: 
         <input
           type="number"
           value={cooldownMultiplier}
-          onChange={(e) => setCooldownMultiplier(Number(e.target.value))}
+          onChange={(e) => setCooldownMultiplier(Math.max(0.1, Number(e.target.value) || 0.1))}
           min={0.1}
           step={0.1}
           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-sm bg-transparent"

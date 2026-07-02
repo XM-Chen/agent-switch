@@ -95,7 +95,7 @@ export function AliasPanel() {
             value={resolveInput}
             onChange={(e) => setResolveInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && resolveInput) resolve.mutate();
+              if (e.key === 'Enter' && resolveInput && !resolve.isPending) resolve.mutate();
             }}
             className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-sm bg-transparent font-mono"
             placeholder="输入别名，如 sonnet"

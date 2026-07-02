@@ -162,6 +162,10 @@ function PortabilityCard() {
       setImportError(null);
       // 导入会改变账号/端点/模型等，刷新相关查询缓存。
       queryClient.invalidateQueries();
+      // 重置表单，防止用户意外重复导入同一包。
+      setImportPackage('');
+      setImportFileName('');
+      setImportPassword('');
     },
     onError: (e: Error) => {
       setImportError(`导入失败：${e.message}`);

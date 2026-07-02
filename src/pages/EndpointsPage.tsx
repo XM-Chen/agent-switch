@@ -76,13 +76,14 @@ export function EndpointsPage() {
                 <td className="px-4 py-3">
                   <button
                     onClick={() => toggle.mutate({ id: e.id, enabled: !e.enabled })}
-                    className={`px-2 py-0.5 rounded text-xs ${
+                    disabled={toggle.isPending}
+                    className={`px-2 py-0.5 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed ${
                       e.enabled
                         ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                         : 'bg-gray-100 text-gray-500 dark:bg-gray-800'
                     }`}
                   >
-                    {e.enabled ? '已启用' : '已禁用'}
+                    {toggle.isPending ? '切换中...' : e.enabled ? '已启用' : '已禁用'}
                   </button>
                 </td>
                 <td className="px-4 py-3">
