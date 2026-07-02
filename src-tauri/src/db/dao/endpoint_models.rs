@@ -120,55 +120,39 @@ pub fn create(db: &Mutex<Connection>, new: NewEndpointModel) -> Result<EndpointM
     get(db, &new.id)?.ok_or_else(|| "创建后无法读取模型".to_string())
 }
 
-pub fn upsert_synced(
-    db: &Mutex<Connection>,
-    new: NewEndpointModel,
-) -> Result<EndpointModelRow, String> {
-    let now = now_iso()?;
-    {
-        let conn = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
-        conn.execute(
-            "INSERT INTO endpoint_models (id, endpoint_id, model_name, display_name, source, capabilities, context_window, is_available, last_seen_at, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 'synced', ?5, ?6, 1, ?7, ?8, ?8)
-             ON CONFLICT(endpoint_id, model_name) DO UPDATE SET
-               display_name=excluded.display_name,
-               capabilities=excluded.capabilities,
-               context_window=excluded.context_window,
-               is_available=1,
-               last_seen_at=excluded.last_seen_at,
-               updated_at=excluded.updated_at",
-            params![
-                new.id, new.endpoint_id, new.model_name, new.display_name,
-                new.capabilities, new.context_window, new.last_seen_at, now,
-            ],
-        )
-        .map_err(|e| format!("upsert 模型失败: {}", e))?;
-    }
-    // 重新查询刚 upsert 的行。
-    let conn = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
-    let mut stmt = conn
-        .prepare("SELECT * FROM endpoint_models WHERE endpoint_id = ?1 AND model_name = ?2")
-        .map_err(|e| format!("查询失败: {}", e))?;
-    let mut rows = stmt
-        .query_map(params![new.endpoint_id, new.model_name], row_to_model)
-        .map_err(|e| format!("读取失败: {}", e))?;
-    rows.next()
-        .transpose()
-        .map_err(|e| format!("解析失败: {}", e))?
-        .ok_or_else(|| "upsert 后无法读取模型".to_string())
+/// 事务内版本：upsert 单个 synced 模型（不获取 Mutex，调用方已持有连接）。
+pub fn upsert_synced_in_tx(conn: &Connection, new: &NewEndpointModel, now: &str) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO endpoint_models (id, endpoint_id, model_name, display_name, source, capabilities, context_window, is_available, last_seen_at, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, 'synced', ?5, ?6, 1, ?7, ?8, ?8)
+         ON CONFLICT(endpoint_id, model_name) DO UPDATE SET
+           display_name=excluded.display_name,
+           capabilities=excluded.capabilities,
+           context_window=excluded.context_window,
+           is_available=1,
+           last_seen_at=excluded.last_seen_at,
+           updated_at=excluded.updated_at",
+        params![
+            new.id, new.endpoint_id, new.model_name, new.display_name,
+            new.capabilities, new.context_window, new.last_seen_at, now,
+        ],
+    )
+    .map_err(|e| format!("upsert 模型失败: {}", e))?;
+    Ok(())
 }
 
-pub fn mark_unavailable_except(
-    db: &Mutex<Connection>,
+/// 事务内版本：标记未在本次 sync 中出现的 synced 模型为不可用。
+pub fn mark_unavailable_except_in_tx(
+    conn: &Connection,
     endpoint_id: &str,
     sync_time: &str,
+    now: &str,
 ) -> Result<usize, String> {
-    let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
-    let count = db
+    let count = conn
         .execute(
             "UPDATE endpoint_models SET is_available=0, updated_at=?1
              WHERE endpoint_id=?2 AND source='synced' AND (last_seen_at IS NULL OR last_seen_at < ?3)",
-            params![sync_time, endpoint_id, sync_time],
+            params![now, endpoint_id, sync_time],
         )
         .map_err(|e| format!("标记模型不可用失败: {}", e))?;
     Ok(count)

@@ -7,10 +7,14 @@ use crate::app_state::AppState;
 use crate::db::dao::app_metadata;
 use crate::db::dao::endpoint_models;
 use crate::db::dao::endpoints::{self, EndpointRow};
+use crate::db::dao::request_logs;
 
 const SETTING_AUTO_REFRESH: &str = "auto_model_refresh_enabled";
 const SETTING_LAST_SYNC_AT: &str = "last_model_sync_at";
 const SETTING_LAST_SYNC_ERROR: &str = "last_model_sync_error";
+
+/// 日志保留上限。超过此条数的最旧日志会在每次模型同步时被清理。
+const MAX_LOG_ROWS: i64 = 5000;
 
 /// 模型刷新服务。
 pub struct ModelSyncService {
@@ -116,10 +120,19 @@ impl ModelSyncService {
             );
         }
 
+        // 顺带清理过期日志，防止 request_logs 无限增长。
+        // 容错：清理失败不影响同步结果。
+        if let Err(e) = request_logs::prune_old(&app_state.db, MAX_LOG_ROWS) {
+            tracing::warn!("清理旧请求日志失败: {}", e);
+        }
+
         Ok(report)
     }
 
     /// 刷新单个端点的模型列表。
+    ///
+    /// 所有 upsert + mark_unavailable 在同一个事务中完成，
+    /// 避免网络中断导致部分模型被误标为不可用。
     async fn sync_one_endpoint(
         &self,
         app_state: &Arc<AppState>,
@@ -128,25 +141,43 @@ impl ModelSyncService {
     ) -> Result<usize, String> {
         let models = fetch_models_from_endpoint(app_state, ep).await?;
 
-        let mut count = 0;
+        let count = models.len();
+        let endpoint_id = ep.id.clone();
+        let sync_time_owned = sync_time.to_string();
+
+        // 在单个事务中执行所有 DB 写入
+        let now = time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Iso8601::DEFAULT)
+            .map_err(|e| format!("时间格式化失败: {}", e))?;
+
+        let conn = app_state
+            .db
+            .lock()
+            .map_err(|e| format!("无法锁定数据库: {}", e))?;
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| format!("开始事务失败: {}", e))?;
+
         for m in &models {
             let id = uuid::Uuid::new_v4().to_string();
             let new_model = endpoint_models::NewEndpointModel {
                 id,
-                endpoint_id: ep.id.clone(),
+                endpoint_id: endpoint_id.clone(),
                 model_name: m.id.clone(),
                 display_name: m.id.clone(),
                 source: "synced".to_string(),
                 capabilities: m.capabilities.clone(),
                 context_window: m.context_window,
-                last_seen_at: Some(sync_time.to_string()),
+                last_seen_at: Some(sync_time_owned.clone()),
             };
-            endpoint_models::upsert_synced(&app_state.db, new_model)?;
-            count += 1;
+            endpoint_models::upsert_synced_in_tx(&tx, &new_model, &now)?;
         }
 
-        // 标记本次未返回的 synced 模型为不可用。
-        let _ = endpoint_models::mark_unavailable_except(&app_state.db, &ep.id, sync_time);
+        // 标记本次未返回的 synced 模型为不可用
+        endpoint_models::mark_unavailable_except_in_tx(&tx, &endpoint_id, &sync_time_owned, &now)?;
+
+        tx.commit()
+            .map_err(|e| format!("提交事务失败: {}", e))?;
 
         Ok(count)
     }

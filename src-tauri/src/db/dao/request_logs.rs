@@ -217,6 +217,29 @@ pub fn insert(db: &Mutex<Connection>, log: &RequestLogRow) -> Result<(), String>
     Ok(())
 }
 
+/// 删除超过保留条数的旧日志（按 created_at ASC 删除最旧的）。
+///
+/// 日志表无 TTL，调用方应在固定周期（如每次刷新模型或启动时）调用本函数，
+/// 防止 request_logs 无限增长拖慢查询和膨胀磁盘。
+pub fn prune_old(db: &Mutex<Connection>, max_rows: i64) -> Result<usize, String> {
+    if max_rows <= 0 {
+        return Ok(0);
+    }
+    let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
+    let count = db
+        .execute(
+            "DELETE FROM request_logs
+             WHERE id NOT IN (
+                 SELECT id FROM request_logs
+                 ORDER BY created_at DESC
+                 LIMIT ?1
+             )",
+            params![max_rows],
+        )
+        .map_err(|e| format!("清理旧日志失败: {}", e))?;
+    Ok(count)
+}
+
 /// 创建一个新的 RequestLogRow（生成 id 和 created_at）。
 pub fn new_log(
     request_id: &str,

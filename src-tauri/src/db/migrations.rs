@@ -193,7 +193,7 @@ const MIGRATIONS: &[Migration] = &[
 
 /// Ensure the migration tracking table exists, then run pending migrations.
 pub fn run_migrations(conn: &Mutex<Connection>) -> Result<(), String> {
-    let db = conn.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
+    let mut db = conn.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
 
     // Create schema_migrations if it does not exist
     db.execute(
@@ -233,7 +233,14 @@ pub fn run_migrations(conn: &Mutex<Connection>) -> Result<(), String> {
     for migration in &pending {
         tracing::info!("执行迁移 v{}: {}", migration.version, migration.name);
 
-        db.execute_batch(migration.sql).map_err(|e| {
+        // 将 DDL + schema_migrations 记录包裹在单个事务中，确保原子性。
+        // 若 DDL 成功但 INSERT 失败（磁盘满/crash），事务整体回滚，
+        // 下次启动可安全重试，不会出现 "duplicate column" 等非幂等错误。
+        let tx = db
+            .transaction()
+            .map_err(|e| format!("迁移 v{} 开启事务失败: {}", migration.version, e))?;
+
+        tx.execute_batch(migration.sql).map_err(|e| {
             format!(
                 "迁移 v{} ({}) 失败: {}",
                 migration.version, migration.name, e
@@ -244,11 +251,14 @@ pub fn run_migrations(conn: &Mutex<Connection>) -> Result<(), String> {
             .format(&time::format_description::well_known::Iso8601::DEFAULT)
             .map_err(|e| format!("时间格式化失败: {}", e))?;
 
-        db.execute(
+        tx.execute(
             "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?1, ?2, ?3)",
             rusqlite::params![migration.version, migration.name, now],
         )
         .map_err(|e| format!("迁移记录写入失败 v{}: {}", migration.version, e))?;
+
+        tx.commit()
+            .map_err(|e| format!("迁移 v{} 提交事务失败: {}", migration.version, e))?;
     }
 
     tracing::info!("数据库迁移：{} 项迁移已执行", pending.len());
