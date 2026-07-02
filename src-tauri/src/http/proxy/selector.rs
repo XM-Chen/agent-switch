@@ -16,7 +16,9 @@ use crate::http::proxy::constants;
 
 /// 端点选择器。
 pub struct EndpointSelector {
-    /// 协议类型（查询条件）。
+    /// 入站协议类型。当前仅记录，不用于过滤候选（跨协议由 translate 层处理）；
+    /// 保留供未来按协议亲和性优先级排序使用。
+    #[allow(dead_code)]
     protocol_type: String,
     /// 已加载的候选端点（按 priority ASC 排序）。
     candidates: Vec<EndpointRow>,
@@ -49,8 +51,13 @@ impl EndpointSelector {
     }
 
     /// 从 DB 加载候选端点（已启用 + 匹配协议类型，按 priority ASC）。
+    /// 加载所有已启用端点作为候选（不按协议过滤）。
+    ///
+    /// 参考 9router / ccs / cpa / sub2api：选择器按 model/capability/priority 筛选，
+    /// 而非按入站协议过滤端点；跨协议翻译由 translate 层在转发时按
+    /// `protocol_from != protocol_to` 判断触发。
     pub async fn load_candidates(&mut self, db: &Mutex<Connection>) -> Result<(), String> {
-        let rows = endpoints::list_by_protocol(db, &self.protocol_type)?;
+        let rows = endpoints::list_enabled(db)?;
         self.candidates = rows;
         self.cursor = 0;
         Ok(())

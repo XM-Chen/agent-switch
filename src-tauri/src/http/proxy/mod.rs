@@ -39,6 +39,9 @@ pub mod sse;
 pub mod stream_guard;
 pub mod translate;
 
+#[cfg(test)]
+mod integration_tests;
+
 /// 代理转发编排器。
 pub struct RouteProxy {
     pub db: Arc<Mutex<Connection>>,
@@ -257,9 +260,22 @@ impl RouteProxy {
             }
 
             // 协议转换（passthrough 模式跳过 translator）
-            let target_url = build_upstream_url(&endpoint, &path);
             let protocol_to = endpoint.protocol_type.clone();
-            let protocol_from = route_settings.protocol_type.clone();
+            // 入站协议用「已解析的实际协议」actual_protocol_type，而非路由表原始值：
+            // v1 路由表里是抽象字面量 "openai-compatible"，需先按子路径解析成
+            // 具体的 openai-chat / openai-responses，才能与 endpoint.protocol_type 正确比较。
+            // 否则会误判为跨协议、去 resolve("openai-compatible", …) 拿不到翻译器而 502。
+            let protocol_from = actual_protocol_type.clone();
+            // 跨协议转发时重写 URL path 为目标协议的规范路径
+            // （Claude Code 发 /v1/messages，路由到 OpenAI 端点应改为 /v1/chat/completions）。
+            // 同协议 / 媒体透传保持入站原 path。
+            let target_url = build_upstream_url(
+                &endpoint,
+                &path,
+                &protocol_from,
+                &protocol_to,
+                is_passthrough,
+            );
 
             let translated_body = if is_passthrough {
                 // 媒体透明流转：使用原始二进制 body，不经过 JSON 翻译器
@@ -665,9 +681,35 @@ async fn load_route_settings(
     route_settings::get(db, route_id)?.ok_or_else(|| format!("路由 '{}' 未配置", route_id))
 }
 
-fn build_upstream_url(endpoint: &crate::db::dao::endpoints::EndpointRow, path: &str) -> String {
+/// 构建上游转发 URL。
+///
+/// 跨协议转发时（`protocol_from != protocol_to` 且非媒体透传），入站路径按目标协议
+/// 重写为规范路径：anthropic→`/v1/messages`、openai-chat→`/v1/chat/completions`、
+/// openai-responses→`/v1/responses`。同协议或媒体透传保持入站原 path。
+fn build_upstream_url(
+    endpoint: &crate::db::dao::endpoints::EndpointRow,
+    path: &str,
+    protocol_from: &str,
+    protocol_to: &str,
+    is_passthrough: bool,
+) -> String {
     let base = endpoint.base_url.trim_end_matches('/');
-    format!("{}{}", base, path)
+    let effective_path = if !is_passthrough && protocol_from != protocol_to {
+        protocol_canonical_path(protocol_to).unwrap_or(path)
+    } else {
+        path
+    };
+    format!("{}{}", base, effective_path)
+}
+
+/// 协议 → 规范请求路径。未知协议返回 None（保持入站原 path）。
+fn protocol_canonical_path(protocol: &str) -> Option<&'static str> {
+    match protocol {
+        constants::PROTOCOL_ANTHROPIC => Some("/v1/messages"),
+        constants::PROTOCOL_OPENAI_CHAT => Some("/v1/chat/completions"),
+        constants::PROTOCOL_OPENAI_RESPONSES => Some("/v1/responses"),
+        _ => None,
+    }
 }
 
 /// 将端点冷却时长持久化到 DB（写 `cooldown_until` / `last_failure_at` / `last_error_kind`）。
