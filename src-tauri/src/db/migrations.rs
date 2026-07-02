@@ -138,9 +138,9 @@ const MIGRATIONS: &[Migration] = &[
             updated_at  TEXT NOT NULL
         );
         INSERT OR IGNORE INTO route_settings (id, label, strategy, protocol_type, updated_at)
-        VALUES ('claude-code', 'Claude Code', 'fill-first', 'anthropic', datetime('now'));
+        VALUES ('claude-code', 'Claude Code', 'fill-first', 'anthropic', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
         INSERT OR IGNORE INTO route_settings (id, label, strategy, protocol_type, updated_at)
-        VALUES ('codex', 'Codex', 'fill-first', 'openai-responses', datetime('now'));
+        VALUES ('codex', 'Codex', 'fill-first', 'openai-responses', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
         CREATE TABLE IF NOT EXISTS request_logs (
             id                TEXT PRIMARY KEY,
             request_id        TEXT NOT NULL,
@@ -184,7 +184,7 @@ const MIGRATIONS: &[Migration] = &[
         version: 6,
         name: "add_v1_route_and_media_log_fields",
         sql: "INSERT OR IGNORE INTO route_settings (id, label, strategy, protocol_type, failover_enabled, max_switches, same_account_retries, cooldown_multiplier, updated_at)
-        VALUES ('v1', 'OpenAI v1', 'fill-first', 'openai-compatible', 1, 10, 3, 1.0, datetime('now'));
+        VALUES ('v1', 'OpenAI v1', 'fill-first', 'openai-compatible', 1, 10, 3, 1.0, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
         ALTER TABLE request_logs ADD COLUMN media_type TEXT;
         ALTER TABLE request_logs ADD COLUMN content_length INTEGER;
         ALTER TABLE request_logs ADD COLUMN body_sha256_hash TEXT;",

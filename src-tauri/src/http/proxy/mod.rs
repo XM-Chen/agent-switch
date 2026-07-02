@@ -189,22 +189,9 @@ impl RouteProxy {
         let mut last_mapping: Option<ModelMappingResult> = None;
 
         while failover.can_continue() {
-            let endpoint = match selector.next(&failover.failed_ids, |eid| {
-                // 模型级锁检查：锁键 = endpoint_id + 原始请求 model 名。
-                // 有未过期锁 → 跳过该端点（该端点此前对该模型返回 404/model_not_found）。
-                match original_model.as_ref() {
-                    Some(model) => {
-                        match crate::db::dao::model_locks::get_active_lock(&self.db, eid, model) {
-                            Ok(Some(_)) => false,
-                            Ok(None) => true,
-                            Err(e) => {
-                                tracing::warn!("查询模型锁失败 ({}:{}): {}", eid, model, e);
-                                true // 查询失败不阻塞，保守放行
-                            }
-                        }
-                    }
-                    None => true, // 无 model 字段的请求不查锁
-                }
+            let endpoint = match selector.next(&failover.failed_ids, |_eid| {
+                // 模型锁检查已移至模型映射之后（需要 upstream_model 才能正确查锁）。
+                true
             }) {
                 Some((ep, _)) => ep,
                 None => break, // 无可用端点
@@ -235,6 +222,32 @@ impl RouteProxy {
                     continue;
                 }
             };
+
+            // 模型锁检查：用 upstream_model（实际发送给上游的模型名）作为锁键，
+            // 而非入站 original_model。避免别名重配后旧锁错误阻止新映射。
+            if let Some(ref m) = mapping_result {
+                match crate::db::dao::model_locks::get_active_lock(
+                    &self.db,
+                    &endpoint.id,
+                    &m.upstream_model,
+                ) {
+                    Ok(Some(_)) => {
+                        // 该端点对此上游模型有活跃锁（此前 404），跳过
+                        failover.failed_ids.insert(endpoint.id.clone());
+                        continue;
+                    }
+                    Ok(None) => {} // 无锁，继续
+                    Err(e) => {
+                        tracing::warn!(
+                            "查询模型锁失败 ({}:{}): {}",
+                            endpoint.id,
+                            m.upstream_model,
+                            e
+                        );
+                        // 查询失败不阻塞，保守放行
+                    }
+                }
+            }
 
             // 复制入站 headers（剥离 hop-by-hop 及 content-length/host，
             // 避免跨协议翻译后 body 长度不符、上游收到错误的 Host 等问题）。
@@ -368,10 +381,15 @@ impl RouteProxy {
                             err = err.retryable(true);
                         }
 
-                        // 404/model_not_found：写模型级锁（endpoint_id + 原始请求 model 名，长冷却 1h），
-                        // 未来同模型请求在 selector 阶段跳过该端点。
+                        // 404/model_not_found：写模型级锁（endpoint_id + 上游实际模型名，长冷却 1h），
+                        // 未来同上游模型请求在模型映射后跳过该端点。
+                        // 使用 upstream_model 而非 original_model，确保别名重配后锁仍精确。
                         if status_code == 404 {
-                            if let Some(ref model) = original_model {
+                            let lock_model = mapping_result
+                                .as_ref()
+                                .map(|m| m.upstream_model.as_str())
+                                .or(original_model.as_deref());
+                            if let Some(model) = lock_model {
                                 let now = time::OffsetDateTime::now_utc();
                                 let until = now + time::Duration::seconds(3600);
                                 let until_iso = until
