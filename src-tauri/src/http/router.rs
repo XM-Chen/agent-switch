@@ -4,6 +4,7 @@ use axum::routing::{any, get, post};
 use axum::{body::Body, response::IntoResponse, Router};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 
 use super::api;
@@ -15,6 +16,13 @@ use crate::app_state::AppState;
 pub fn build(state: Arc<AppState>) -> Router {
     let web_dist_dir = state.web_dist_dir.clone();
     let index_file = web_dist_dir.join("index.html");
+
+    // CORS：生产构建里 Tauri WebView 用自定义协议源（http(s)://tauri.localhost）
+    // 加载前端，而前端 fetch 目标是 http://127.0.0.1:42567/api，属跨源。
+    // 不加 CORS 层时 OPTIONS 预检会被 catch-all 拦成 405、普通请求也无
+    // Access-Control-Allow-Origin，导致页面全部 "Failed to fetch"。
+    // 本服务仅绑 127.0.0.1 且按 PRD D0 不做本地认证，放开跨源符合既定安全边界。
+    let cors = CorsLayer::very_permissive();
 
     Router::new()
         .route("/health", get(health::health_check))
@@ -37,6 +45,7 @@ pub fn build(state: Arc<AppState>) -> Router {
         // OpenAI-compatible v1 多端点路由
         .route("/v1/{*path}", any(v1_handler))
         .fallback_service(ServeDir::new(web_dist_dir).fallback(ServeFile::new(index_file)))
+        .layer(cors)
         .with_state(state)
 }
 
