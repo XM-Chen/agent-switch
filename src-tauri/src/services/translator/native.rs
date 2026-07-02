@@ -77,6 +77,7 @@ mod tests {
             tool_calls: HashMap::new(),
             has_content: false,
             content_block_index: 0,
+            block_to_tool_index: HashMap::new(),
         };
         let result = t
             .translate_stream_line("data: {\"key\":\"val\"}", &mut ctx)

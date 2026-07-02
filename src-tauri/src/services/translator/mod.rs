@@ -35,12 +35,16 @@ pub struct StreamContext {
     pub model: String,
     /// 创建时间戳（Unix 秒）
     pub created_at: i64,
-    /// Tool call 累积器（index → ToolCallAcc）
+    /// Tool call 累积器（OpenAI tool_call index → ToolCallAcc）
     pub tool_calls: HashMap<i32, ToolCallAcc>,
     /// 是否已看到首块内容（用于判断是否已发送初始 delta）
     pub has_content: bool,
     /// 当前内容块索引（用于 Anthropic content_block 追踪）
     pub content_block_index: i32,
+    /// Anthropic content_block index → OpenAI tool_call index 的映射。
+    /// 同一条回复里 text 块（index 0）和 tool_use 块（index 1,2...）共用一个
+    /// 自增序号，但 OpenAI 的 tool_calls[].index 必须从 0 开始且只计工具调用。
+    pub block_to_tool_index: HashMap<i32, i32>,
 }
 
 impl StreamContext {
@@ -52,6 +56,7 @@ impl StreamContext {
             tool_calls: HashMap::new(),
             has_content: false,
             content_block_index: 0,
+            block_to_tool_index: HashMap::new(),
         }
     }
 }
