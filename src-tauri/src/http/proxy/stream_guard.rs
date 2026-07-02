@@ -100,23 +100,24 @@ impl StreamGuard {
             }
         };
 
-        // 检查首块是否包含错误（SSE 格式错误）
+        // 检查首块是否为 SSE 错误事件。
+        // 逐行解析 `data:` 行的 JSON，仅当 JSON 顶层 type=="error" 或存在 error 字段时判定为错误。
+        // 避免对包含 "error" 子串的正常内容增量误报（如 {"delta":{"content":"fix the error"}}）。
         let chunk_str = String::from_utf8_lossy(&first_chunk);
-        if chunk_str.contains("\"error\"") || chunk_str.contains("\"type\":\"error\"") {
-            let error_text = String::from_utf8_lossy(&first_chunk).to_string();
+        if let Some(err_text) = detect_sse_error(&chunk_str) {
             // 提取状态码（如果有）
-            if let Some(code) = extract_error_code(&error_text) {
+            if let Some(code) = extract_error_code(&err_text) {
                 return Err(ProxyError {
                     kind: ProxyErrorKind::UpstreamError(code),
                     status: code,
-                    message: error_text,
+                    message: err_text,
                     retryable: true,
                     stream_started: false,
                 });
             }
             return Err(ProxyError::new(
                 ProxyErrorKind::UpstreamError(502),
-                format!("上游流式响应返回错误: {}", error_text),
+                format!("上游流式响应返回错误: {}", err_text),
             ));
         }
 
@@ -161,6 +162,49 @@ fn extract_error_code(text: &str) -> Option<u16> {
             if let Some(code) = error.get("code").and_then(|v| v.as_u64()) {
                 return Some(code as u16);
             }
+        }
+    }
+    None
+}
+
+/// 解析 SSE 首块，检测是否为错误事件。
+///
+/// 遍历每个 `data:` 行，解析其 JSON 负载；仅当 JSON 顶层满足以下任一条件才判定为错误：
+/// - `type` 字段等于 `"error"`（Anthropic 风格）
+/// - 存在 `error` 字段（OpenAI 风格 `{"error": {...}}`）
+///
+/// 避免对 JSON 字符串值中恰好出现 "error" 子串的正常内容误报。
+/// 返回判定为错误的那行 JSON 文本（供 extract_error_code 进一步提取状态码）。
+fn detect_sse_error(chunk: &str) -> Option<String> {
+    for line in chunk.lines() {
+        let trimmed = line.trim();
+        // 跳过空行、注释行、事件行（event: ...）、id 行等，只处理 data: 行
+        let payload = if let Some(rest) = trimmed.strip_prefix("data:") {
+            rest.trim()
+        } else {
+            // 首块也可能是裸 JSON（非 SSE 封装的错误体），尝试整体解析
+            if trimmed.starts_with('{') || trimmed.starts_with('[') {
+                trimmed
+            } else {
+                continue;
+            }
+        };
+        if payload.is_empty() || payload == "[DONE]" {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
+            continue; // 非 JSON，跳过（可能是 keepalive 注释等）
+        };
+        // Anthropic 风格：{"type":"error", ...}
+        let is_error_type = value
+            .get("type")
+            .and_then(|v| v.as_str())
+            .map(|s| s == "error")
+            .unwrap_or(false);
+        // OpenAI 风格：{"error": {...}}
+        let has_error_field = value.get("error").is_some();
+        if is_error_type || has_error_field {
+            return Some(payload.to_string());
         }
     }
     None

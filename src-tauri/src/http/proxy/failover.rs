@@ -111,7 +111,9 @@ impl FailoverState {
         latency_ms: u64,
     ) -> i64 {
         if self.test_only {
-            // 测试模式：不增加 switch_count、不加入 failed_ids，仅记录 chain
+            // 测试模式：不增加 switch_count、不设冷却，但必须加入 failed_ids
+            // 防止 selector 重复选中同一端点导致无限循环。
+            self.failed_ids.insert(endpoint.id.clone());
             self.last_error = Some(error.clone());
             self.chain.push(FallbackHop {
                 endpoint_id: endpoint.id.clone(),

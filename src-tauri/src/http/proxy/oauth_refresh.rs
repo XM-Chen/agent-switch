@@ -1,8 +1,9 @@
 /// OAuth Token 刷新器。
 ///
 /// 检查 Codex OAuth 凭据是否即将过期，若需要则使用 refresh_token 获取新 token。
-/// 将新凭据加密后写回 DB。使用 `tokio::sync::Mutex` 防止同一账号并发刷新。
-use std::sync::Mutex;
+/// 将新凭据加密后写回 DB。使用 per-account `tokio::sync::Mutex` 防止同一账号并发刷新。
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use reqwest::Client;
 use rusqlite::Connection;
@@ -16,6 +17,10 @@ use crate::http::proxy::constants;
 use crate::http::proxy::error::{ProxyError, ProxyErrorKind};
 use crate::services::codex_oauth::CodexCredentials;
 use crate::services::crypto::CryptoService;
+
+/// Per-account 刷新锁：同一 account_id 的并发请求只有一个执行刷新，其余等待后直接读取新凭据。
+static REFRESH_LOCKS: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// OAuth token 交换响应（仅刷新所需字段）。
 #[derive(Debug, Deserialize)]
@@ -83,7 +88,63 @@ pub async fn ensure_valid_token(
     };
 
     if needs_refresh {
-        credentials = refresh_token(&credentials, db, crypto, account_id).await?;
+        // 获取 per-account 锁，防止同一账号并发刷新。
+        let lock = {
+            let mut map = REFRESH_LOCKS.lock().unwrap();
+            map.entry(account_id.to_string())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+        let _guard = lock.lock().await;
+
+        // Double-check：获得锁后重新读取凭据，可能已被其他请求刷新。
+        let account_fresh = accounts::get(db, account_id)
+            .map_err(|e| {
+                ProxyError::new(ProxyErrorKind::LocalError, format!("查询账号失败: {}", e))
+            })?
+            .ok_or_else(|| {
+                ProxyError::new(
+                    ProxyErrorKind::AuthError,
+                    format!("账号不存在: {}", account_id),
+                )
+            })?;
+        let encrypted_fresh = account_fresh.credentials_encrypted.as_ref().ok_or_else(|| {
+            ProxyError::new(
+                ProxyErrorKind::AuthError,
+                format!("账号 '{}' 缺少加密凭据", account_fresh.name),
+            )
+        })?;
+        let plaintext_fresh = crypto
+            .decrypt(encrypted_fresh, account_id.as_bytes())
+            .map_err(|e| {
+                ProxyError::new(ProxyErrorKind::LocalError, format!("解密凭据失败: {}", e))
+            })?;
+        let fresh_credentials: CodexCredentials =
+            serde_json::from_slice(&plaintext_fresh).map_err(|e| {
+                ProxyError::new(
+                    ProxyErrorKind::LocalError,
+                    format!("解析凭据 JSON 失败: {}", e),
+                )
+            })?;
+
+        // 重新检查是否仍需要刷新
+        let still_needs_refresh = match &fresh_credentials.expires_at {
+            Some(expires_str) => match OffsetDateTime::parse(expires_str, &Iso8601::DEFAULT) {
+                Ok(expires_at) => {
+                    let now = OffsetDateTime::now_utc();
+                    (expires_at - now).whole_seconds() <= constants::OAUTH_REFRESH_LEAD_TIME_SECS
+                }
+                Err(_) => true,
+            },
+            None => true,
+        };
+
+        if still_needs_refresh {
+            credentials = refresh_token(&fresh_credentials, db, crypto, account_id).await?;
+        } else {
+            // 已被其他请求刷新，直接使用新凭据
+            credentials = fresh_credentials;
+        }
     }
 
     Ok(credentials.access_token)

@@ -236,8 +236,19 @@ impl RouteProxy {
                 }
             };
 
-            // 复制入站 headers
-            upstream_headers.extend(incoming_headers.clone());
+            // 复制入站 headers（剥离 hop-by-hop 及 content-length/host，
+            // 避免跨协议翻译后 body 长度不符、上游收到错误的 Host 等问题）。
+            for (name, value) in incoming_headers.iter() {
+                let key = name.as_str().to_ascii_lowercase();
+                match key.as_str() {
+                    "host" | "content-length" | "connection" | "transfer-encoding"
+                    | "keep-alive" | "proxy-authenticate" | "proxy-authorization" | "te"
+                    | "trailers" | "upgrade" | "accept-encoding" => continue,
+                    _ => {
+                        upstream_headers.insert(name.clone(), value.clone());
+                    }
+                }
+            }
 
             // 认证注入
             if let Err(e) = inject_auth(
@@ -327,13 +338,35 @@ impl RouteProxy {
                             .map(|s| s.to_string())
                             .unwrap_or_else(|| "application/json".to_string());
 
+                        // 提取 Retry-After（仅 429 有意义，按 HTTP 规范可为秒数或 HTTP-date）
+                        // 必须在 resp.bytes() 消费 resp 之前读取 header。
+                        // 仅解析数字秒数形式；HTTP-date 形式较少见，解析失败回退到默认冷却。
+                        let retry_after_secs: Option<i64> = if status_code == 429 {
+                            resp.headers()
+                                .get("retry-after")
+                                .and_then(|v| v.to_str().ok())
+                                .and_then(|s| s.trim().parse::<i64>().ok())
+                        } else {
+                            None
+                        };
+
                         // 缓冲错误响应体一次，供探测 / 回传客户端复用
                         let err_bytes = resp.bytes().await.unwrap_or_default();
 
-                        let err = ProxyError::new(
+                        // 构建 ProxyError message：429 时附带 retry_after，供
+                        // failover::parse_retry_after 解析出真实冷却时长（而非固定 6s）。
+                        let mut err = ProxyError::new(
                             ProxyErrorKind::UpstreamError(status_code),
-                            format!("上游返回 {}", status_code),
+                            match retry_after_secs {
+                                Some(secs) => format!("{{\"retry_after\":{}}}", secs),
+                                None => format!("上游返回 {}", status_code),
+                            },
                         );
+                        // 可退避的错误（5xx/408/429/529）标记 retryable=true，
+                        // 使 failover.should_retry 在 same_account_retries 配额内允许同端点重试。
+                        if err.should_failover() {
+                            err = err.retryable(true);
+                        }
 
                         // 404/model_not_found：写模型级锁（endpoint_id + 原始请求 model 名，长冷却 1h），
                         // 未来同模型请求在 selector 阶段跳过该端点。
@@ -399,7 +432,24 @@ impl RouteProxy {
                             return Ok(response);
                         }
 
-                        // 可退避错误：记录失败 + 冷却，继续下一个候选
+                        // 可退避错误：先判断是否应同端点重试（same_account_retries），
+                        // 再决定是切换端点还是重选同一端点。
+                        if failover.should_retry(&endpoint.id, &err) {
+                            // 同端点重试：递增重试计数，不加入 failed_ids，
+                            // 也不写冷却（瞬态错误不应使端点进入冷却）。
+                            failover.get_and_increment_retry(&endpoint.id);
+                            failover.last_error = Some(err.clone());
+                            failover.chain.push(crate::http::proxy::failover::FallbackHop {
+                                endpoint_id: endpoint.id.clone(),
+                                model: None,
+                                status: "retry".to_string(),
+                                error_message: Some(err.message.clone()),
+                                latency_ms: Some(attempt_start.elapsed().as_millis() as u64),
+                            });
+                            continue;
+                        }
+
+                        // 重试耗尽或不可重试：记录失败 + 冷却，继续下一个候选
                         let cooldown_secs = failover.record_failure(
                             &endpoint,
                             &err,
