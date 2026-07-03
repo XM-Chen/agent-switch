@@ -3,7 +3,7 @@
   "name": "fix-codex-oauth-credentials",
   "title": "Codex OAuth 登录链路与凭据修复",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

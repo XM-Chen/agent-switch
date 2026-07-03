@@ -36,7 +36,13 @@ async fn start_codex_login(
                 message: "请在浏览器中完成 OpenAI 登录授权".to_string(),
             }),
         )),
-        Err(e) => Err((StatusCode::CONFLICT, e)),
+        Err(e) => {
+            if e.contains("已有 Codex OAuth 登录进行中") {
+                Err((StatusCode::CONFLICT, e))
+            } else {
+                Err((StatusCode::INTERNAL_SERVER_ERROR, e))
+            }
+        }
     }
 }
 

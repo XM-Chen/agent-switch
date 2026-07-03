@@ -5,6 +5,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 
 use crate::app_state::AppState;
@@ -205,6 +206,7 @@ async fn handle_callback(
 
     // 校验 state（防 CSRF）。
     if query.state.as_deref() != Some(&expected_state) {
+        cleanup_session(&app_state, &callback_shutdown).await;
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
@@ -217,6 +219,7 @@ async fn handle_callback(
     let code = match &query.code {
         Some(c) => c.clone(),
         None => {
+            cleanup_session(&app_state, &callback_shutdown).await;
             return (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
@@ -231,17 +234,36 @@ async fn handle_callback(
     match exchange_code_for_token(&code, &code_verifier).await {
         Ok(token_resp) => {
             // 解析 id_token JWT。
-            let (account_id, email, plan_type) = token_resp
+            let (account_id, email, plan_type, subject) = token_resp
                 .id_token
                 .as_ref()
                 .map(|jwt| parse_jwt_fields(jwt))
-                .unwrap_or((None, None, None));
+                .unwrap_or((None, None, None, None));
+
+            let account_id = account_id.or(subject);
+            let Some(account_id_str) = account_id.clone() else {
+                cleanup_session(&app_state, &callback_shutdown).await;
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": "missing_account_id",
+                        "message": "Codex OAuth id_token 缺少 chatgptAccountId/accountID/sub，无法稳定识别账号"
+                    })),
+                );
+            };
+
+            let expires_at = token_resp.expires_in.and_then(|expires_in| {
+                let at = time::OffsetDateTime::now_utc()
+                    + time::Duration::seconds(expires_in as i64);
+                at.format(&time::format_description::well_known::Iso8601::DEFAULT)
+                    .ok()
+            });
 
             let credentials = CodexCredentials {
                 access_token: token_resp.access_token,
                 refresh_token: token_resp.refresh_token,
                 id_token: token_resp.id_token,
-                expires_at: None,
+                expires_at,
                 account_id: account_id.clone(),
                 email: email.clone(),
                 plan_type: plan_type.clone(),
@@ -261,10 +283,6 @@ async fn handle_callback(
                     );
                 }
             };
-
-            let account_id_str = account_id
-                .clone()
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
             let name = email.clone().unwrap_or_else(|| "Codex 账号".to_string());
 
@@ -368,13 +386,20 @@ struct TokenResponse {
     access_token: String,
     refresh_token: Option<String>,
     id_token: Option<String>,
-    #[allow(dead_code)]
     expires_in: Option<u64>,
 }
 
 /// 用授权码交换 token。
 async fn exchange_code_for_token(code: &str, code_verifier: &str) -> Result<TokenResponse, String> {
-    let client = Client::new();
+    let client = Client::builder()
+        .connect_timeout(Duration::from_secs(
+            crate::http::proxy::constants::OAUTH_REFRESH_CONNECT_TIMEOUT_SECS,
+        ))
+        .timeout(Duration::from_secs(
+            crate::http::proxy::constants::OAUTH_REFRESH_TIMEOUT_SECS,
+        ))
+        .build()
+        .map_err(|e| format!("创建 token 交换客户端失败: {}", e))?;
     let params = [
         ("grant_type", "authorization_code"),
         ("client_id", CLIENT_ID),
@@ -404,22 +429,27 @@ async fn exchange_code_for_token(code: &str, code_verifier: &str) -> Result<Toke
 /// 解析 JWT 的 payload 部分（不验签，仅取字段）。
 ///
 /// JWT 格式：`header.payload.signature`，payload 是 base64url 编码的 JSON。
-fn parse_jwt_fields(jwt: &str) -> (Option<String>, Option<String>, Option<String>) {
+/// 返回 `(account_id, email, plan_type, subject)`，其中 `subject` 来自 `sub` claim，
+/// 供 `account_id` 缺失时作为稳定账号身份的回退（避免随机 UUID 产生重复账号）。
+fn parse_jwt_fields(
+    jwt: &str,
+) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
     let parts: Vec<&str> = jwt.split('.').collect();
     if parts.len() < 2 {
-        return (None, None, None);
+        return (None, None, None, None);
     }
-    let payload = match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]) {
+    // base64url payload 可能带或不带 `=` padding；两种都兼容。
+    let payload = match decode_base64url_lenient(parts[1]) {
         Ok(p) => p,
-        Err(_) => return (None, None, None),
+        Err(_) => return (None, None, None, None),
     };
     let value: serde_json::Value = match serde_json::from_slice(&payload) {
         Ok(v) => v,
-        Err(_) => return (None, None, None),
+        Err(_) => return (None, None, None, None),
     };
 
     // 9router 提取 email / chatgptAccountId / chatgptPlanType；
-    // cpa 提取 accountID / email。综合两者。
+    // cpa 提取 accountID / email。综合两者，并补 sub 作为回退。
     let email = value
         .get("email")
         .and_then(|v| v.as_str())
@@ -433,8 +463,25 @@ fn parse_jwt_fields(jwt: &str) -> (Option<String>, Option<String>, Option<String
         .get("chatgptPlanType")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let subject = value
+        .get("sub")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
-    (account_id, email, plan_type)
+    (account_id, email, plan_type, subject)
+}
+
+/// 解码 base64url payload，兼容带 `=` padding 与不带 padding 两种形式。
+fn decode_base64url_lenient(input: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    // 先按 no-pad 引擎解码；若失败（说明输入带了 padding），剥掉 `=` 后再试。
+    match URL_SAFE_NO_PAD.decode(input) {
+        Ok(bytes) => Ok(bytes),
+        Err(_) => {
+            let stripped: String = input.chars().filter(|c| *c != '=').collect();
+            URL_SAFE_NO_PAD.decode(&stripped)
+        }
+    }
 }
 
 /// 生成 PKCE code_challenge (S256)。
@@ -460,7 +507,7 @@ fn generate_random_string(len: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{connection, migrations};
+    use crate::db::migrations;
     use crate::services::crypto;
     use rusqlite::Connection;
     use std::sync::Mutex;
@@ -483,6 +530,107 @@ mod tests {
             model_sync: Arc::new(crate::services::model_sync::ModelSyncService::new()),
             route_proxy: tokio::sync::RwLock::new(None),
         })
+    }
+
+    /// 构造测试 JWT（不验签路径只读取 payload）。
+    fn test_jwt(payload: serde_json::Value, padded: bool) -> String {
+        let bytes = serde_json::to_vec(&payload).unwrap();
+        let payload = if padded {
+            base64::engine::general_purpose::URL_SAFE.encode(bytes)
+        } else {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+        };
+        format!("header.{}.signature", payload)
+    }
+
+    #[test]
+    fn parse_jwt_fields_accepts_padded_and_no_pad_payloads() {
+        let payload = serde_json::json!({
+            "chatgptAccountId": "acc-chatgpt",
+            "email": "user@example.com",
+            "chatgptPlanType": "plus",
+            "sub": "sub-1"
+        });
+
+        let no_pad = parse_jwt_fields(&test_jwt(payload.clone(), false));
+        assert_eq!(no_pad.0.as_deref(), Some("acc-chatgpt"));
+        assert_eq!(no_pad.1.as_deref(), Some("user@example.com"));
+        assert_eq!(no_pad.2.as_deref(), Some("plus"));
+        assert_eq!(no_pad.3.as_deref(), Some("sub-1"));
+
+        let padded = parse_jwt_fields(&test_jwt(payload, true));
+        assert_eq!(padded.0.as_deref(), Some("acc-chatgpt"));
+        assert_eq!(padded.1.as_deref(), Some("user@example.com"));
+        assert_eq!(padded.2.as_deref(), Some("plus"));
+        assert_eq!(padded.3.as_deref(), Some("sub-1"));
+    }
+
+    #[test]
+    fn parse_jwt_fields_supports_account_id_and_subject_fallback() {
+        let account_id_payload = serde_json::json!({
+            "accountID": "acc-cpa",
+            "email": "user@example.com"
+        });
+        let parsed = parse_jwt_fields(&test_jwt(account_id_payload, false));
+        assert_eq!(parsed.0.as_deref(), Some("acc-cpa"));
+        assert_eq!(parsed.3, None);
+
+        let subject_payload = serde_json::json!({
+            "sub": "stable-subject",
+            "email": "user@example.com"
+        });
+        let parsed = parse_jwt_fields(&test_jwt(subject_payload, false));
+        assert_eq!(parsed.0, None);
+        assert_eq!(parsed.3.as_deref(), Some("stable-subject"));
+    }
+
+    #[test]
+    fn decode_base64url_lenient_rejects_invalid_payload() {
+        assert!(decode_base64url_lenient("not valid+base64").is_err());
+    }
+
+    #[test]
+    fn initial_login_expires_at_uses_expires_in() {
+        let token_resp = TokenResponse {
+            access_token: "access".to_string(),
+            refresh_token: Some("refresh".to_string()),
+            id_token: None,
+            expires_in: Some(3600),
+        };
+        let expires_at = token_resp.expires_in.and_then(|expires_in| {
+            let at = time::OffsetDateTime::now_utc()
+                + time::Duration::seconds(expires_in as i64);
+            at.format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .ok()
+        });
+        assert!(expires_at.is_some());
+    }
+
+    #[test]
+    fn start_login_error_status_classifier_matches_conflict_only_for_active_session() {
+        fn status_for_start_login_error(e: &str) -> axum::http::StatusCode {
+            if e.contains("已有 Codex OAuth 登录进行中") {
+                axum::http::StatusCode::CONFLICT
+            } else {
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR
+            }
+        }
+
+        assert_eq!(
+            status_for_start_login_error("已有 Codex OAuth 登录进行中"),
+            axum::http::StatusCode::CONFLICT
+        );
+        assert_eq!(
+            status_for_start_login_error("无法绑定 127.0.0.1:1455"),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[test]
+    fn map_role_stub_has_no_remaining_definition() {
+        // Batch1 删除了 helpers::map_role 死代码；本测试作为任务边界说明，避免恢复 stub。
+        let helper_source = include_str!("translator/helpers.rs");
+        assert!(!helper_source.contains("fn map_role"));
     }
 
     #[test]
