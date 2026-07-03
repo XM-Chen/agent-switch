@@ -403,3 +403,39 @@ app-shell 收尾后梳理剩余任务时发现：`06-27-` 路径下有 4 个 pla
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: Session 9: P1 审计缺陷修复
+
+**Date**: 2026-07-03
+**Task**: Session 9: P1 审计缺陷修复
+**Branch**: `main`
+
+### Summary
+
+规划并实现 codebase audit 的 5 个 P1 缺陷修复: passthrough multipart 跳过 model_mapper, ChatToAnthropic streaming 补 content_block_start/stop, Codex OAuth 重复登录改 upsert, RoutesPage 流式测试改 fetch ReadableStream, Dashboard 增加 per-widget error 态并阻止错误时误触 EmptyGuide。质量门 cargo test/clippy/tsc/build 已通过,随后归档父子任务。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0bf60ec2d` | (see git log) |
+| `788160c32` | (see git log) |
+| `64d55d14e` | (see git log) |
+| `450151740` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
