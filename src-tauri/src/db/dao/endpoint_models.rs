@@ -53,8 +53,8 @@ fn row_to_model(row: &rusqlite::Row<'_>) -> rusqlite::Result<EndpointModelRow> {
 }
 
 fn capability_like_pattern(capability: &str) -> Result<String, String> {
-    let quoted = serde_json::to_string(capability)
-        .map_err(|e| format!("能力标签序列化失败: {}", e))?;
+    let quoted =
+        serde_json::to_string(capability).map_err(|e| format!("能力标签序列化失败: {}", e))?;
     Ok(format!("%{}%", quoted))
 }
 

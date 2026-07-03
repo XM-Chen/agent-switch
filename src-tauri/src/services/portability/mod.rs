@@ -504,9 +504,11 @@ mod tests {
         {
             let dconn = dst.lock().unwrap();
             let before: i64 = dconn
-                .query_row("SELECT COUNT(*) FROM route_settings WHERE id='v1'", [], |r| {
-                    r.get(0)
-                })
+                .query_row(
+                    "SELECT COUNT(*) FROM route_settings WHERE id='v1'",
+                    [],
+                    |r| r.get(0),
+                )
                 .unwrap();
             assert_eq!(before, 1);
         }
@@ -514,9 +516,11 @@ mod tests {
         apply::apply(&dst, &payload, ApplyStrategy::Replace).unwrap();
         let dconn = dst.lock().unwrap();
         let after: i64 = dconn
-            .query_row("SELECT COUNT(*) FROM route_settings WHERE id='v1'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM route_settings WHERE id='v1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(after, 0);
     }

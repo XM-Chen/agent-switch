@@ -65,8 +65,7 @@ impl Translator for ChatToResponsesTranslator {
                                 msg.get("tool_calls").and_then(|t| t.as_array())
                             {
                                 for tc in tool_calls {
-                                    let tc_id =
-                                        tc.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                                    let tc_id = tc.get("id").and_then(|i| i.as_str()).unwrap_or("");
                                     let tc_name = tc
                                         .get("function")
                                         .and_then(|f| f.get("name"))
@@ -387,7 +386,8 @@ impl Translator for ChatToResponsesTranslator {
                 {
                     if !args.is_empty() {
                         // 用 serde_json 正确转义 args（部分 JSON 字符串），避免双重转义损坏
-                        let escaped = serde_json::to_string(args).unwrap_or_else(|_| "\"\"".to_string());
+                        let escaped =
+                            serde_json::to_string(args).unwrap_or_else(|_| "\"\"".to_string());
                         output.push_str(&format!(
                             "event: response.function_call_arguments.delta\ndata: {{\"type\":\"response.function_call_arguments.delta\",\"output_index\":{},\"delta\":{}}}\n\n",
                             tc_index, escaped
@@ -410,10 +410,14 @@ impl Translator for ChatToResponsesTranslator {
             done_items.sort_by_key(|(idx, _)| *idx);
             for (output_index, acc) in done_items {
                 let item_id = format!("fc_{}", acc.id);
-                let escaped_id = serde_json::to_string(&item_id).unwrap_or_else(|_| "\"\"".to_string());
-                let escaped_call_id = serde_json::to_string(&acc.id).unwrap_or_else(|_| "\"\"".to_string());
-                let escaped_name = serde_json::to_string(&acc.name).unwrap_or_else(|_| "\"\"".to_string());
-                let escaped_args = serde_json::to_string(&acc.arguments).unwrap_or_else(|_| "\"\"".to_string());
+                let escaped_id =
+                    serde_json::to_string(&item_id).unwrap_or_else(|_| "\"\"".to_string());
+                let escaped_call_id =
+                    serde_json::to_string(&acc.id).unwrap_or_else(|_| "\"\"".to_string());
+                let escaped_name =
+                    serde_json::to_string(&acc.name).unwrap_or_else(|_| "\"\"".to_string());
+                let escaped_args =
+                    serde_json::to_string(&acc.arguments).unwrap_or_else(|_| "\"\"".to_string());
                 output.push_str(&format!(
                     "event: response.output_item.done\ndata: {{\"type\":\"response.output_item.done\",\"output_index\":{},\"item\":{{\"type\":\"function_call\",\"id\":{},\"call_id\":{},\"name\":{},\"arguments\":{},\"status\":\"completed\"}}}}\n\n",
                     output_index, escaped_id, escaped_call_id, escaped_name, escaped_args
@@ -564,12 +568,7 @@ impl Translator for ResponsesToChatTranslator {
         }
 
         // 5. 移除 Responses 专有字段（保留 temperature/top_p/max_tokens 等通用参数）
-        let resp_only = [
-            "previous_response_id",
-            "truncation",
-            "store",
-            "metadata",
-        ];
+        let resp_only = ["previous_response_id", "truncation", "store", "metadata"];
         if let Some(obj) = body.as_object_mut() {
             for field in &resp_only {
                 obj.remove(*field);
@@ -788,11 +787,16 @@ impl Translator for ResponsesToChatTranslator {
                 // 记录 function_call item 的 output_index → Chat tool_call index 映射。
                 // Responses 的 output_index 是所有 output item 的序号（message+function_call 混排），
                 // 而 Chat 的 tool_calls[].index 只计工具调用，从 0 开始。
-                if parsed.get("item").and_then(|i| i.get("type")).and_then(|t| t.as_str())
+                if parsed
+                    .get("item")
+                    .and_then(|i| i.get("type"))
+                    .and_then(|t| t.as_str())
                     == Some("function_call")
                 {
-                    let output_index =
-                        parsed.get("output_index").and_then(|i| i.as_i64()).unwrap_or(0) as i32;
+                    let output_index = parsed
+                        .get("output_index")
+                        .and_then(|i| i.as_i64())
+                        .unwrap_or(0) as i32;
                     if !context.block_to_tool_index.contains_key(&output_index) {
                         let tool_index = context.block_to_tool_index.len() as i32;
                         context.block_to_tool_index.insert(output_index, tool_index);
@@ -800,7 +804,10 @@ impl Translator for ResponsesToChatTranslator {
                         let item = parsed.get("item").unwrap();
                         let fc_id = item.get("id").and_then(|i| i.as_str()).unwrap_or("");
                         let fc_name = item.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                        let call_id = item.get("call_id").and_then(|i| i.as_str()).unwrap_or(fc_id);
+                        let call_id = item
+                            .get("call_id")
+                            .and_then(|i| i.as_str())
+                            .unwrap_or(fc_id);
                         context.tool_calls.insert(
                             tool_index,
                             crate::services::translator::ToolCallAcc {
@@ -829,15 +836,15 @@ impl Translator for ResponsesToChatTranslator {
                 Ok("".to_string())
             }
 
-            "response.output_item.done" => {
-                Ok("".to_string())
-            }
+            "response.output_item.done" => Ok("".to_string()),
 
             "response.function_call_arguments.delta" => {
                 // function call arguments delta
                 let text = parsed.get("delta").and_then(|d| d.as_str()).unwrap_or("");
-                let output_index =
-                    parsed.get("output_index").and_then(|i| i.as_i64()).unwrap_or(0) as i32;
+                let output_index = parsed
+                    .get("output_index")
+                    .and_then(|i| i.as_i64())
+                    .unwrap_or(0) as i32;
                 // 用映射后的 Chat tool_call index，而非 Responses output_index
                 let tool_index = context
                     .block_to_tool_index
@@ -1169,7 +1176,11 @@ mod tests {
         t.translate_request(&mut body, "gpt-4").unwrap();
 
         let input = body["input"].as_array().unwrap();
-        assert_eq!(input.len(), 2, "应拆成 1 个 message item + 1 个 function_call item");
+        assert_eq!(
+            input.len(),
+            2,
+            "应拆成 1 个 message item + 1 个 function_call item"
+        );
         assert_eq!(input[0]["type"], "message");
         assert_eq!(input[0]["role"], "assistant");
         assert_eq!(input[1]["type"], "function_call");
@@ -1239,10 +1250,12 @@ mod tests {
             "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\":\\\"NYC\\\"}\"}}]},\"finish_reason\":null}]}",
             &mut ctx,
         ).unwrap();
-        let out = t.translate_stream_line(
-            "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}",
-            &mut ctx,
-        ).unwrap();
+        let out = t
+            .translate_stream_line(
+                "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}",
+                &mut ctx,
+            )
+            .unwrap();
 
         let done_pos = out.find("event: response.output_item.done").unwrap();
         let completed_pos = out.find("event: response.completed").unwrap();

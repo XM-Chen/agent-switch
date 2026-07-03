@@ -3,7 +3,7 @@
   "name": "fix-fmt-spec-alignment",
   "title": "cargo fmt 收敛与 spec 错位修正",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

@@ -109,19 +109,22 @@ pub async fn ensure_valid_token(
                     format!("账号不存在: {}", account_id),
                 )
             })?;
-        let encrypted_fresh = account_fresh.credentials_encrypted.as_ref().ok_or_else(|| {
-            ProxyError::new(
-                ProxyErrorKind::AuthError,
-                format!("账号 '{}' 缺少加密凭据", account_fresh.name),
-            )
-        })?;
+        let encrypted_fresh = account_fresh
+            .credentials_encrypted
+            .as_ref()
+            .ok_or_else(|| {
+                ProxyError::new(
+                    ProxyErrorKind::AuthError,
+                    format!("账号 '{}' 缺少加密凭据", account_fresh.name),
+                )
+            })?;
         let plaintext_fresh = crypto
             .decrypt(encrypted_fresh, account_id.as_bytes())
             .map_err(|e| {
                 ProxyError::new(ProxyErrorKind::LocalError, format!("解密凭据失败: {}", e))
             })?;
-        let fresh_credentials: CodexCredentials =
-            serde_json::from_slice(&plaintext_fresh).map_err(|e| {
+        let fresh_credentials: CodexCredentials = serde_json::from_slice(&plaintext_fresh)
+            .map_err(|e| {
                 ProxyError::new(
                     ProxyErrorKind::LocalError,
                     format!("解析凭据 JSON 失败: {}", e),
@@ -162,7 +165,12 @@ fn refresh_http_client() -> Result<Client, ProxyError> {
         ))
         .timeout(Duration::from_secs(constants::OAUTH_REFRESH_TIMEOUT_SECS))
         .build()
-        .map_err(|e| ProxyError::new(ProxyErrorKind::LocalError, format!("创建刷新客户端失败: {}", e)))
+        .map_err(|e| {
+            ProxyError::new(
+                ProxyErrorKind::LocalError,
+                format!("创建刷新客户端失败: {}", e),
+            )
+        })
 }
 
 /// 使用 refresh_token 获取新 token。

@@ -188,8 +188,7 @@ impl ModelSyncService {
         // 标记本次未返回的 synced 模型为不可用
         endpoint_models::mark_unavailable_except_in_tx(&tx, &endpoint_id, &sync_time_owned, &now)?;
 
-        tx.commit()
-            .map_err(|e| format!("提交事务失败: {}", e))?;
+        tx.commit().map_err(|e| format!("提交事务失败: {}", e))?;
 
         Ok(synced_count)
     }
@@ -266,9 +265,9 @@ fn capabilities_for_item(
     protocol_type: &str,
 ) -> Result<Option<String>, String> {
     if let Some(caps) = extract_upstream_capabilities(item) {
-        return Ok(Some(serde_json::to_string(&caps).map_err(|e| {
-            format!("序列化 capabilities 失败: {}", e)
-        })?));
+        return Ok(Some(
+            serde_json::to_string(&caps).map_err(|e| format!("序列化 capabilities 失败: {}", e))?,
+        ));
     }
 
     let baseline: &[&str] = match protocol_type {
@@ -276,8 +275,7 @@ fn capabilities_for_item(
         _ => &["chat"],
     };
     Ok(Some(
-        serde_json::to_string(baseline)
-            .map_err(|e| format!("序列化 capabilities 失败: {}", e))?,
+        serde_json::to_string(baseline).map_err(|e| format!("序列化 capabilities 失败: {}", e))?,
     ))
 }
 

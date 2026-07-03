@@ -220,7 +220,6 @@ fn detect_sse_error(chunk: &str) -> Option<String> {
     None
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

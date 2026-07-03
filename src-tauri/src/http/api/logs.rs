@@ -1,4 +1,3 @@
-use axum::Router;
 /// 请求日志查询 API。
 ///
 /// GET  /api/logs         → 分页过滤查询请求日志
@@ -7,6 +6,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::Json;
 use axum::routing::get;
+use axum::Router;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

@@ -253,8 +253,8 @@ async fn handle_callback(
             };
 
             let expires_at = token_resp.expires_in.and_then(|expires_in| {
-                let at = time::OffsetDateTime::now_utc()
-                    + time::Duration::seconds(expires_in as i64);
+                let at =
+                    time::OffsetDateTime::now_utc() + time::Duration::seconds(expires_in as i64);
                 at.format(&time::format_description::well_known::Iso8601::DEFAULT)
                     .ok()
             });
@@ -433,7 +433,12 @@ async fn exchange_code_for_token(code: &str, code_verifier: &str) -> Result<Toke
 /// 供 `account_id` 缺失时作为稳定账号身份的回退（避免随机 UUID 产生重复账号）。
 fn parse_jwt_fields(
     jwt: &str,
-) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
     let parts: Vec<&str> = jwt.split('.').collect();
     if parts.len() < 2 {
         return (None, None, None, None);
@@ -598,8 +603,7 @@ mod tests {
             expires_in: Some(3600),
         };
         let expires_at = token_resp.expires_in.and_then(|expires_in| {
-            let at = time::OffsetDateTime::now_utc()
-                + time::Duration::seconds(expires_in as i64);
+            let at = time::OffsetDateTime::now_utc() + time::Duration::seconds(expires_in as i64);
             at.format(&time::format_description::well_known::Iso8601::DEFAULT)
                 .ok()
         });
@@ -673,9 +677,15 @@ mod tests {
 
         let updated = accounts::get(&app_state.db, "acc-A").unwrap().unwrap();
         let new_blob = updated.credentials_encrypted.unwrap();
-        assert_ne!(new_blob, old_blob, "credentials_encrypted 应已更新为新 BLOB");
+        assert_ne!(
+            new_blob, old_blob,
+            "credentials_encrypted 应已更新为新 BLOB"
+        );
         assert_eq!(updated.name, "new@email.com", "name 应已更新");
-        assert_eq!(updated.account_type, "oauth_codex", "account_type 应保持不变");
+        assert_eq!(
+            updated.account_type, "oauth_codex",
+            "account_type 应保持不变"
+        );
         assert_eq!(updated.platform, "openai_codex", "platform 应保持不变");
         assert_eq!(updated.priority, 0, "priority 应保持不变");
     }

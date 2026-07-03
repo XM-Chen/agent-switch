@@ -211,7 +211,9 @@ impl FailoverState {
             }
             ProxyErrorKind::UpstreamError(503) | ProxyErrorKind::UpstreamError(529) => {
                 // 指数退避：2^switch_count 秒，最大 300s。
-                let power = self.switch_count.min(constants::COOLDOWN_EXPONENTIAL_MAX_POWER);
+                let power = self
+                    .switch_count
+                    .min(constants::COOLDOWN_EXPONENTIAL_MAX_POWER);
                 let base = 2u64.pow(power) as i64;
                 apply_multiplier(
                     base,

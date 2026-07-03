@@ -5,7 +5,7 @@
 //!
 //! 写入侧 `insert`/`new_log`/`now_iso` 为主循环日志接线预留。
 #![allow(dead_code)]
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use std::sync::Mutex;
 use time::OffsetDateTime;
 

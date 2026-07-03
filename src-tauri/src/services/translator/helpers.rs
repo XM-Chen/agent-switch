@@ -44,21 +44,24 @@ pub fn extract_content_text(content: &Value) -> Option<String> {
 pub fn build_error_event(msg: &str, protocol: &str) -> String {
     match protocol {
         "anthropic" => {
-            let escaped = serde_json::to_string(msg).unwrap_or_else(|_| "\"upstream_error\"".to_string());
+            let escaped =
+                serde_json::to_string(msg).unwrap_or_else(|_| "\"upstream_error\"".to_string());
             format!(
                 "event: error\ndata: {{\"type\":\"error\",\"error\":{{\"type\":\"upstream_error\",\"message\":{}}}}}\n\n",
                 escaped
             )
         }
         "openai-chat" => {
-            let escaped = serde_json::to_string(msg).unwrap_or_else(|_| "\"upstream_error\"".to_string());
+            let escaped =
+                serde_json::to_string(msg).unwrap_or_else(|_| "\"upstream_error\"".to_string());
             format!(
                 "data: {{\"choices\":[{{\"index\":0,\"delta\":{{\"content\":{}}},\"finish_reason\":\"error\"}}]}}\n\ndata: [DONE]\n\n",
                 escaped
             )
         }
         "openai-responses" => {
-            let escaped = serde_json::to_string(msg).unwrap_or_else(|_| "\"upstream_error\"".to_string());
+            let escaped =
+                serde_json::to_string(msg).unwrap_or_else(|_| "\"upstream_error\"".to_string());
             format!(
                 "event: response.failed\ndata: {{\"type\":\"response.failed\",\"error\":{{\"message\":{}}}}}\n\n",
                 escaped

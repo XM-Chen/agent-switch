@@ -77,7 +77,9 @@ impl Translator for AnthropicToChatTranslator {
                         let mut has_tool_use = false;
                         let tool_result_count = blocks
                             .iter()
-                            .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_result"))
+                            .filter(|b| {
+                                b.get("type").and_then(|t| t.as_str()) == Some("tool_result")
+                            })
                             .count();
                         let has_tool_result = tool_result_count > 0;
 
@@ -461,9 +463,7 @@ impl Translator for AnthropicToChatTranslator {
                         // Anthropic 的 index 是所有 content block 的全局序号（text+tool_use 混排），
                         // 而 OpenAI 的 tool_calls[].index 只计工具调用，从 0 开始。
                         let tool_index = context.block_to_tool_index.len() as i32;
-                        context
-                            .block_to_tool_index
-                            .insert(index, tool_index);
+                        context.block_to_tool_index.insert(index, tool_index);
 
                         // 发送 tool_call delta
                         let chunk = json!({
@@ -528,7 +528,8 @@ impl Translator for AnthropicToChatTranslator {
                             .and_then(|t| t.as_str())
                             .unwrap_or("");
                         // 已在 content_block_start 记录 index 映射；缺失映射时丢弃畸形 delta，避免错误归到 tool 0。
-                        let Some(tool_index) = context.block_to_tool_index.get(&index).copied() else {
+                        let Some(tool_index) = context.block_to_tool_index.get(&index).copied()
+                        else {
                             return Ok("".to_string());
                         };
                         let chunk = json!({
@@ -1011,7 +1012,8 @@ impl Translator for ChatToAnthropicTranslator {
                         // 用 serde_json 正确转义。args 本身是部分 JSON 字符串，
                         // 塞进 "partial_json":"..." 字段必须做 JSON 字符串转义，
                         // 但不能对 args 内部再做反斜杠转义（那会损坏 JSON）。
-                        let escaped = serde_json::to_string(args).unwrap_or_else(|_| "\"\"".to_string());
+                        let escaped =
+                            serde_json::to_string(args).unwrap_or_else(|_| "\"\"".to_string());
                         output.push_str(&format!(
                             "event: content_block_delta\ndata: {{\"type\":\"content_block_delta\",\"index\":{},\"delta\":{{\"type\":\"input_json_delta\",\"partial_json\":{}}}}}\n\n",
                             block_index, escaped
@@ -1710,10 +1712,12 @@ mod tests {
             "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}",
             &mut ctx,
         ).unwrap();
-        let finish_out = t.translate_stream_line(
-            "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}",
-            &mut ctx,
-        ).unwrap();
+        let finish_out = t
+            .translate_stream_line(
+                "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}",
+                &mut ctx,
+            )
+            .unwrap();
         let done_out = t.translate_stream_line("data: [DONE]", &mut ctx).unwrap();
 
         assert!(delta_out.contains("event: content_block_start"));
@@ -1721,7 +1725,10 @@ mod tests {
         assert!(delta_out.contains("event: content_block_delta"));
         assert!(finish_out.contains("event: content_block_stop"));
         assert!(finish_out.contains("event: message_delta"));
-        assert!(!done_out.contains("content_block_stop"), "finish_reason 后不应重复 stop");
+        assert!(
+            !done_out.contains("content_block_stop"),
+            "finish_reason 后不应重复 stop"
+        );
         assert!(done_out.contains("event: message_stop"));
     }
 
@@ -1742,15 +1749,25 @@ mod tests {
             "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"NYC\\\"}\"}}]},\"finish_reason\":null}]}",
             &mut ctx,
         ).unwrap();
-        let finish_out = t.translate_stream_line(
-            "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}",
-            &mut ctx,
-        ).unwrap();
+        let finish_out = t
+            .translate_stream_line(
+                "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}",
+                &mut ctx,
+            )
+            .unwrap();
 
         assert!(text_out.contains("\"index\":0"));
-        assert!(tool_out.contains("content_block_stop"), "tool 开始前应先闭合 text 块");
-        assert!(tool_out.contains("\"index\":1"), "tool_use 应拿到全局 block index 1");
-        let stop_positions: Vec<_> = finish_out.match_indices("event: content_block_stop").collect();
+        assert!(
+            tool_out.contains("content_block_stop"),
+            "tool 开始前应先闭合 text 块"
+        );
+        assert!(
+            tool_out.contains("\"index\":1"),
+            "tool_use 应拿到全局 block index 1"
+        );
+        let stop_positions: Vec<_> = finish_out
+            .match_indices("event: content_block_stop")
+            .collect();
         assert_eq!(stop_positions.len(), 1, "finish 时只应剩 tool_use 块待关闭");
         assert!(finish_out.contains("\"index\":1"));
         assert!(finish_out.contains("event: message_delta"));

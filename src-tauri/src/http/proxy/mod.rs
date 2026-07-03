@@ -255,9 +255,17 @@ impl RouteProxy {
             for (name, value) in incoming_headers.iter() {
                 let key = name.as_str().to_ascii_lowercase();
                 match key.as_str() {
-                    "host" | "content-length" | "connection" | "transfer-encoding"
-                    | "keep-alive" | "proxy-authenticate" | "proxy-authorization" | "te"
-                    | "trailers" | "upgrade" | "accept-encoding" => continue,
+                    "host"
+                    | "content-length"
+                    | "connection"
+                    | "transfer-encoding"
+                    | "keep-alive"
+                    | "proxy-authenticate"
+                    | "proxy-authorization"
+                    | "te"
+                    | "trailers"
+                    | "upgrade"
+                    | "accept-encoding" => continue,
                     _ => {
                         upstream_headers.insert(name.clone(), value.clone());
                     }
@@ -458,13 +466,15 @@ impl RouteProxy {
                             // 也不写冷却（瞬态错误不应使端点进入冷却）。
                             failover.get_and_increment_retry(&endpoint.id);
                             failover.last_error = Some(err.clone());
-                            failover.chain.push(crate::http::proxy::failover::FallbackHop {
-                                endpoint_id: endpoint.id.clone(),
-                                model: None,
-                                status: "retry".to_string(),
-                                error_message: Some(err.message.clone()),
-                                latency_ms: Some(attempt_start.elapsed().as_millis() as u64),
-                            });
+                            failover
+                                .chain
+                                .push(crate::http::proxy::failover::FallbackHop {
+                                    endpoint_id: endpoint.id.clone(),
+                                    model: None,
+                                    status: "retry".to_string(),
+                                    error_message: Some(err.message.clone()),
+                                    latency_ms: Some(attempt_start.elapsed().as_millis() as u64),
+                                });
                             // PRD R3.3：同端点重试间隔 500ms，避免 hammer 上游。
                             tokio::time::sleep(failover.same_account_retry_delay()).await;
                             continue;
