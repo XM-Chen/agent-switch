@@ -420,9 +420,84 @@ export interface TestResponse {
   error: string | null;
 }
 
+export interface TestStreamHandle {
+  abort: () => void;
+}
+
+export interface TestStreamCallbacks {
+  onChunk: (text: string) => void;
+  onDone: (meta: { status: number; duration_ms: number; endpoint_id: string | null }) => void;
+  onError: (err: Error) => void;
+}
+
 export const testsApi = {
   run: (data: TestRequest) => request<TestResponse>('/tests', {
     method: 'POST',
     body: JSON.stringify(data),
   }),
+
+  /**
+   * 流式测试：用 fetch + ReadableStream.getReader() 逐块读取 SSE 文本。
+   *
+   * 返回句柄包含 abort() 方法用于取消。
+   */
+  runStream: (data: TestRequest, callbacks: TestStreamCallbacks): TestStreamHandle => {
+    const ac = new AbortController();
+
+    (async () => {
+      let resp: Response;
+      try {
+        resp = await fetch(`${API_BASE}/tests`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+          signal: ac.signal,
+        });
+      } catch (e) {
+        // abort 视为取消，不作为错误
+        if (ac.signal.aborted) return;
+        callbacks.onError(e instanceof Error ? e : new Error(String(e)));
+        return;
+      }
+
+      // 读取响应头元数据
+      const duration = Number(resp.headers.get('x-test-duration-ms') ?? 0) || 0;
+      const endpoint_id = resp.headers.get('x-endpoint-id');
+
+      if (!resp.ok || !resp.body) {
+        // 非 2xx 或无响应体：读取错误文本
+        const text = await resp.text().catch(() => '');
+        callbacks.onError(new Error(`${resp.status}: ${text || resp.statusText}`));
+        callbacks.onDone({ status: resp.status, duration_ms: duration, endpoint_id });
+        return;
+      }
+
+      // 逐块读取流
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value) {
+            callbacks.onChunk(decoder.decode(value, { stream: true }));
+          }
+        }
+        // flush 剩余字节
+        callbacks.onChunk(decoder.decode());
+        callbacks.onDone({ status: resp.status, duration_ms: duration, endpoint_id });
+      } catch (e) {
+        if (ac.signal.aborted) {
+          // 已取消：仍回传元数据
+          callbacks.onDone({ status: resp.status, duration_ms: duration, endpoint_id });
+          return;
+        }
+        callbacks.onError(e instanceof Error ? e : new Error(String(e)));
+      }
+    })();
+
+    return {
+      abort: () => ac.abort(),
+    };
+  },
 };

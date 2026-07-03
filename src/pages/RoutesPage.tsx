@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { routesApi, testsApi, type RouteSettings, type TestResponse } from '../lib/api';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 /** 策略选项。 */
 const STRATEGY_OPTIONS = [
@@ -155,6 +155,13 @@ function TestPanel({ routeId, routeLabel }: { routeId: string; routeLabel: strin
   const [stream, setStream] = useState(true);
   const [result, setResult] = useState<TestResponse | null>(null);
 
+  // 流式专用状态
+  const [streamedText, setStreamedText] = useState('');
+  const [streamMeta, setStreamMeta] = useState<{ status: number; duration_ms: number; endpoint_id: string | null } | null>(null);
+  const [streamState, setStreamState] = useState<'idle' | 'streaming' | 'done' | 'cancelled' | 'error'>('idle');
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const abortRef = useRef<{ abort: () => void } | null>(null);
+
   const testMutation = useMutation({
     mutationFn: () =>
       testsApi.run({
@@ -162,13 +169,54 @@ function TestPanel({ routeId, routeLabel }: { routeId: string; routeLabel: strin
         path,
         model: model || undefined,
         prompt,
-        stream,
+        stream: false, // 非流式路径强制 false
       }),
     onSuccess: (data) => setResult(data),
     onError: (e: Error) => {
       setResult({ status: 0, body: {}, duration_ms: 0, endpoint_id: null, error: e.message });
     },
   });
+
+  const handleSendTest = () => {
+    if (stream) {
+      // 流式路径：用 testsApi.runStream
+      setStreamedText('');
+      setStreamError(null);
+      setStreamMeta(null);
+      setStreamState('streaming');
+
+      const handle = testsApi.runStream(
+        {
+          route: routeId,
+          path,
+          model: model || undefined,
+          prompt,
+          stream: true,
+        },
+        {
+          onChunk: (text) => setStreamedText((prev) => prev + text),
+          onDone: (meta) => {
+            setStreamMeta(meta);
+            setStreamState((s) => (s === 'streaming' ? 'done' : s));
+          },
+          onError: (err) => {
+            setStreamError(err.message);
+            setStreamState('error');
+          },
+        }
+      );
+
+      abortRef.current = handle;
+    } else {
+      // 非流式路径：用 testMutation
+      testMutation.mutate();
+    }
+  };
+
+  const handleStopStream = () => {
+    abortRef.current?.abort();
+    setStreamState('cancelled');
+  };
 
   return (
     <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/20">
@@ -218,12 +266,21 @@ function TestPanel({ routeId, routeLabel }: { routeId: string; routeLabel: strin
           </label>
 
           <button
-            onClick={() => testMutation.mutate()}
-            disabled={testMutation.isPending || !prompt.trim()}
+            onClick={handleSendTest}
+            disabled={(stream ? streamState === 'streaming' : testMutation.isPending) || !prompt.trim()}
             className="px-4 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 disabled:opacity-50"
           >
-            {testMutation.isPending ? '测试中...' : '发送测试'}
+            {(stream ? streamState === 'streaming' : testMutation.isPending) ? '测试中...' : '发送测试'}
           </button>
+
+          {stream && streamState === 'streaming' && (
+            <button
+              onClick={handleStopStream}
+              className="px-4 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"
+            >
+              停止
+            </button>
+          )}
 
           <span className="text-xs text-orange-600 dark:text-orange-400">
             * 测试将消耗 token
@@ -231,45 +288,97 @@ function TestPanel({ routeId, routeLabel }: { routeId: string; routeLabel: strin
         </div>
 
         {/* 结果区 */}
-        {testMutation.isPending && (
-          <div className="text-sm text-gray-500 animate-pulse">
-            正在发送测试请求到 {routeLabel}...
-          </div>
-        )}
-
-        {result && (
-          <div className="border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden">
-            {/* 统计栏 */}
-            <div className="flex flex-wrap gap-3 px-3 py-2 bg-gray-100 dark:bg-gray-800 text-xs">
-              <span>
-                状态: <span className={result.status >= 200 && result.status < 300 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>{result.status}</span>
-              </span>
-              <span>
-                耗时: <span className="font-mono">{result.duration_ms}ms</span>
-              </span>
-              {result.endpoint_id && (
-                <span>
-                  端点: <span className="font-mono">{result.endpoint_id}</span>
-                </span>
-              )}
-            </div>
-
-            {/* 错误信息 */}
-            {result.error && (
-              <div className="px-3 py-2 bg-red-50 dark:bg-red-900/10 border-t border-gray-200 dark:border-gray-700">
-                <p className="text-sm text-red-600 dark:text-red-400 font-medium">错误</p>
-                <p className="text-xs text-red-500 mt-0.5 font-mono whitespace-pre-wrap">{result.error}</p>
+        {stream ? (
+          // 流式结果显示
+          <>
+            {streamState === 'streaming' && (
+              <div className="text-sm text-gray-500 animate-pulse">
+                正在接收流式响应...
               </div>
             )}
 
-            {/* 响应体 */}
-            <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700">
-              <p className="text-xs text-gray-500 mb-1">响应体</p>
-              <pre className="text-xs font-mono bg-gray-100 dark:bg-gray-800 p-2 rounded overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
-                {JSON.stringify(result.body, null, 2)}
-              </pre>
-            </div>
-          </div>
+            {(streamState === 'done' || streamState === 'cancelled' || streamState === 'error') && streamMeta && (
+              <div className="border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden">
+                {/* 统计栏 */}
+                <div className="flex flex-wrap gap-3 px-3 py-2 bg-gray-100 dark:bg-gray-800 text-xs">
+                  <span>
+                    状态: <span className={streamMeta.status >= 200 && streamMeta.status < 300 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>{streamMeta.status}</span>
+                  </span>
+                  <span>
+                    耗时: <span className="font-mono">{streamMeta.duration_ms}ms</span>
+                  </span>
+                  {streamMeta.endpoint_id && (
+                    <span>
+                      端点: <span className="font-mono">{streamMeta.endpoint_id}</span>
+                    </span>
+                  )}
+                  {streamState === 'cancelled' && (
+                    <span className="text-yellow-600 font-medium">已取消</span>
+                  )}
+                </div>
+
+                {/* 错误信息 */}
+                {streamError && (
+                  <div className="px-3 py-2 bg-red-50 dark:bg-red-900/10 border-t border-gray-200 dark:border-gray-700">
+                    <p className="text-sm text-red-600 dark:text-red-400 font-medium">错误</p>
+                    <p className="text-xs text-red-500 mt-0.5 font-mono whitespace-pre-wrap">{streamError}</p>
+                  </div>
+                )}
+
+                {/* 流式响应体 */}
+                <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700">
+                  <p className="text-xs text-gray-500 mb-1">流式响应 {streamState === 'cancelled' && '(已中断)'}</p>
+                  <pre className="text-xs font-mono bg-gray-100 dark:bg-gray-800 p-2 rounded overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
+                    {streamedText || '(无输出)'}
+                  </pre>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          // 非流式结果显示（保持原有逻辑）
+          <>
+            {testMutation.isPending && (
+              <div className="text-sm text-gray-500 animate-pulse">
+                正在发送测试请求到 {routeLabel}...
+              </div>
+            )}
+
+            {result && (
+              <div className="border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden">
+                {/* 统计栏 */}
+                <div className="flex flex-wrap gap-3 px-3 py-2 bg-gray-100 dark:bg-gray-800 text-xs">
+                  <span>
+                    状态: <span className={result.status >= 200 && result.status < 300 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>{result.status}</span>
+                  </span>
+                  <span>
+                    耗时: <span className="font-mono">{result.duration_ms}ms</span>
+                  </span>
+                  {result.endpoint_id && (
+                    <span>
+                      端点: <span className="font-mono">{result.endpoint_id}</span>
+                    </span>
+                  )}
+                </div>
+
+                {/* 错误信息 */}
+                {result.error && (
+                  <div className="px-3 py-2 bg-red-50 dark:bg-red-900/10 border-t border-gray-200 dark:border-gray-700">
+                    <p className="text-sm text-red-600 dark:text-red-400 font-medium">错误</p>
+                    <p className="text-xs text-red-500 mt-0.5 font-mono whitespace-pre-wrap">{result.error}</p>
+                  </div>
+                )}
+
+                {/* 响应体 */}
+                <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700">
+                  <p className="text-xs text-gray-500 mb-1">响应体</p>
+                  <pre className="text-xs font-mono bg-gray-100 dark:bg-gray-800 p-2 rounded overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
+                    {JSON.stringify(result.body, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -40,36 +40,82 @@ export function DashboardPage() {
   const navigate = useNavigate();
 
   // D1：纯前端组合 7 个 TanStack Query，queryKey 按资源命名（R7.1）
-  const { data: accounts = [], isLoading: accountsLoading } = useQuery({
+  const {
+    data: accounts = [],
+    isLoading: accountsLoading,
+    isError: accountsIsError,
+    error: accountsError,
+  } = useQuery({
     queryKey: ['accounts'],
     queryFn: accountsApi.list,
   });
-  const { data: endpoints = [], isLoading: endpointsLoading } = useQuery({
+  const {
+    data: endpoints = [],
+    isLoading: endpointsLoading,
+    isError: endpointsIsError,
+    error: endpointsError,
+  } = useQuery({
     queryKey: ['endpoints'],
     queryFn: endpointsApi.list,
   });
-  const { data: models = [], isLoading: modelsLoading } = useQuery({
+  const {
+    data: models = [],
+    isLoading: modelsLoading,
+    isError: modelsIsError,
+    error: modelsError,
+  } = useQuery({
     queryKey: ['models'],
     queryFn: () => modelsApi.list(),
   });
-  const { data: routes = [], isLoading: routesLoading } = useQuery({
+  const {
+    data: routes = [],
+    isLoading: routesLoading,
+    isError: routesIsError,
+    error: routesError,
+  } = useQuery({
     queryKey: ['routes'],
     queryFn: routesApi.list,
   });
-  const { data: tools = [], isLoading: toolsLoading } = useQuery({
+  const {
+    data: tools = [],
+    isLoading: toolsLoading,
+    isError: toolsIsError,
+    error: toolsError,
+  } = useQuery({
     queryKey: ['tools'],
     queryFn: toolsApi.list,
   });
-  const { data: logsResp, isLoading: logsLoading } = useQuery({
+  const {
+    data: logsResp,
+    isLoading: logsLoading,
+    isError: logsIsError,
+    error: logsError,
+  } = useQuery({
     queryKey: ['logs'],
     queryFn: () => logsApi.list({ limit: 10 }),
   });
-  const { data: autoRefresh, isLoading: autoRefreshLoading } = useQuery({
+  const {
+    data: autoRefresh,
+    isLoading: autoRefreshLoading,
+    isError: autoRefreshIsError,
+    error: autoRefreshError,
+  } = useQuery({
     queryKey: ['auto-refresh'],
     queryFn: settingsApi.getAutoRefresh,
   });
 
   const logs = logsResp?.items ?? [];
+
+  // 聚合错误态（任一查询失败时不触发 EmptyGuide）
+  const anyError = !!(
+    accountsIsError ||
+    endpointsIsError ||
+    modelsIsError ||
+    routesIsError ||
+    toolsIsError ||
+    logsIsError ||
+    autoRefreshIsError
+  );
 
   // 端点分桶（R5.1）：启用·禁用 + 健康
   const enabledCount = endpoints.filter((e) => e.enabled).length;
@@ -104,8 +150,9 @@ export function DashboardPage() {
         </p>
       </div>
 
-      {/* R6.1 无数据引导（不阻塞主界面：仅在全空时顶部提示） */}
-      {allLoaded && totalResources === 0 && (
+      {/* R6.1 无数据引导（不阻塞主界面：仅在全空时顶部提示）
+          任一查询失败（anyError）时不渲染，避免后端不可达时误触发「请先添加上游账号」 */}
+      {allLoaded && totalResources === 0 && !anyError && (
         <EmptyGuide navigate={navigate} />
       )}
 
@@ -115,6 +162,7 @@ export function DashboardPage() {
           title="账号"
           value={accounts.length}
           loading={accountsLoading}
+          error={accountsError}
           sub="上游供应商账号"
           onClick={() => navigate('/accounts')}
         />
@@ -122,6 +170,7 @@ export function DashboardPage() {
           title="端点"
           value={endpoints.length}
           loading={endpointsLoading}
+          error={endpointsError}
           sub={`启用 ${enabledCount} · 禁用 ${disabledCount}`}
           onClick={() => navigate('/endpoints')}
         />
@@ -129,6 +178,7 @@ export function DashboardPage() {
           title="模型"
           value={models.length}
           loading={modelsLoading}
+          error={modelsError}
           sub={`自定义 ${customModels} · 同步 ${syncedModels}`}
           onClick={() => navigate('/models')}
         />
@@ -136,6 +186,7 @@ export function DashboardPage() {
           title="路由"
           value={routes.length}
           loading={routesLoading}
+          error={routesError}
           sub={`故障转移 ${failoverRoutes}`}
           onClick={() => navigate('/routes')}
         />
@@ -146,6 +197,7 @@ export function DashboardPage() {
         <SectionCard
           title="工具接管状态"
           loading={toolsLoading}
+          error={toolsError}
           onTitleClick={() => navigate('/tools')}
         >
           {tools.length === 0 ? (
@@ -163,6 +215,7 @@ export function DashboardPage() {
         <SectionCard
           title="模型自动刷新"
           loading={autoRefreshLoading}
+          error={autoRefreshError}
           onTitleClick={() => navigate('/settings')}
         >
           {!autoRefresh ? (
@@ -209,6 +262,7 @@ export function DashboardPage() {
         <SectionCard
           title="端点健康"
           loading={endpointsLoading || routesLoading}
+          error={endpointsError || routesError}
           onTitleClick={() => navigate('/endpoints')}
         >
           <div className="grid grid-cols-2 gap-3 text-sm">
@@ -247,6 +301,7 @@ export function DashboardPage() {
         <SectionCard
           title="近期请求日志"
           loading={logsLoading}
+          error={logsError}
           onTitleClick={() => navigate('/logs')}
         >
           {logs.length === 0 ? (
@@ -278,11 +333,12 @@ interface CountCardProps {
   title: string;
   value: number;
   loading: boolean;
+  error?: unknown;
   sub: string;
   onClick: () => void;
 }
 
-function CountCard({ title, value, loading, sub, onClick }: CountCardProps) {
+function CountCard({ title, value, loading, error, sub, onClick }: CountCardProps) {
   return (
     <button
       onClick={onClick}
@@ -291,6 +347,13 @@ function CountCard({ title, value, loading, sub, onClick }: CountCardProps) {
       <p className="text-xs text-gray-500">{title}</p>
       {loading ? (
         <div className="mt-2 h-8 w-12 animate-pulse rounded bg-gray-100 dark:bg-gray-800" />
+      ) : error ? (
+        <p
+          className="mt-1 text-sm font-semibold text-red-500"
+          title={String((error as Error)?.message ?? error)}
+        >
+          加载失败
+        </p>
       ) : (
         <p className="mt-1 text-3xl font-bold">{value}</p>
       )}
@@ -304,6 +367,7 @@ function CountCard({ title, value, loading, sub, onClick }: CountCardProps) {
 interface SectionCardProps {
   title: string;
   loading: boolean;
+  error?: unknown;
   onTitleClick: () => void;
   children: React.ReactNode;
 }
@@ -311,6 +375,7 @@ interface SectionCardProps {
 function SectionCard({
   title,
   loading,
+  error,
   onTitleClick,
   children,
 }: SectionCardProps) {
@@ -331,6 +396,10 @@ function SectionCard({
             <div className="h-4 w-full animate-pulse rounded bg-gray-100 dark:bg-gray-800" />
             <div className="h-4 w-2/3 animate-pulse rounded bg-gray-100 dark:bg-gray-800" />
           </div>
+        ) : error ? (
+          <p className="text-sm text-red-500">
+            加载失败: {String((error as Error)?.message ?? error)}
+          </p>
         ) : (
           children
         )}

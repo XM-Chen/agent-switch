@@ -266,52 +266,28 @@ async fn handle_callback(
                 .clone()
                 .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-            match app_state.crypto.as_ref() {
-                Some(crypto) => {
-                    let encrypted = match crypto.encrypt(&json, account_id_str.as_bytes()) {
-                        Ok(e) => e,
-                        Err(e) => {
-                            cleanup_session(&app_state, &callback_shutdown).await;
-                            return (
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                Json(serde_json::json!({
-                                    "error": "encrypt_failed",
-                                    "message": e
-                                })),
-                            );
-                        }
-                    };
+            let name = email.clone().unwrap_or_else(|| "Codex 账号".to_string());
 
-                    let new_account = accounts::NewAccount {
-                        id: account_id_str.clone(),
-                        name: email.clone().unwrap_or_else(|| "Codex 账号".to_string()),
-                        account_type: "oauth_codex".to_string(),
-                        platform: "openai_codex".to_string(),
-                        credentials_encrypted: Some(encrypted),
-                        extra_json: None,
-                        priority: 0,
-                    };
-                    if let Err(e) = accounts::create(&app_state.db, new_account) {
-                        cleanup_session(&app_state, &callback_shutdown).await;
-                        return (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(serde_json::json!({
-                                "error": "db_save_failed",
-                                "message": e
-                            })),
-                        );
-                    }
-                }
-                None => {
-                    cleanup_session(&app_state, &callback_shutdown).await;
+            // Upsert：已存在则更新凭据，不存在则创建。
+            if let Err(e) = upsert_codex_account(&app_state, &account_id_str, &name, &json) {
+                cleanup_session(&app_state, &callback_shutdown).await;
+                // 503 crypto_unavailable 保留原错误码映射
+                if e.contains("加密服务不可用") {
                     return (
                         StatusCode::SERVICE_UNAVAILABLE,
                         Json(serde_json::json!({
                             "error": "crypto_unavailable",
-                            "message": "加密服务不可用，无法保存凭据"
+                            "message": e
                         })),
                     );
                 }
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": "db_save_failed",
+                        "message": e
+                    })),
+                );
             }
 
             // 清理会话和回调服务。
@@ -345,6 +321,44 @@ async fn cleanup_session(app_state: &Arc<AppState>, callback_shutdown: &SharedSh
     let mut guard = callback_shutdown.lock().await;
     if let Some(tx) = guard.take() {
         let _ = tx.send(()).ok();
+    }
+}
+
+/// 加密凭据并 upsert 到数据库（已存在则 update，不存在则 create）。
+///
+/// 返回 Ok(()) 或 Err(error_msg)。
+fn upsert_codex_account(
+    app_state: &Arc<AppState>,
+    account_id_str: &str,
+    name: &str,
+    credentials_json: &[u8],
+) -> Result<(), String> {
+    let crypto = app_state.crypto.as_ref().ok_or("加密服务不可用")?;
+    let encrypted = crypto.encrypt(credentials_json, account_id_str.as_bytes())?;
+
+    match accounts::get(&app_state.db, account_id_str)? {
+        Some(_) => {
+            // 重登录：覆盖凭据 + 名称，不动 account_type/platform/status/priority。
+            let upd = accounts::AccountUpdate {
+                name: Some(name.to_string()),
+                credentials_encrypted: Some(Some(encrypted)),
+                ..Default::default()
+            };
+            accounts::update(&app_state.db, account_id_str, upd)
+        }
+        None => {
+            // 首次登录：create（维持现有 NewAccount 构造）。
+            let new = accounts::NewAccount {
+                id: account_id_str.to_string(),
+                name: name.to_string(),
+                account_type: "oauth_codex".to_string(),
+                platform: "openai_codex".to_string(),
+                credentials_encrypted: Some(encrypted),
+                extra_json: None,
+                priority: 0,
+            };
+            accounts::create(&app_state.db, new).map(|_| ())
+        }
     }
 }
 
@@ -441,4 +455,108 @@ fn generate_random_string(len: usize) -> String {
             CHARSET[idx] as char
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{connection, migrations};
+    use crate::services::crypto;
+    use rusqlite::Connection;
+    use std::sync::Mutex;
+
+    /// 辅助：构造最小测试 AppState（内存 SQLite + 真实 crypto）。
+    fn test_app_state() -> Arc<AppState> {
+        let conn = Connection::open_in_memory().expect("创建内存数据库失败");
+        let db = Arc::new(Mutex::new(conn));
+        migrations::run_migrations(&db).expect("迁移失败");
+        let key = crypto::generate_master_key();
+        let crypto_svc = Some(Arc::new(crypto::CryptoService::new(key)));
+
+        Arc::new(AppState {
+            db,
+            shutdown_tx: tokio::sync::Mutex::new(None),
+            data_dir: std::path::PathBuf::from("."),
+            web_dist_dir: std::path::PathBuf::from("."),
+            crypto: crypto_svc,
+            codex_oauth: Arc::new(CodexOAuthService::new()),
+            model_sync: Arc::new(crate::services::model_sync::ModelSyncService::new()),
+            route_proxy: tokio::sync::RwLock::new(None),
+        })
+    }
+
+    #[test]
+    fn upsert_codex_account_first_login_creates() {
+        let app_state = test_app_state();
+        let creds = serde_json::json!({"access_token": "test_token"});
+        let json = serde_json::to_vec(&creds).unwrap();
+
+        let result = upsert_codex_account(&app_state, "acc-A", "test@email.com", &json);
+        assert!(result.is_ok(), "首次登录应成功创建");
+
+        let row = accounts::get(&app_state.db, "acc-A").unwrap();
+        assert!(row.is_some(), "账号应已插入");
+        let acc = row.unwrap();
+        assert_eq!(acc.account_type, "oauth_codex");
+        assert_eq!(acc.platform, "openai_codex");
+        assert!(acc.credentials_encrypted.is_some(), "应有凭据 BLOB");
+    }
+
+    #[test]
+    fn upsert_codex_account_relogin_updates_credentials() {
+        let app_state = test_app_state();
+        let old_creds = serde_json::json!({"access_token": "old_token"});
+        let old_json = serde_json::to_vec(&old_creds).unwrap();
+
+        // 首次创建
+        upsert_codex_account(&app_state, "acc-A", "old@email.com", &old_json).unwrap();
+        let first = accounts::get(&app_state.db, "acc-A").unwrap().unwrap();
+        let old_blob = first.credentials_encrypted.clone().unwrap();
+
+        // 二次登录，不同凭据+邮箱
+        let new_creds = serde_json::json!({"access_token": "new_token"});
+        let new_json = serde_json::to_vec(&new_creds).unwrap();
+        let result = upsert_codex_account(&app_state, "acc-A", "new@email.com", &new_json);
+        assert!(result.is_ok(), "重登录应成功更新");
+
+        // 断言：仍只有一行（PK 未冲突）
+        let all = accounts::list(&app_state.db).unwrap();
+        assert_eq!(all.len(), 1, "应只有一行（update 不产生重复）");
+
+        let updated = accounts::get(&app_state.db, "acc-A").unwrap().unwrap();
+        let new_blob = updated.credentials_encrypted.unwrap();
+        assert_ne!(new_blob, old_blob, "credentials_encrypted 应已更新为新 BLOB");
+        assert_eq!(updated.name, "new@email.com", "name 应已更新");
+        assert_eq!(updated.account_type, "oauth_codex", "account_type 应保持不变");
+        assert_eq!(updated.platform, "openai_codex", "platform 应保持不变");
+        assert_eq!(updated.priority, 0, "priority 应保持不变");
+    }
+
+    #[test]
+    fn upsert_codex_account_crypto_unavailable_returns_error() {
+        let conn = Connection::open_in_memory().expect("创建内存数据库失败");
+        let db = Arc::new(Mutex::new(conn));
+        migrations::run_migrations(&db).expect("迁移失败");
+
+        let app_state = Arc::new(AppState {
+            db,
+            shutdown_tx: tokio::sync::Mutex::new(None),
+            data_dir: std::path::PathBuf::from("."),
+            web_dist_dir: std::path::PathBuf::from("."),
+            crypto: None, // 无加密服务
+            codex_oauth: Arc::new(CodexOAuthService::new()),
+            model_sync: Arc::new(crate::services::model_sync::ModelSyncService::new()),
+            route_proxy: tokio::sync::RwLock::new(None),
+        });
+
+        let creds = serde_json::json!({"access_token": "test"});
+        let json = serde_json::to_vec(&creds).unwrap();
+
+        let result = upsert_codex_account(&app_state, "acc-A", "test@email.com", &json);
+        assert!(result.is_err(), "crypto=None 应返回错误");
+        assert!(
+            result.unwrap_err().contains("加密服务不可用"),
+            "错误消息应指出加密服务不可用"
+        );
+    }
 }
