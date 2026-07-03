@@ -439,3 +439,37 @@ app-shell 收尾后梳理剩余任务时发现：`06-27-` 路径下有 4 个 pla
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: 完成审计剩余缺陷修复 - 全部 6 个子任务
+
+**Date**: 2026-07-03
+**Task**: 完成审计剩余缺陷修复 - 全部 6 个子任务
+**Branch**: `main`
+
+### Summary
+
+修复 config/paths.rs P2-20 CWD 污染问题,重组 spec 层结构(backend/frontend/trellis-runtime 三层分离);完成 Codex OAuth 登录链路修复(P2-21~24);归档全部 6 个 Batch 1 子任务与父任务 07-03-fix-remaining-defects
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `56ccad2b5` | (see git log) |
+| `670fea63d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
