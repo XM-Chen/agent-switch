@@ -20,7 +20,10 @@
   "subtasks": [],
   "children": [
     "07-03-fix-anthropic-streaming-stop",
-    "07-03-fix-passthrough-multipart"
+    "07-03-fix-passthrough-multipart",
+    "07-03-fix-codex-oauth-relogin-pk",
+    "07-03-fix-stream-test-json-parse",
+    "07-03-fix-dashboard-error-state"
   ],
   "parent": null,
   "relatedFiles": [],
