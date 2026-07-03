@@ -370,3 +370,36 @@ app-shell 收尾后梳理剩余任务时发现：`06-27-` 路径下有 4 个 pla
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: 全代码库彻底审查(多智能体对抗验证审计)
+
+**Date**: 2026-07-03
+**Task**: 全代码库彻底审查(多智能体对抗验证审计)
+**Branch**: `main`
+
+### Summary
+
+用 31-agent 工作流做 agent-switch 全库审查:10 finder 扇出覆盖 translator/proxy/db/services/portability/api/前端,每条 P0/P1 派 2 对抗验证者(默认误报,需证真)。结论:0 P0、5 P1(全存活)、24 P2、40 P3;4 条原 P0/P1 被证伪或降级。P1 集中于媒体 passthrough 端到端失败、ChatToAnthropic 流式缺 content_block_stop、重复 OAuth 登录 PK 冲突丢 token、流式测试前端强解 JSON、Dashboard 无 error 态误触发引导。同步修复根 .gitignore 错误忽略 .trellis/ 的问题(交由 .trellis/.gitignore 细粒度忽略运行时态),首次把 spec/tasks/scripts/审查报告纳入版本控制。向 app-stack-conventions.md 固化 §10.1 failover 错误分类+cooldown 契约表、Anthropic 流式 wire-format 契约两条。审查报告落 .trellis/tasks/archive/2026-07/07-03-codebase-audit/research/audit-report.md。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a6d0c40e2` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
