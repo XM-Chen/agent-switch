@@ -189,6 +189,28 @@ const MIGRATIONS: &[Migration] = &[
         ALTER TABLE request_logs ADD COLUMN content_length INTEGER;
         ALTER TABLE request_logs ADD COLUMN body_sha256_hash TEXT;",
     },
+    Migration {
+        version: 7,
+        name: "create_providers",
+        sql: "CREATE TABLE IF NOT EXISTS providers (
+            id TEXT PRIMARY KEY,
+            app_type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            mode TEXT NOT NULL DEFAULT 'proxy',
+            settings_config TEXT NOT NULL,
+            is_current INTEGER NOT NULL DEFAULT 0,
+            category TEXT,
+            sort_index INTEGER,
+            notes TEXT,
+            meta TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_providers_current
+            ON providers(app_type) WHERE is_current = 1;
+        CREATE INDEX IF NOT EXISTS idx_providers_app_sort
+            ON providers(app_type, sort_index);",
+    },
 ];
 
 /// Ensure the migration tracking table exists, then run pending migrations.
@@ -305,6 +327,46 @@ mod tests {
         assert!(
             columns.iter().any(|c| c == "body_sha256_hash"),
             "request_logs.body_sha256_hash 应存在"
+        );
+
+        // v7 应已创建 providers 表 + 两个索引
+        let mut stmt = db
+            .prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='providers'")
+            .unwrap();
+        let providers_count: i64 = stmt.query_row([], |row| row.get(0)).unwrap();
+        assert_eq!(providers_count, 1, "providers 表应已创建");
+
+        // partial unique index：同 app_type 至多一条 is_current=1
+        let mut stmt = db
+            .prepare("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_providers_current'")
+            .unwrap();
+        let idx_current: i64 = stmt.query_row([], |row| row.get(0)).unwrap();
+        assert_eq!(idx_current, 1, "idx_providers_current 索引应已创建");
+
+        let mut stmt = db
+            .prepare("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_providers_app_sort'")
+            .unwrap();
+        let idx_sort: i64 = stmt.query_row([], |row| row.get(0)).unwrap();
+        assert_eq!(idx_sort, 1, "idx_providers_app_sort 索引应已创建");
+
+        // partial unique index 实际生效：同 app_type 插入两条 is_current=1 应被 DB 拒绝
+        let now = OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Iso8601::DEFAULT)
+            .unwrap();
+        db.execute(
+            "INSERT INTO providers (id, app_type, name, mode, settings_config, is_current, meta, created_at, updated_at)
+             VALUES ('p1', 'claude-code', 'A', 'proxy', '{}', 1, '{}', ?1, ?1)",
+            rusqlite::params![now],
+        )
+        .unwrap();
+        let second_insert = db.execute(
+            "INSERT INTO providers (id, app_type, name, mode, settings_config, is_current, meta, created_at, updated_at)
+             VALUES ('p2', 'claude-code', 'B', 'proxy', '{}', 1, '{}', ?1, ?1)",
+            rusqlite::params![now],
+        );
+        assert!(
+            second_insert.is_err(),
+            "partial unique index 应阻止同 app_type 出现两条 is_current=1"
         );
 
         // 所有迁移版本均已记录

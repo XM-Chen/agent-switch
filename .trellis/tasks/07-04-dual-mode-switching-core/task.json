@@ -1,0 +1,33 @@
+{
+  "id": "dual-mode-switching-core",
+  "name": "dual-mode-switching-core",
+  "title": "双模式切换内核",
+  "description": "引入 ccs 式 providers 统一切换面，proxy/direct 双模式并存，代理优先。P1 承重墙。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "xm-chen",
+  "assignee": "xm-chen",
+  "createdAt": "2026-07-04",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-04-providers-schema-migration",
+    "07-04-dual-mode-takeover",
+    "07-04-provider-crud-switch-api",
+    "07-04-proxy-providers-bridge",
+    "07-04-frontend-switcher-page",
+    "07-04-spec-gates-archive"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

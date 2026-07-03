@@ -8,6 +8,7 @@ pub mod endpoint_models;
 pub mod endpoints;
 pub mod model_aliases;
 pub mod model_locks;
+pub mod providers;
 pub mod request_logs;
 pub mod route_settings;
 pub mod tool_takeover;
