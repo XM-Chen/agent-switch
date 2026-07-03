@@ -130,6 +130,7 @@ pub fn import(
     if package.algo != ALGO_AES_GCM {
         return Err(format!("不支持的加密算法: {}", package.algo));
     }
+    validate_mode_kdf(&package.mode, &package.kdf)?;
 
     // 2. 解密 + gunzip + 反序列化。
     let payload = open_payload(&package, password)?;
@@ -260,6 +261,22 @@ fn reassemble_blob(nonce_b64: &str, ciphertext_b64: &str) -> Result<Vec<u8>, Str
     Ok(blob)
 }
 
+/// 校验 mode 与 kdf 组合合法性（交叉校验）。
+///
+/// 防御 crafted 包跨绑密钥源（master key vs password）：
+/// - full_backup 必须 kdf=none（主密钥）
+/// - portable 必须 kdf=argon2id（密码）
+fn validate_mode_kdf(mode: &str, kdf: &str) -> Result<(), String> {
+    match (mode, kdf) {
+        (MODE_FULL_BACKUP, KDF_NONE) => Ok(()),
+        (MODE_PORTABLE, KDF_ARGON2ID) => Ok(()),
+        _ => Err(format!(
+            "导出包 mode='{}' 与 kdf='{}' 不匹配（full_backup 需 kdf=none，portable 需 kdf=argon2id）",
+            mode, kdf
+        )),
+    }
+}
+
 // ── 本地 DB 文件备份 ─────────────────────────────────────────────────────────
 
 /// 复制当前 sqlite 文件到 `data_dir/backups/db/`，用于 full_backup 导入前安全网。
@@ -279,8 +296,16 @@ fn backup_db_file(db: &Mutex<Connection>, data_dir: &Path) -> Result<PathBuf, St
 
     let src = paths::db_path(data_dir);
     let timestamp = now_iso()?;
-    // Windows 文件名不允许 ':'，替换为 '-'。
-    let safe_ts = timestamp.replace(':', "-");
+    let safe_ts: String = timestamp
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
     let dst = backup_root.join(format!("agent-switch-{}.db", safe_ts));
 
     std::fs::copy(&src, &dst).map_err(|e| format!("备份数据库文件失败: {}", e))?;
@@ -409,6 +434,15 @@ mod tests {
             )
             .unwrap();
         assert_eq!(enabled, 0);
+        // UI 偏好按包恢复。
+        let auto_refresh: String = dconn
+            .query_row(
+                "SELECT value FROM app_metadata WHERE key='auto_model_refresh_enabled'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(auto_refresh, "true");
     }
 
     /// portable：collect 脱敏 → 凭据列为 None；merge 导入到已有同名端点不覆盖 api_key。
@@ -459,12 +493,85 @@ mod tests {
         assert!(cred.is_none());
     }
 
+    #[test]
+    fn replace_import_deletes_stale_route_settings() {
+        let src = fresh_db();
+        seed_data(&src);
+        let mut payload = collect::collect(&src, CollectMode::FullBackup).unwrap();
+        payload.route_settings.retain(|rs| rs.id != "v1");
+
+        let dst = fresh_db();
+        {
+            let dconn = dst.lock().unwrap();
+            let before: i64 = dconn
+                .query_row("SELECT COUNT(*) FROM route_settings WHERE id='v1'", [], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            assert_eq!(before, 1);
+        }
+
+        apply::apply(&dst, &payload, ApplyStrategy::Replace).unwrap();
+        let dconn = dst.lock().unwrap();
+        let after: i64 = dconn
+            .query_row("SELECT COUNT(*) FROM route_settings WHERE id='v1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(after, 0);
+    }
+
+    #[test]
+    fn replace_import_clears_missing_whitelisted_ui_settings() {
+        let src = fresh_db();
+        seed_data(&src);
+        let mut payload = collect::collect(&src, CollectMode::FullBackup).unwrap();
+        payload
+            .ui_settings
+            .retain(|(key, _)| key != "auto_model_refresh_enabled");
+
+        let dst = fresh_db();
+        {
+            let dconn = dst.lock().unwrap();
+            dconn
+                .execute(
+                    "INSERT INTO app_metadata (key, value, updated_at) VALUES ('auto_model_refresh_enabled', 'false', '2024-01-01T00:00:00Z')
+                     ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                    [],
+                )
+                .unwrap();
+        }
+
+        apply::apply(&dst, &payload, ApplyStrategy::Replace).unwrap();
+        let dconn = dst.lock().unwrap();
+        let count: i64 = dconn
+            .query_row(
+                "SELECT COUNT(*) FROM app_metadata WHERE key='auto_model_refresh_enabled'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn import_rejects_mode_kdf_mismatch() {
+        assert!(validate_mode_kdf(MODE_FULL_BACKUP, KDF_NONE).is_ok());
+        assert!(validate_mode_kdf(MODE_PORTABLE, KDF_ARGON2ID).is_ok());
+        assert!(validate_mode_kdf(MODE_FULL_BACKUP, KDF_ARGON2ID).is_err());
+        assert!(validate_mode_kdf(MODE_PORTABLE, KDF_NONE).is_err());
+    }
+
     /// 弱密码检测。
     #[test]
     fn weak_password_detection() {
         assert!(crypto_box::weak_password_warning("123").is_some());
         assert!(crypto_box::weak_password_warning("aaaaaaa").is_some()); // 单一字符类 + 短
         assert!(crypto_box::weak_password_warning("abcdefgh").is_some()); // 单一字符类（全小写），虽 ≥8
+        assert_eq!(
+            crypto_box::weak_password_warning("密码密码密码"),
+            Some("密码少于 8 个字符，安全性较低，建议使用更长的密码")
+        );
         assert!(crypto_box::weak_password_warning("Abc1234!").is_none()); // 混合 + ≥8
     }
 

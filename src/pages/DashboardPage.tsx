@@ -11,30 +11,9 @@ import {
   type ToolStatus,
   type LogEntry,
 } from '../lib/api';
-
-// ── 标签映射（与 ToolCard.tsx 一致，避免引入跨组件依赖） ─────
-
-const TOOL_LABELS: Record<string, string> = {
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  opencode: 'OpenCode',
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  agent_switch: 'agent-switch',
-  official: '官方',
-  third_party: '第三方',
-  unconfigured: '未配置',
-  unrecognized: '无法识别',
-};
-
-const CATEGORY_COLORS: Record<string, string> = {
-  agent_switch: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  official: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  third_party: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-  unconfigured: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
-  unrecognized: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-};
+import { formatTime } from '../lib/format';
+import { CATEGORY_COLORS, CATEGORY_LABELS, TOOL_LABELS } from '../lib/presentation';
+import { aggregateEndpointHealth, countFallbackHops } from './dashboardUtils';
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -85,14 +64,15 @@ export function DashboardPage() {
     queryKey: ['tools'],
     queryFn: toolsApi.list,
   });
+  const dashboardLogsParams = { limit: 10 } as const;
   const {
     data: logsResp,
     isLoading: logsLoading,
     isError: logsIsError,
     error: logsError,
   } = useQuery({
-    queryKey: ['logs'],
-    queryFn: () => logsApi.list({ limit: 10 }),
+    queryKey: ['logs', { dashboard: true, ...dashboardLogsParams }],
+    queryFn: () => logsApi.list(dashboardLogsParams),
   });
   const {
     data: autoRefresh,
@@ -569,106 +549,4 @@ function EmptyGuide({ navigate }: { navigate: (path: string) => void }) {
       </div>
     </div>
   );
-}
-
-// ── 辅助函数 ────────────────────────────────────────────
-
-/** 端点健康聚合（D3 / R5）：正常 / 冷却中 / 最近失败 / 待用。 */
-function aggregateEndpointHealth(
-  endpoints: { enabled: boolean; cooldown_until: string | null; last_failure_at: string | null; last_success_at: string | null }[],
-  routes: { candidates: { cooldown_until: string | null; last_failure_at: string | null; last_success_at: string | null }[] }[],
-) {
-  const now = Date.now();
-  // 最近失败窗口：1 小时内视为"最近失败"
-  const recentFailureWindow = 60 * 60 * 1000;
-
-  // 优先用 endpoints 列表（含启用·禁用）；routes candidates 作为补充
-  let normal = 0;
-  let cooling = 0;
-  let recentFailure = 0;
-  let idle = 0;
-
-  for (const e of endpoints) {
-    const bucket = bucketHealth(
-      e.cooldown_until,
-      e.last_failure_at,
-      e.last_success_at,
-      now,
-      recentFailureWindow,
-    );
-    if (bucket === 'normal') normal++;
-    else if (bucket === 'cooling') cooling++;
-    else if (bucket === 'recent_failure') recentFailure++;
-    else idle++;
-  }
-
-  // endpoints 为空但 routes 有候选时，用 candidates 兜底聚合
-  if (endpoints.length === 0) {
-    for (const route of routes) {
-      for (const c of route.candidates) {
-        const bucket = bucketHealth(
-          c.cooldown_until,
-          c.last_failure_at,
-          c.last_success_at,
-          now,
-          recentFailureWindow,
-        );
-        if (bucket === 'normal') normal++;
-        else if (bucket === 'cooling') cooling++;
-        else if (bucket === 'recent_failure') recentFailure++;
-        else idle++;
-      }
-    }
-  }
-
-  return { normal, cooling, recentFailure, idle };
-}
-
-function bucketHealth(
-  cooldownUntil: string | null,
-  lastFailureAt: string | null,
-  lastSuccessAt: string | null,
-  now: number,
-  recentFailureWindow: number,
-): 'normal' | 'cooling' | 'recent_failure' | 'idle' {
-  if (cooldownUntil) {
-    const cd = Date.parse(cooldownUntil);
-    if (!Number.isNaN(cd) && cd > now) return 'cooling';
-  }
-  if (lastFailureAt) {
-    const lf = Date.parse(lastFailureAt);
-    if (!Number.isNaN(lf) && now - lf <= recentFailureWindow) {
-      return 'recent_failure';
-    }
-  }
-  if (lastSuccessAt) {
-    const ls = Date.parse(lastSuccessAt);
-    if (!Number.isNaN(ls)) return 'normal';
-  }
-  return 'idle';
-}
-
-/** 解析 fallback_chain（JSON 数组）取跳数；失败或空返回 0。 */
-function countFallbackHops(chain: string | null): number {
-  if (!chain) return 0;
-  try {
-    const parsed = JSON.parse(chain);
-    if (Array.isArray(parsed)) return parsed.length;
-  } catch {
-    // 解析失败忽略
-  }
-  return 0;
-}
-
-/** 格式化 ISO 时间为短格式 HH:mm:ss（与 LogsPage 一致）。 */
-function formatTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    const ss = String(d.getSeconds()).padStart(2, '0');
-    return `${hh}:${mm}:${ss}`;
-  } catch {
-    return iso;
-  }
 }

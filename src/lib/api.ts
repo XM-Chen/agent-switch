@@ -378,8 +378,11 @@ export interface LogListResponse {
   total: number;
 }
 
+export type LogType = 'production' | 'test';
+
 export interface LogListParams {
   tool?: string;
+  log_type?: LogType;
   status?: number;
   from?: string;
   to?: string;
@@ -387,18 +390,21 @@ export interface LogListParams {
   offset?: number;
 }
 
+export function buildLogsPath(params?: LogListParams): string {
+  const qs = new URLSearchParams();
+  if (params?.tool) qs.set('tool', params.tool);
+  if (params?.log_type) qs.set('log_type', params.log_type);
+  if (params?.status !== undefined) qs.set('status', String(params.status));
+  if (params?.from) qs.set('from', params.from);
+  if (params?.to) qs.set('to', params.to);
+  if (params?.limit) qs.set('limit', String(params.limit));
+  if (params?.offset) qs.set('offset', String(params.offset));
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return `/logs${suffix}`;
+}
+
 export const logsApi = {
-  list: (params?: LogListParams) => {
-    const qs = new URLSearchParams();
-    if (params?.tool) qs.set('tool', params.tool);
-    if (params?.status !== undefined) qs.set('status', String(params.status));
-    if (params?.from) qs.set('from', params.from);
-    if (params?.to) qs.set('to', params.to);
-    if (params?.limit) qs.set('limit', String(params.limit));
-    if (params?.offset) qs.set('offset', String(params.offset));
-    const suffix = qs.toString() ? `?${qs.toString()}` : '';
-    return request<LogListResponse>(`/logs${suffix}`);
-  },
+  list: (params?: LogListParams) => request<LogListResponse>(buildLogsPath(params)),
   get: (id: string) => request<LogDetail>(`/logs/${id}`),
 };
 

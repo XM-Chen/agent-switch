@@ -178,6 +178,7 @@ impl RouteProxy {
             route_settings.failover_enabled,
             route_settings.max_switches as u32,
             route_settings.same_account_retries as u32,
+            route_settings.cooldown_multiplier,
             test_only,
         );
 
@@ -464,6 +465,8 @@ impl RouteProxy {
                                 error_message: Some(err.message.clone()),
                                 latency_ms: Some(attempt_start.elapsed().as_millis() as u64),
                             });
+                            // PRD R3.3：同端点重试间隔 500ms，避免 hammer 上游。
+                            tokio::time::sleep(failover.same_account_retry_delay()).await;
                             continue;
                         }
 

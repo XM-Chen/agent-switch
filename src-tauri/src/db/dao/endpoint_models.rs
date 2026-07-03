@@ -52,6 +52,12 @@ fn row_to_model(row: &rusqlite::Row<'_>) -> rusqlite::Result<EndpointModelRow> {
     })
 }
 
+fn capability_like_pattern(capability: &str) -> Result<String, String> {
+    let quoted = serde_json::to_string(capability)
+        .map_err(|e| format!("能力标签序列化失败: {}", e))?;
+    Ok(format!("%{}%", quoted))
+}
+
 pub fn list(
     db: &Mutex<Connection>,
     endpoint_id: Option<&str>,
@@ -71,7 +77,7 @@ pub fn list(
         sql.push_str(&format!(" AND source = ?{}", params_vec.len()));
     }
     if let Some(cap) = capability {
-        params_vec.push(Box::new(format!("%{}%", cap)));
+        params_vec.push(Box::new(capability_like_pattern(cap)?));
         sql.push_str(&format!(" AND capabilities LIKE ?{}", params_vec.len()));
     }
     sql.push_str(" ORDER BY endpoint_id, model_name");
@@ -121,24 +127,37 @@ pub fn create(db: &Mutex<Connection>, new: NewEndpointModel) -> Result<EndpointM
 }
 
 /// 事务内版本：upsert 单个 synced 模型（不获取 Mutex，调用方已持有连接）。
-pub fn upsert_synced_in_tx(conn: &Connection, new: &NewEndpointModel, now: &str) -> Result<(), String> {
-    conn.execute(
-        "INSERT INTO endpoint_models (id, endpoint_id, model_name, display_name, source, capabilities, context_window, is_available, last_seen_at, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, 'synced', ?5, ?6, 1, ?7, ?8, ?8)
-         ON CONFLICT(endpoint_id, model_name) DO UPDATE SET
-           display_name=excluded.display_name,
-           capabilities=excluded.capabilities,
-           context_window=excluded.context_window,
-           is_available=1,
-           last_seen_at=excluded.last_seen_at,
-           updated_at=excluded.updated_at",
-        params![
-            new.id, new.endpoint_id, new.model_name, new.display_name,
-            new.capabilities, new.context_window, new.last_seen_at, now,
-        ],
-    )
-    .map_err(|e| format!("upsert 模型失败: {}", e))?;
-    Ok(())
+pub fn upsert_synced_in_tx(
+    conn: &Connection,
+    new: &NewEndpointModel,
+    now: &str,
+) -> Result<bool, String> {
+    let updated = conn
+        .execute(
+            "INSERT INTO endpoint_models (id, endpoint_id, model_name, display_name, source, capabilities, context_window, is_available, last_seen_at, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 'synced', ?5, ?6, 1, ?7, ?8, ?8)
+             ON CONFLICT(endpoint_id, model_name) DO UPDATE SET
+               source='synced',
+               display_name=excluded.display_name,
+               capabilities=excluded.capabilities,
+               context_window=excluded.context_window,
+               is_available=1,
+               last_seen_at=excluded.last_seen_at,
+               updated_at=excluded.updated_at
+             WHERE endpoint_models.source = 'synced'",
+            params![
+                new.id,
+                new.endpoint_id,
+                new.model_name,
+                new.display_name,
+                new.capabilities,
+                new.context_window,
+                new.last_seen_at,
+                now,
+            ],
+        )
+        .map_err(|e| format!("upsert 模型失败: {}", e))?;
+    Ok(updated > 0)
 }
 
 /// 事务内版本：标记未在本次 sync 中出现的 synced 模型为不可用。
@@ -194,17 +213,18 @@ pub fn delete(db: &Mutex<Connection>, id: &str) -> Result<(), String> {
 ///
 /// SQL: SELECT COUNT(*) FROM endpoint_models
 ///       WHERE endpoint_id=? AND is_available=1
-///         AND capabilities LIKE '%' || cap || '%'
+///         AND capabilities LIKE '%"' || cap || '"%'
 pub fn has_capable_model(
     db: &Mutex<Connection>,
     endpoint_id: &str,
     capability: &str,
 ) -> Result<bool, String> {
     let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
+    let pattern = capability_like_pattern(capability)?;
     let count: i64 = db
         .query_row(
-            "SELECT COUNT(*) FROM endpoint_models WHERE endpoint_id = ?1 AND is_available = 1 AND capabilities LIKE '%' || ?2 || '%'",
-            params![endpoint_id, capability],
+            "SELECT COUNT(*) FROM endpoint_models WHERE endpoint_id = ?1 AND is_available = 1 AND capabilities LIKE ?2",
+            params![endpoint_id, pattern],
             |row| row.get(0),
         )
         .map_err(|e| format!("查询端点能力模型失败: {}", e))?;
@@ -218,4 +238,100 @@ pub fn list_capable(
     capability: &str,
 ) -> Result<Vec<EndpointModelRow>, String> {
     list(db, Some(endpoint_id), None, Some(capability))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::migrations::run_migrations;
+
+    fn fresh_db() -> Mutex<Connection> {
+        let db = Mutex::new(Connection::open_in_memory().expect("内存数据库应可创建"));
+        run_migrations(&db).expect("迁移应成功");
+        db
+    }
+
+    fn seed_endpoint(db: &Mutex<Connection>) {
+        let conn = db.lock().expect("锁数据库");
+        conn.execute(
+            "INSERT INTO endpoints (id, name, base_url, protocol_type, auth_mode, enabled, priority, created_at, updated_at)
+             VALUES ('ep-1', 'Primary', 'https://example.invalid', 'openai-chat', 'none', 1, 0, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("插入端点");
+    }
+
+    #[test]
+    fn synced_upsert_does_not_overwrite_custom_model() {
+        let db = fresh_db();
+        seed_endpoint(&db);
+        {
+            let conn = db.lock().expect("锁数据库");
+            conn.execute(
+                "INSERT INTO endpoint_models (id, endpoint_id, model_name, display_name, source, capabilities, is_available, created_at, updated_at)
+                 VALUES ('custom-1', 'ep-1', 'gpt-4o', 'Custom GPT-4o', 'custom', '[\"chat\"]', 1, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+                [],
+            )
+            .expect("插入自定义模型");
+        }
+
+        let conn = db.lock().expect("锁数据库");
+        let updated = upsert_synced_in_tx(
+            &conn,
+            &NewEndpointModel {
+                id: "synced-1".to_string(),
+                endpoint_id: "ep-1".to_string(),
+                model_name: "gpt-4o".to_string(),
+                display_name: "Synced GPT-4o".to_string(),
+                source: "synced".to_string(),
+                capabilities: Some("[\"responses\"]".to_string()),
+                context_window: Some(123),
+                last_seen_at: Some("2024-02-01T00:00:00Z".to_string()),
+            },
+            "2024-02-01T00:00:00Z",
+        )
+        .expect("upsert 应成功");
+        assert!(!updated);
+
+        let (source, display_name, capabilities): (String, String, String) = conn
+            .query_row(
+                "SELECT source, display_name, capabilities FROM endpoint_models WHERE endpoint_id='ep-1' AND model_name='gpt-4o'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("模型应存在");
+        assert_eq!(source, "custom");
+        assert_eq!(display_name, "Custom GPT-4o");
+        assert_eq!(capabilities, "[\"chat\"]");
+    }
+
+    #[test]
+    fn capability_filter_matches_json_tokens_not_substrings() {
+        let db = fresh_db();
+        seed_endpoint(&db);
+        {
+            let conn = db.lock().expect("锁数据库");
+            conn.execute(
+                "INSERT INTO endpoint_models (id, endpoint_id, model_name, display_name, source, capabilities, is_available, created_at, updated_at)
+                 VALUES ('m-1', 'ep-1', 'only-long', 'Only Long', 'synced', '[\"chat_long\"]', 1, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+                [],
+            )
+            .expect("插入模型");
+        }
+        assert!(!has_capable_model(&db, "ep-1", "chat").expect("查询能力"));
+
+        {
+            let conn = db.lock().expect("锁数据库");
+            conn.execute(
+                "INSERT INTO endpoint_models (id, endpoint_id, model_name, display_name, source, capabilities, is_available, created_at, updated_at)
+                 VALUES ('m-2', 'ep-1', 'chat-model', 'Chat Model', 'synced', '[\"chat\"]', 1, '2024-01-02T00:00:00Z', '2024-01-02T00:00:00Z')",
+                [],
+            )
+            .expect("插入模型");
+        }
+        assert!(has_capable_model(&db, "ep-1", "chat").expect("查询能力"));
+        let capable = list_capable(&db, "ep-1", "chat").expect("列出能力模型");
+        assert_eq!(capable.len(), 1);
+        assert_eq!(capable[0].model_name, "chat-model");
+    }
 }

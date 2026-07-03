@@ -21,7 +21,7 @@
 /// | `max_tokens` | `length` |
 /// | `stop_sequence` | `stop` |
 use crate::services::translator::helpers;
-use crate::services::translator::{StreamContext, ToolCallAcc, Translator};
+use crate::services::translator::{StreamContext, Translator};
 use serde_json::{json, Value};
 
 // =====================================================================
@@ -465,16 +465,6 @@ impl Translator for AnthropicToChatTranslator {
                             .block_to_tool_index
                             .insert(index, tool_index);
 
-                        // 保存到累积器（用映射后的 tool_index 作为 key）
-                        context.tool_calls.insert(
-                            tool_index,
-                            ToolCallAcc {
-                                id: tc_id.to_string(),
-                                name: tc_name.to_string(),
-                                arguments: String::new(),
-                            },
-                        );
-
                         // 发送 tool_call delta
                         let chunk = json!({
                             "choices": [
@@ -537,16 +527,10 @@ impl Translator for AnthropicToChatTranslator {
                             .and_then(|d| d.get("partial_json"))
                             .and_then(|t| t.as_str())
                             .unwrap_or("");
-                        // 用映射后的 tool_call index，而非 Anthropic 的 content_block index
-                        let tool_index = context
-                            .block_to_tool_index
-                            .get(&index)
-                            .copied()
-                            .unwrap_or(0);
-                        // 累积到对应 tool call 的 arguments（用映射后的 tool_index）
-                        if let Some(acc) = context.tool_calls.get_mut(&tool_index) {
-                            acc.arguments.push_str(partial);
-                        }
+                        // 已在 content_block_start 记录 index 映射；缺失映射时丢弃畸形 delta，避免错误归到 tool 0。
+                        let Some(tool_index) = context.block_to_tool_index.get(&index).copied() else {
+                            return Ok("".to_string());
+                        };
                         let chunk = json!({
                             "choices": [
                                 {
@@ -730,14 +714,20 @@ impl Translator for ChatToAnthropicTranslator {
             }
         }
 
-        // 6. 移除 Chat 专有字段
+        // 6. 映射 max_completion_tokens → max_tokens（Anthropic 请求必需/常用字段）
+        if let Some(obj) = body.as_object_mut() {
+            if let Some(max_completion_tokens) = obj.remove("max_completion_tokens") {
+                obj.entry("max_tokens").or_insert(max_completion_tokens);
+            }
+        }
+
+        // 7. 移除 Chat 专有字段
         let chat_only = [
             "reasoning_effort",
             "user",
             "n",
             "logprobs",
             "top_logprobs",
-            "max_completion_tokens",
             "presence_penalty",
             "frequency_penalty",
             "logit_bias",
@@ -862,9 +852,12 @@ impl Translator for ChatToAnthropicTranslator {
             None => return Ok(line.to_string()),
         };
 
-        // [DONE] → message_stop
+        // [DONE] → close remaining content blocks, then message_stop
         if data == "[DONE]" {
-            return Ok("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n".to_string());
+            let mut output = String::new();
+            Self::close_open_blocks(context, &mut output);
+            output.push_str("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n");
+            return Ok(output);
         }
 
         // 解析 JSON
@@ -934,14 +927,27 @@ impl Translator for ChatToAnthropicTranslator {
             context.has_content = true;
         }
 
-        // 处理 content delta → content_block_delta
+        // 处理 content delta → content_block_start + content_block_delta
         if let Some(text) = content {
             if !text.is_empty() {
+                let text_block_index = match context.text_block_index {
+                    Some(index) => index,
+                    None => {
+                        let index = context.next_content_block_index;
+                        context.next_content_block_index += 1;
+                        context.text_block_index = Some(index);
+                        output.push_str(&format!(
+                            "event: content_block_start\ndata: {{\"type\":\"content_block_start\",\"index\":{},\"content_block\":{{\"type\":\"text\",\"text\":\"\"}}}}\n\n",
+                            index
+                        ));
+                        index
+                    }
+                };
                 // 用 serde_json 正确转义，避免手动 replace 漏处理 \n/\r/\t/控制字符。
                 let escaped = serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_string());
                 output.push_str(&format!(
-                    "event: content_block_delta\ndata: {{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{{\"type\":\"text_delta\",\"text\":{}}}}}\n\n",
-                    escaped
+                    "event: content_block_delta\ndata: {{\"type\":\"content_block_delta\",\"index\":{},\"delta\":{{\"type\":\"text_delta\",\"text\":{}}}}}\n\n",
+                    text_block_index, escaped
                 ));
             }
         }
@@ -951,6 +957,15 @@ impl Translator for ChatToAnthropicTranslator {
             .and_then(|d| d.get("tool_calls"))
             .and_then(|t| t.as_array())
         {
+            // Anthropic content_block 是全局有序块；开始 tool_use 前先闭合已打开的 text 块。
+            if let Some(text_idx) = context.text_block_index {
+                output.push_str(&format!(
+                    "event: content_block_stop\ndata: {{\"type\":\"content_block_stop\",\"index\":{}}}\n\n",
+                    text_idx
+                ));
+                context.text_block_index = None;
+            }
+
             for tc in tool_calls {
                 let tc_index = tc.get("index").and_then(|i| i.as_i64()).unwrap_or(0) as i32;
                 let tc_id = tc.get("id").and_then(|i| i.as_str()).unwrap_or("");
@@ -964,13 +979,24 @@ impl Translator for ChatToAnthropicTranslator {
                     .and_then(|a| a.as_str());
 
                 let acc = context.tool_calls.entry(tc_index).or_default();
+                let block_index = context
+                    .tool_call_to_block_index
+                    .get(&tc_index)
+                    .copied()
+                    .unwrap_or_else(|| {
+                        let index = context.next_content_block_index;
+                        context.next_content_block_index += 1;
+                        context.tool_call_to_block_index.insert(tc_index, index);
+                        context.block_to_tool_index.insert(index, tc_index);
+                        index
+                    });
 
                 if !tc_id.is_empty() && acc.id.is_empty() {
                     acc.id = tc_id.to_string();
                     // 发送 content_block_start for tool_use
                     output.push_str(&format!(
                         "event: content_block_start\ndata: {{\"type\":\"content_block_start\",\"index\":{},\"content_block\":{{\"type\":\"tool_use\",\"id\":\"{}\",\"name\":\"{}\",\"input\":{{}}}}}}\n\n",
-                        tc_index, tc_id, tc_name.unwrap_or("")
+                        block_index, tc_id, tc_name.unwrap_or("")
                     ));
                 }
 
@@ -981,14 +1007,14 @@ impl Translator for ChatToAnthropicTranslator {
                 }
 
                 if let Some(args) = tc_args {
-                    if !args.is_empty() {
+                    if !args.is_empty() && !acc.id.is_empty() {
                         // 用 serde_json 正确转义。args 本身是部分 JSON 字符串，
                         // 塞进 "partial_json":"..." 字段必须做 JSON 字符串转义，
                         // 但不能对 args 内部再做反斜杠转义（那会损坏 JSON）。
                         let escaped = serde_json::to_string(args).unwrap_or_else(|_| "\"\"".to_string());
                         output.push_str(&format!(
                             "event: content_block_delta\ndata: {{\"type\":\"content_block_delta\",\"index\":{},\"delta\":{{\"type\":\"input_json_delta\",\"partial_json\":{}}}}}\n\n",
-                            tc_index, escaped
+                            block_index, escaped
                         ));
                         acc.arguments.push_str(args);
                     }
@@ -996,8 +1022,9 @@ impl Translator for ChatToAnthropicTranslator {
             }
         }
 
-        // 处理 finish_reason → message_delta
+        // 处理 finish_reason → close open blocks, then message_delta
         if let Some(reason) = finish_reason {
+            Self::close_open_blocks(context, &mut output);
             let anthropic_reason = helpers::chat_finish_reason_to_anthropic(reason);
 
             let completion_tokens = usage
@@ -1024,6 +1051,43 @@ impl Translator for ChatToAnthropicTranslator {
 // =====================================================================
 
 impl ChatToAnthropicTranslator {
+    /// 为所有打开的 content_block 发送 content_block_stop 事件。
+    ///
+    /// 在流结束时（finish_reason 或 [DONE]）调用，确保每个已打开的块都正确闭合。
+    /// - text 块：若 text_block_index 不为 None，发送对应 index 的 stop。
+    /// - tool_use 块：遍历 tool_call_to_block_index，为每个已打开的 tool_call 发送 stop。
+    fn close_open_blocks(context: &mut StreamContext, output: &mut String) {
+        // 关闭 text 块
+        if let Some(text_idx) = context.text_block_index {
+            output.push_str(&format!(
+                "event: content_block_stop\ndata: {{\"type\":\"content_block_stop\",\"index\":{}}}\n\n",
+                text_idx
+            ));
+            context.text_block_index = None;
+        }
+
+        // 关闭所有已打开的 tool_use 块。按 Anthropic block index 排序，避免 HashMap 迭代顺序导致测试/输出抖动。
+        let mut open_tool_blocks: Vec<(i32, i32)> = context
+            .tool_call_to_block_index
+            .iter()
+            .filter_map(|(tc_index, block_index)| {
+                context
+                    .tool_calls
+                    .get(tc_index)
+                    .filter(|acc| !acc.id.is_empty())
+                    .map(|_| (*tc_index, *block_index))
+            })
+            .collect();
+        open_tool_blocks.sort_by_key(|(_, block_index)| *block_index);
+        for (_, block_index) in open_tool_blocks {
+            output.push_str(&format!(
+                "event: content_block_stop\ndata: {{\"type\":\"content_block_stop\",\"index\":{}}}\n\n",
+                block_index
+            ));
+        }
+        context.tool_call_to_block_index.clear();
+    }
+
     /// 转换单条消息的 content 字段从 Chat 格式到 Anthropic 块格式。
     fn convert_message_content(msg: &mut Value) -> Result<(), String> {
         let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
@@ -1237,10 +1301,15 @@ mod tests {
             "data: {\"id\":\"chatcmpl_abc\",\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"line1\\nline2 \\\"quoted\\\" \\\\path\"},\"finish_reason\":null}]}",
             &mut ctx,
         ).unwrap();
-        // 提取 data 行负载并解析为 JSON，验证 text 字段正确还原
+        // 提取 content_block_delta 的 data 行负载并解析为 JSON，验证 text 字段正确还原
+        assert!(out.contains("content_block_start"));
         assert!(out.contains("content_block_delta"));
-        let data_line = out.lines().find(|l| l.starts_with("data: ")).unwrap();
-        let payload = data_line.trim_start_matches("data: ");
+        let payload = out
+            .split("\n\n")
+            .filter_map(|event| event.lines().find(|l| l.starts_with("data: ")))
+            .map(|line| line.trim_start_matches("data: "))
+            .find(|payload| payload.contains("text_delta"))
+            .unwrap();
         let v: Value = serde_json::from_str(payload).expect("SSE data 必须是合法 JSON");
         assert_eq!(v["delta"]["text"], "line1\nline2 \"quoted\" \\path");
     }
@@ -1615,18 +1684,120 @@ mod tests {
     }
 
     #[test]
-    fn test_chat_to_anthropic_stream_reasoning_effort() {
+    fn test_chat_to_anthropic_request_maps_max_completion_tokens() {
         let t = ChatToAnthropicTranslator;
         let mut body = json!({
-            "model": "o1",
-            "messages": [{"role": "user", "content": "think"}],
-            "reasoning_effort": "high"
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_completion_tokens": 256
         });
 
         t.translate_request(&mut body, "claude-3").unwrap();
-        assert!(body.get("reasoning_effort").is_none());
-        assert_eq!(body["thinking"]["type"], "adaptive");
-        assert_eq!(body["thinking"]["output_config"]["effort"], "high");
+        assert_eq!(body["max_tokens"], 256);
+        assert!(body.get("max_completion_tokens").is_none());
+    }
+
+    #[test]
+    fn test_chat_to_anthropic_stream_text_block_start_and_stop() {
+        let t = ChatToAnthropicTranslator;
+        let mut ctx = StreamContext::new("", "", 0);
+
+        let _ = t.translate_stream_line(
+            "data: {\"id\":\"chatcmpl_abc\",\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}",
+            &mut ctx,
+        ).unwrap();
+        let delta_out = t.translate_stream_line(
+            "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}",
+            &mut ctx,
+        ).unwrap();
+        let finish_out = t.translate_stream_line(
+            "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}",
+            &mut ctx,
+        ).unwrap();
+        let done_out = t.translate_stream_line("data: [DONE]", &mut ctx).unwrap();
+
+        assert!(delta_out.contains("event: content_block_start"));
+        assert!(delta_out.contains("\"type\":\"text\""));
+        assert!(delta_out.contains("event: content_block_delta"));
+        assert!(finish_out.contains("event: content_block_stop"));
+        assert!(finish_out.contains("event: message_delta"));
+        assert!(!done_out.contains("content_block_stop"), "finish_reason 后不应重复 stop");
+        assert!(done_out.contains("event: message_stop"));
+    }
+
+    #[test]
+    fn test_chat_to_anthropic_stream_mixed_text_and_tool_blocks_are_closed_in_order() {
+        let t = ChatToAnthropicTranslator;
+        let mut ctx = StreamContext::new("", "", 0);
+
+        let _ = t.translate_stream_line(
+            "data: {\"id\":\"chatcmpl_abc\",\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}",
+            &mut ctx,
+        ).unwrap();
+        let text_out = t.translate_stream_line(
+            "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}",
+            &mut ctx,
+        ).unwrap();
+        let tool_out = t.translate_stream_line(
+            "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"NYC\\\"}\"}}]},\"finish_reason\":null}]}",
+            &mut ctx,
+        ).unwrap();
+        let finish_out = t.translate_stream_line(
+            "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}",
+            &mut ctx,
+        ).unwrap();
+
+        assert!(text_out.contains("\"index\":0"));
+        assert!(tool_out.contains("content_block_stop"), "tool 开始前应先闭合 text 块");
+        assert!(tool_out.contains("\"index\":1"), "tool_use 应拿到全局 block index 1");
+        let stop_positions: Vec<_> = finish_out.match_indices("event: content_block_stop").collect();
+        assert_eq!(stop_positions.len(), 1, "finish 时只应剩 tool_use 块待关闭");
+        assert!(finish_out.contains("\"index\":1"));
+        assert!(finish_out.contains("event: message_delta"));
+    }
+
+    #[test]
+    fn test_anthropic_to_chat_request_combines_all_system_text_blocks() {
+        let t = AnthropicToChatTranslator;
+        let mut body = json!({
+            "model": "claude-sonnet-4",
+            "messages": [
+                {"role": "user", "content": "Hello"}
+            ],
+            "system": [
+                {"type": "text", "text": "Line 1. "},
+                {"type": "tool_use", "id": "ignored", "name": "noop", "input": {}},
+                {"type": "text", "text": "Line 2."}
+            ]
+        });
+
+        t.translate_request(&mut body, "claude-sonnet-4").unwrap();
+        assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(body["messages"][0]["content"], "Line 1. Line 2.");
+    }
+
+    #[test]
+    fn test_anthropic_to_chat_stream_ignores_unmapped_input_json_delta() {
+        let t = AnthropicToChatTranslator;
+        let mut ctx = StreamContext::new("chatcmpl_01", "claude-3", 12345);
+
+        let line = "data: {\"type\":\"content_block_delta\",\"index\":7,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\\\"NYC\\\"}\"}}";
+        let result = t.translate_stream_line(line, &mut ctx).unwrap();
+        assert_eq!(result, "");
+        assert!(ctx.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn test_anthropic_to_chat_request_adaptive_thinking_uses_nested_effort() {
+        let t = AnthropicToChatTranslator;
+        let mut body = json!({
+            "model": "claude-3",
+            "messages": [{"role": "user", "content": "hi"}],
+            "thinking": {"type": "adaptive", "output_config": {"effort": "low"}}
+        });
+
+        t.translate_request(&mut body, "claude-3").unwrap();
+        assert_eq!(body["reasoning_effort"], "low");
     }
 
     #[test]

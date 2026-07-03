@@ -5,7 +5,7 @@
 //!
 //! 写入侧 `insert`/`new_log`/`now_iso` 为主循环日志接线预留。
 #![allow(dead_code)]
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::sync::Mutex;
 use time::OffsetDateTime;
 
@@ -38,10 +38,18 @@ pub struct RequestLogRow {
     pub created_at: String,
 }
 
+/// 日志类型筛选条件。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogTypeFilter {
+    Production,
+    Test,
+}
+
 /// 日志列表筛选条件。
 #[derive(Debug, Clone, Default)]
 pub struct LogFilter {
     pub tool: Option<String>,
+    pub log_type: Option<LogTypeFilter>,
     pub status: Option<i64>,
     pub from: Option<String>,
     pub to: Option<String>,
@@ -109,10 +117,31 @@ pub fn list(
     let mut conditions: Vec<String> = Vec::new();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
-    if let Some(ref tool) = filter.tool {
-        params_vec.push(Box::new(tool.clone()));
-        conditions.push(format!("tool = ?{}", params_vec.len()));
+    // log_type 过滤：production 排除 tool='test'，test 等价 tool='test'
+    match filter.log_type {
+        Some(LogTypeFilter::Test) => {
+            // 测试日志类型优先：等价 tool='test'，忽略额外 tool 参数
+            params_vec.push(Box::new("test".to_string()));
+            conditions.push(format!("tool = ?{}", params_vec.len()));
+        }
+        Some(LogTypeFilter::Production) => {
+            // 生产日志：tool IS NULL OR tool != 'test'；如额外指定 tool，则再收窄到该工具
+            params_vec.push(Box::new("test".to_string()));
+            conditions.push(format!("(tool IS NULL OR tool != ?{})", params_vec.len()));
+            if let Some(ref tool) = filter.tool {
+                params_vec.push(Box::new(tool.clone()));
+                conditions.push(format!("tool = ?{}", params_vec.len()));
+            }
+        }
+        None => {
+            // tool 参数单独存在时保持原语义
+            if let Some(ref tool) = filter.tool {
+                params_vec.push(Box::new(tool.clone()));
+                conditions.push(format!("tool = ?{}", params_vec.len()));
+            }
+        }
     }
+
     if let Some(status) = filter.status {
         params_vec.push(Box::new(status));
         conditions.push(format!("status = ?{}", params_vec.len()));
@@ -217,24 +246,32 @@ pub fn insert(db: &Mutex<Connection>, log: &RequestLogRow) -> Result<(), String>
     Ok(())
 }
 
-/// 删除超过保留条数的旧日志（按 created_at ASC 删除最旧的）。
+/// 删除超过保留条数的旧日志（按 created_at ASC / id ASC 删除最旧的）。
 ///
-/// 日志表无 TTL，调用方应在固定周期（如每次刷新模型或启动时）调用本函数，
-/// 防止 request_logs 无限增长拖慢查询和膨胀磁盘。
+/// 先计算超额行数，再只删除最旧的 `overflow` 条 rowid，避免 `id NOT IN
+/// (SELECT ... LIMIT max_rows)` 对同表做大范围反连接。
 pub fn prune_old(db: &Mutex<Connection>, max_rows: i64) -> Result<usize, String> {
     if max_rows <= 0 {
         return Ok(0);
     }
     let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
+    let total: i64 = db
+        .query_row("SELECT COUNT(*) FROM request_logs", [], |row| row.get(0))
+        .map_err(|e| format!("查询日志总数失败: {}", e))?;
+    let overflow = total - max_rows;
+    if overflow <= 0 {
+        return Ok(0);
+    }
+
     let count = db
         .execute(
             "DELETE FROM request_logs
-             WHERE id NOT IN (
-                 SELECT id FROM request_logs
-                 ORDER BY created_at DESC
+             WHERE rowid IN (
+                 SELECT rowid FROM request_logs
+                 ORDER BY created_at ASC, id ASC
                  LIMIT ?1
              )",
-            params![max_rows],
+            params![overflow],
         )
         .map_err(|e| format!("清理旧日志失败: {}", e))?;
     Ok(count)
@@ -274,4 +311,50 @@ pub fn new_log(
         request_body_hash: None,
         created_at: created,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::migrations::run_migrations;
+
+    fn fresh_db() -> Mutex<Connection> {
+        let db = Mutex::new(Connection::open_in_memory().expect("内存数据库应可创建"));
+        run_migrations(&db).expect("迁移应成功");
+        db
+    }
+
+    #[test]
+    fn prune_old_deletes_only_overflow_rows() {
+        let db = fresh_db();
+        {
+            let conn = db.lock().expect("锁数据库");
+            for i in 0..5 {
+                conn.execute(
+                    "INSERT INTO request_logs (id, request_id, inbound_endpoint, stream, created_at)
+                     VALUES (?1, ?2, '/claude-code', 0, ?3)",
+                    params![
+                        format!("log-{}", i),
+                        format!("req-{}", i),
+                        format!("2024-01-0{}T00:00:00Z", i + 1),
+                    ],
+                )
+                .expect("插入日志");
+            }
+        }
+
+        let deleted = prune_old(&db, 3).expect("清理日志应成功");
+        assert_eq!(deleted, 2);
+
+        let conn = db.lock().expect("锁数据库");
+        let mut stmt = conn
+            .prepare("SELECT id FROM request_logs ORDER BY created_at ASC, id ASC")
+            .expect("prepare");
+        let kept: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .expect("query")
+            .collect::<Result<_, _>>()
+            .expect("collect");
+        assert_eq!(kept, vec!["log-2", "log-3", "log-4"]);
+    }
 }

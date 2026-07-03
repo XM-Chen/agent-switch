@@ -14,7 +14,7 @@ use std::sync::Mutex;
 
 use rusqlite::Connection;
 
-use super::package::Payload;
+use super::package::{Payload, PORTABLE_METADATA_KEYS};
 use crate::services::crypto::b64_decode;
 
 /// 导入结果统计。
@@ -160,24 +160,30 @@ fn apply_replace(tx: &rusqlite::Transaction<'_>, p: &Payload) -> Result<ImportRe
         .map_err(|e| format!("插入别名失败: {}", e))?;
     }
 
-    // 路由设置：保留原 id，全字段 upsert。
+    // 路由设置：replace 语义为整表覆盖，先清空再按包内容恢复。
+    tx.execute("DELETE FROM route_settings", [])
+        .map_err(|e| format!("清空路由设置失败: {}", e))?;
     for rs in &p.route_settings {
         tx.execute(
             "INSERT INTO route_settings (id, label, strategy, protocol_type, failover_enabled, max_switches, same_account_retries, cooldown_multiplier, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-             ON CONFLICT(id) DO UPDATE SET
-               label=excluded.label, strategy=excluded.strategy, protocol_type=excluded.protocol_type,
-               failover_enabled=excluded.failover_enabled, max_switches=excluded.max_switches,
-               same_account_retries=excluded.same_account_retries, cooldown_multiplier=excluded.cooldown_multiplier,
-               updated_at=excluded.updated_at",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             rusqlite::params![
-                rs.id, rs.label, rs.strategy, rs.protocol_type,
-                rs.failover_enabled as i64, rs.max_switches, rs.same_account_retries, rs.cooldown_multiplier,
+                rs.id,
+                rs.label,
+                rs.strategy,
+                rs.protocol_type,
+                rs.failover_enabled as i64,
+                rs.max_switches,
+                rs.same_account_retries,
+                rs.cooldown_multiplier,
                 now_iso()?,
             ],
         )
         .map_err(|e| format!("插入路由设置失败: {}", e))?;
     }
+
+    // UI 偏好：replace 模式按白名单覆盖，包内缺失表示恢复为未设置。
+    apply_ui_settings_replace(tx, &p.ui_settings)?;
 
     // 接管状态：强制 enabled=0，不写工具配置。
     apply_tool_takeover_replace(tx, &p.tool_takeover)?;
@@ -207,6 +213,37 @@ fn apply_tool_takeover_replace(
             rusqlite::params![t.tool, now_iso()?],
         )
         .map_err(|e| format!("写入接管状态失败: {}", e))?;
+    }
+    Ok(())
+}
+
+/// replace 模式下写入 UI 偏好：按白名单清空并恢复包内值。
+///
+/// 白名单外的 app_metadata 键保持不变（不影响运行状态键）。
+fn apply_ui_settings_replace(
+    tx: &rusqlite::Transaction<'_>,
+    ui_settings: &[(String, String)],
+) -> Result<(), String> {
+    let now = now_iso()?;
+    // 删除白名单偏好键（包内未提供时视为恢复未设置）。
+    for key in PORTABLE_METADATA_KEYS {
+        tx.execute(
+            "DELETE FROM app_metadata WHERE key = ?1",
+            rusqlite::params![key],
+        )
+        .map_err(|e| format!("清空偏好键失败: {}", e))?;
+    }
+    // 插入包内提供的偏好键。
+    for (k, v) in ui_settings {
+        if !PORTABLE_METADATA_KEYS.contains(&k.as_str()) {
+            tracing::warn!("导入包含非白名单偏好键 '{}'，已跳过", k);
+            continue;
+        }
+        tx.execute(
+            "INSERT INTO app_metadata (key, value, updated_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params![k, v, now],
+        )
+        .map_err(|e| format!("写入偏好设置失败: {}", e))?;
     }
     Ok(())
 }
@@ -402,8 +439,12 @@ fn apply_merge(tx: &rusqlite::Transaction<'_>, p: &Payload) -> Result<ImportRepo
         report.route_settings += 1;
     }
 
-    // 6. ui_settings：upsert app_metadata 偏好键。
+    // 6. ui_settings：按白名单 upsert app_metadata 偏好键。
     for (k, v) in &p.ui_settings {
+        if !PORTABLE_METADATA_KEYS.contains(&k.as_str()) {
+            tracing::warn!("导入包含非白名单偏好键 '{}'，已跳过", k);
+            continue;
+        }
         tx.execute(
             "INSERT INTO app_metadata (key, value, updated_at) VALUES (?1, ?2, ?3)
              ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",

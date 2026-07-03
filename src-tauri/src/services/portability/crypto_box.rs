@@ -43,7 +43,7 @@ pub fn random_nonce() -> [u8; 12] {
 ///
 /// 返回 Some(警告文案) 表示弱密码，调用方给 UI 警告但不强制阻止。
 pub fn weak_password_warning(password: &str) -> Option<&'static str> {
-    if password.len() < 8 {
+    if password.chars().count() < 8 {
         return Some("密码少于 8 个字符，安全性较低，建议使用更长的密码");
     }
     let mut has_lower = false;

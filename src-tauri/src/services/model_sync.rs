@@ -1,5 +1,4 @@
 use rusqlite::Connection;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use time::OffsetDateTime;
 
@@ -82,9 +81,7 @@ impl ModelSyncService {
             ..Default::default()
         };
 
-        // 简化版并发：第一版顺序刷新每个端点，但按 host 分组避免同 host 并发。
-        // 后续可改为 tokio::spawn + Semaphore。
-        let mut host_last: HashMap<String, ()> = HashMap::new();
+        // 第一版顺序刷新每个端点。后续可改为 tokio::spawn + Semaphore 按主机分组限流。
 
         for ep in endpoints_list {
             match self.sync_one_endpoint(&app_state, &ep, &sync_time).await {
@@ -105,7 +102,6 @@ impl ModelSyncService {
                     report.errors.push(format!("{}: {}", ep.name, e));
                 }
             }
-            host_last.insert(ep.base_url.clone(), ());
         }
 
         // 更新刷新时间戳。
@@ -141,7 +137,14 @@ impl ModelSyncService {
     ) -> Result<usize, String> {
         let models = fetch_models_from_endpoint(app_state, ep).await?;
 
-        let count = models.len();
+        if models.is_empty() {
+            tracing::warn!(
+                "端点 '{}' 的 /v1/models 返回空 data 数组，跳过本次可用性标记以避免误下线已有模型",
+                ep.name
+            );
+            return Ok(0);
+        }
+
         let endpoint_id = ep.id.clone();
         let sync_time_owned = sync_time.to_string();
 
@@ -158,6 +161,7 @@ impl ModelSyncService {
             .unchecked_transaction()
             .map_err(|e| format!("开始事务失败: {}", e))?;
 
+        let mut synced_count = 0usize;
         for m in &models {
             let id = uuid::Uuid::new_v4().to_string();
             let new_model = endpoint_models::NewEndpointModel {
@@ -170,7 +174,15 @@ impl ModelSyncService {
                 context_window: m.context_window,
                 last_seen_at: Some(sync_time_owned.clone()),
             };
-            endpoint_models::upsert_synced_in_tx(&tx, &new_model, &now)?;
+            if endpoint_models::upsert_synced_in_tx(&tx, &new_model, &now)? {
+                synced_count += 1;
+            } else {
+                tracing::warn!(
+                    "端点 '{}' 的同步模型 '{}' 与 custom 模型重名，已保留 custom 行并跳过同步覆盖",
+                    ep.name,
+                    m.id
+                );
+            }
         }
 
         // 标记本次未返回的 synced 模型为不可用
@@ -179,7 +191,7 @@ impl ModelSyncService {
         tx.commit()
             .map_err(|e| format!("提交事务失败: {}", e))?;
 
-        Ok(count)
+        Ok(synced_count)
     }
 }
 
@@ -233,14 +245,84 @@ pub async fn fetch_models_from_endpoint(
             .ok_or_else(|| "模型缺少 id 字段".to_string())?;
         models.push(FetchedModel {
             id: id.to_string(),
-            capabilities: Some(
-                serde_json::to_string(&serde_json::json!(["chat", "streaming", "tool_calling"]))
-                    .unwrap(),
-            ),
-            context_window: None,
+            capabilities: capabilities_for_item(item, &ep.protocol_type)?,
+            context_window: context_window_for_item(item),
         });
     }
     Ok(models)
+}
+
+/// 为单个 /v1/models 条目推断 capabilities。
+///
+/// 优先采用上游返回的 capabilities 字段（数组或逗号分隔字符串）；
+/// 若上游未提供，则按端点 protocol_type 推导一个保守的基线能力：
+/// - openai-responses → `["responses"]`
+/// - 其它（openai-chat / anthropic / openai-compatible）→ `["chat"]`
+///
+/// 不再硬编码 `tool_calling` / `vision_input`：这些是模型特定能力，仅凭
+/// /v1/models 列表无法可靠判断，应由用户通过自定义模型显式标注。
+fn capabilities_for_item(
+    item: &serde_json::Value,
+    protocol_type: &str,
+) -> Result<Option<String>, String> {
+    if let Some(caps) = extract_upstream_capabilities(item) {
+        return Ok(Some(serde_json::to_string(&caps).map_err(|e| {
+            format!("序列化 capabilities 失败: {}", e)
+        })?));
+    }
+
+    let baseline: &[&str] = match protocol_type {
+        "openai-responses" => &["responses"],
+        _ => &["chat"],
+    };
+    Ok(Some(
+        serde_json::to_string(baseline)
+            .map_err(|e| format!("序列化 capabilities 失败: {}", e))?,
+    ))
+}
+
+/// 从上游 /v1/models 条目中提取 capabilities，若未声明返回 None。
+///
+/// 兼容两种常见格式：
+/// - 数组：`"capabilities": ["chat", "streaming"]`
+/// - 逗号分隔字符串：`"capabilities": "chat,streaming"`
+fn extract_upstream_capabilities(item: &serde_json::Value) -> Option<Vec<String>> {
+    let caps = item.get("capabilities")?;
+    if let Some(arr) = caps.as_array() {
+        let out: Vec<String> = arr
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .filter(|s| !s.is_empty())
+            .collect();
+        if out.is_empty() {
+            None
+        } else {
+            Some(out)
+        }
+    } else if let Some(s) = caps.as_str() {
+        let out: Vec<String> = s
+            .split(',')
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
+            .collect();
+        if out.is_empty() {
+            None
+        } else {
+            Some(out)
+        }
+    } else {
+        None
+    }
+}
+
+/// 从上游 /v1/models 条目中提取 context_window，若未声明返回 None。
+///
+/// 兼容常见字段名：`context_window` / `context_length` / `max_context_length`。
+fn context_window_for_item(item: &serde_json::Value) -> Option<i64> {
+    item.get("context_window")
+        .and_then(|v| v.as_i64())
+        .or_else(|| item.get("context_length").and_then(|v| v.as_i64()))
+        .or_else(|| item.get("max_context_length").and_then(|v| v.as_i64()))
 }
 
 #[derive(Debug, Default, serde::Serialize)]
@@ -263,4 +345,44 @@ pub struct FetchedModel {
     pub id: String,
     pub capabilities: Option<String>,
     pub context_window: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capabilities_use_upstream_field_when_present() {
+        let item = serde_json::json!({
+            "id": "gpt-image-1",
+            "capabilities": ["images", "vision_input"],
+            "context_window": 128000,
+        });
+
+        let caps = capabilities_for_item(&item, "openai-chat")
+            .expect("能力推导应成功")
+            .expect("应有能力字段");
+        let parsed: Vec<String> = serde_json::from_str(&caps).expect("能力应为 JSON 数组");
+        assert_eq!(parsed, vec!["images", "vision_input"]);
+        assert_eq!(context_window_for_item(&item), Some(128000));
+    }
+
+    #[test]
+    fn capabilities_fallback_is_conservative_and_does_not_claim_tool_calling() {
+        let chat_item = serde_json::json!({ "id": "gpt-4o" });
+        let chat_caps = capabilities_for_item(&chat_item, "openai-chat")
+            .expect("能力推导应成功")
+            .expect("应有能力字段");
+        let parsed: Vec<String> = serde_json::from_str(&chat_caps).expect("能力应为 JSON 数组");
+        assert_eq!(parsed, vec!["chat"]);
+        assert!(!parsed.iter().any(|cap| cap == "tool_calling"));
+
+        let responses_item = serde_json::json!({ "id": "gpt-5" });
+        let responses_caps = capabilities_for_item(&responses_item, "openai-responses")
+            .expect("能力推导应成功")
+            .expect("应有能力字段");
+        let parsed: Vec<String> =
+            serde_json::from_str(&responses_caps).expect("能力应为 JSON 数组");
+        assert_eq!(parsed, vec!["responses"]);
+    }
 }

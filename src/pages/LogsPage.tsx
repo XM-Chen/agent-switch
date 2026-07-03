@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { logsApi } from '../lib/api';
+import { logsApi, type LogType } from '../lib/api';
+import { formatTime } from '../lib/format';
 import { useState, useMemo } from 'react';
 
 /** 工具选项。 */
@@ -26,16 +27,13 @@ export function LogsPage() {
 
   // 日志列表查询
   const params = useMemo(
-    () => {
-      // 类型过滤：测试类型对应 tool=test
-      const effectiveTool = tool || (logType === 'test' ? 'test' : undefined);
-      return {
-        tool: effectiveTool,
-        status: status ? Number(status) : undefined,
-        limit,
-        offset,
-      };
-    },
+    () => ({
+      tool: tool || undefined,
+      log_type: logType ? (logType as LogType) : undefined,
+      status: status ? Number(status) : undefined,
+      limit,
+      offset,
+    }),
     [tool, logType, status, limit, offset],
   );
 
@@ -323,17 +321,4 @@ function FallbackChainView({ chain }: { chain: string }) {
       ))}
     </div>
   );
-}
-
-/** 格式化 ISO 时间为短格式。 */
-function formatTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    const ss = String(d.getSeconds()).padStart(2, '0');
-    return `${hh}:${mm}:${ss}`;
-  } catch {
-    return iso;
-  }
 }

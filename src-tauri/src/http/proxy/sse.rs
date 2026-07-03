@@ -76,6 +76,7 @@ pub fn translate_stream(
                         &format!("上游流错误: {}", e),
                         &state.inbound_protocol,
                     );
+                    state.errored = true;
                     return Some((Ok(bytes::Bytes::from(evt)), state));
                 }
                 None => {

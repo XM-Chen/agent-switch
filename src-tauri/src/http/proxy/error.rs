@@ -62,7 +62,7 @@ impl ProxyError {
     /// 判断该错误是否应触发故障转移。
     ///
     /// 规则（参考 prd.md）：
-    /// - **是**：NetworkError、Timeout、408/429/529、5xx
+    /// - **是**：NetworkError、Timeout、AuthError、408/429/529、5xx（不含 501）
     /// - **否**：400/405/406/413/414/415/422/501、ProtocolError、AllExhausted、LocalError
     /// - **谨慎**：401/403（由调用方根据端点类型决定）、404
     pub fn should_failover(&self) -> bool {
@@ -82,8 +82,11 @@ impl ProxyError {
             ProxyErrorKind::ProtocolError
             | ProxyErrorKind::AllExhausted
             | ProxyErrorKind::LocalError => false,
-            // AuthError 默认不退避，由调用方判断
-            ProxyErrorKind::AuthError => false,
+            // AuthError（OAuth 预检刷新失败）：切换到下一个候选端点，
+            // 并按 PRD 第 92 行由 calculate_cooldown_seconds 给出 300s 冷却。
+            // 不切换会让 selector 反复命中同一已失效凭据端点并触发刷新失败，
+            // 放大上游错误率。
+            ProxyErrorKind::AuthError => true,
         }
     }
 

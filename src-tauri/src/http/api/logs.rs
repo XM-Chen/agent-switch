@@ -1,3 +1,4 @@
+use axum::Router;
 /// 请求日志查询 API。
 ///
 /// GET  /api/logs         → 分页过滤查询请求日志
@@ -6,12 +7,11 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::Json;
 use axum::routing::get;
-use axum::Router;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::app_state::AppState;
-use crate::db::dao::request_logs::{self, LogFilter};
+use crate::db::dao::request_logs::{self, LogFilter, LogTypeFilter};
 
 /// 日志列表条目（缩短字段，不含 body hash 等明细）。
 #[derive(Serialize)]
@@ -69,6 +69,7 @@ pub struct LogDetailResponse {
 #[derive(Deserialize, Default)]
 pub struct LogQuery {
     pub tool: Option<String>,
+    pub log_type: Option<String>,
     pub status: Option<i64>,
     pub from: Option<String>,
     pub to: Option<String>,
@@ -150,8 +151,21 @@ async fn list(
     State(state): State<Arc<AppState>>,
     Query(query): Query<LogQuery>,
 ) -> Result<Json<LogListResponse>, (StatusCode, String)> {
+    let log_type = match query.log_type.as_deref() {
+        Some("production") => Some(LogTypeFilter::Production),
+        Some("test") => Some(LogTypeFilter::Test),
+        Some(other) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("未知日志类型 '{}', 仅支持 production/test", other),
+            ));
+        }
+        None => None,
+    };
+
     let filter = LogFilter {
         tool: query.tool,
+        log_type,
         status: query.status,
         from: query.from,
         to: query.to,

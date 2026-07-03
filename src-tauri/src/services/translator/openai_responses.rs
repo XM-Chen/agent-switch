@@ -148,7 +148,12 @@ impl Translator for ChatToResponsesTranslator {
         }
 
         // 4. 处理 stream（保留原字段）
-        // 5. 处理 max_tokens（保留）
+        // 5. 映射 max_tokens → max_output_tokens
+        if let Some(obj) = body.as_object_mut() {
+            if let Some(max_tokens) = obj.remove("max_tokens") {
+                obj.entry("max_output_tokens").or_insert(max_tokens);
+            }
+        }
 
         // 6. 移除 Chat 专有字段
         let chat_only = [
@@ -395,8 +400,27 @@ impl Translator for ChatToResponsesTranslator {
             }
         }
 
-        // finish_reason → response.completed
+        // finish_reason → close function_call items, then response.completed
         if let Some(reason) = finish_reason {
+            let mut done_items: Vec<(i32, crate::services::translator::ToolCallAcc)> = context
+                .tool_calls
+                .iter()
+                .map(|(idx, acc)| (*idx, acc.clone()))
+                .collect();
+            done_items.sort_by_key(|(idx, _)| *idx);
+            for (output_index, acc) in done_items {
+                let item_id = format!("fc_{}", acc.id);
+                let escaped_id = serde_json::to_string(&item_id).unwrap_or_else(|_| "\"\"".to_string());
+                let escaped_call_id = serde_json::to_string(&acc.id).unwrap_or_else(|_| "\"\"".to_string());
+                let escaped_name = serde_json::to_string(&acc.name).unwrap_or_else(|_| "\"\"".to_string());
+                let escaped_args = serde_json::to_string(&acc.arguments).unwrap_or_else(|_| "\"\"".to_string());
+                output.push_str(&format!(
+                    "event: response.output_item.done\ndata: {{\"type\":\"response.output_item.done\",\"output_index\":{},\"item\":{{\"type\":\"function_call\",\"id\":{},\"call_id\":{},\"name\":{},\"arguments\":{},\"status\":\"completed\"}}}}\n\n",
+                    output_index, escaped_id, escaped_call_id, escaped_name, escaped_args
+                ));
+            }
+            context.tool_calls.clear();
+
             let status = match reason {
                 "stop" | "tool_calls" => "completed",
                 "length" => "incomplete",
@@ -532,7 +556,14 @@ impl Translator for ResponsesToChatTranslator {
             body["tools"] = json!(chat_tools);
         }
 
-        // 4. 移除 Responses 专有字段（保留 temperature/top_p/max_tokens 等通用参数）
+        // 4. 映射 max_output_tokens → max_tokens
+        if let Some(obj) = body.as_object_mut() {
+            if let Some(max_output_tokens) = obj.remove("max_output_tokens") {
+                obj.entry("max_tokens").or_insert(max_output_tokens);
+            }
+        }
+
+        // 5. 移除 Responses 专有字段（保留 temperature/top_p/max_tokens 等通用参数）
         let resp_only = [
             "previous_response_id",
             "truncation",
@@ -676,8 +707,7 @@ impl Translator for ResponsesToChatTranslator {
         context: &mut StreamContext,
     ) -> Result<String, String> {
         // 检查 event 类型
-        if let Some(_event_name) = helpers::is_sse_event_type(line) {
-            context.content_block_index = 0;
+        if helpers::is_sse_event_type(line).is_some() {
             return Ok("".to_string());
         }
 
@@ -1163,6 +1193,62 @@ mod tests {
         t.translate_request(&mut body, "gpt-4").unwrap();
         assert_eq!(body["temperature"], 0.7);
         assert_eq!(body["top_p"], 0.9);
+    }
+
+    #[test]
+    fn test_chat_to_responses_request_maps_max_tokens() {
+        let t = ChatToResponsesTranslator;
+        let mut body = json!({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 123
+        });
+
+        t.translate_request(&mut body, "gpt-4").unwrap();
+        assert!(body.get("max_tokens").is_none());
+        assert_eq!(body["max_output_tokens"], 123);
+    }
+
+    #[test]
+    fn test_responses_to_chat_request_maps_max_output_tokens() {
+        let t = ResponsesToChatTranslator;
+        let mut body = json!({
+            "model": "gpt-4",
+            "input": [{"type": "message", "role": "user", "content": "hi"}],
+            "max_output_tokens": 456
+        });
+
+        t.translate_request(&mut body, "gpt-4").unwrap();
+        assert!(body.get("max_output_tokens").is_none());
+        assert_eq!(body["max_tokens"], 456);
+    }
+
+    #[test]
+    fn test_chat_to_responses_stream_function_call_done_before_completed() {
+        let t = ChatToResponsesTranslator;
+        let mut ctx = StreamContext::new("chatcmpl_abc", "gpt-4", 0);
+        let _ = t.translate_stream_line(
+            "data: {\"id\":\"resp_1\",\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}",
+            &mut ctx,
+        ).unwrap();
+        let _ = t.translate_stream_line(
+            "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\"\"}}]},\"finish_reason\":null}]}",
+            &mut ctx,
+        ).unwrap();
+        let _ = t.translate_stream_line(
+            "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\":\\\"NYC\\\"}\"}}]},\"finish_reason\":null}]}",
+            &mut ctx,
+        ).unwrap();
+        let out = t.translate_stream_line(
+            "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}",
+            &mut ctx,
+        ).unwrap();
+
+        let done_pos = out.find("event: response.output_item.done").unwrap();
+        let completed_pos = out.find("event: response.completed").unwrap();
+        assert!(done_pos < completed_pos);
+        assert!(out.contains("\"arguments\":\"{\\\"city\\\":\\\"NYC\\\"}\""));
+        assert!(!out.contains("in_progress"));
     }
 
     /// 回归 R1：流式 text delta 含特殊字符时 SSE data 必须是合法 JSON。

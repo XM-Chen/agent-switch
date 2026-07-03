@@ -1,0 +1,33 @@
+{
+  "id": "fix-remaining-defects",
+  "name": "fix-remaining-defects",
+  "title": "修复审计剩余缺陷(P2/P3/有界项)",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "xm-chen",
+  "assignee": "xm-chen",
+  "createdAt": "2026-07-03",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-03-fix-translator-wire-format",
+    "07-03-fix-proxy-oauth-failover",
+    "07-03-fix-db-portability",
+    "07-03-fix-codex-oauth-credentials",
+    "07-03-fix-frontend-deadcode-tests",
+    "07-03-fix-fmt-spec-alignment"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

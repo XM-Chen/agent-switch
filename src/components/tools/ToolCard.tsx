@@ -1,21 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toolsApi, type ToolBackup, type ToolStatus } from '../../lib/api';
-
-const CATEGORY_LABELS: Record<string, string> = {
-  agent_switch: 'agent-switch',
-  official: '官方',
-  third_party: '第三方',
-  unconfigured: '未配置',
-  unrecognized: '无法识别',
-};
-
-const CATEGORY_COLORS: Record<string, string> = {
-  agent_switch: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  official: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  third_party: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-  unconfigured: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
-  unrecognized: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-};
+import { CATEGORY_COLORS, CATEGORY_LABELS, TOOL_LABELS } from '../../lib/presentation';
 
 interface ToolCardProps {
   tool: ToolStatus;
@@ -148,9 +133,3 @@ export function ToolCard({ tool }: ToolCardProps) {
     </div>
   );
 }
-
-const TOOL_LABELS: Record<string, string> = {
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  opencode: 'OpenCode',
-};

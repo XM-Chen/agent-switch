@@ -39,8 +39,13 @@ pub struct StreamContext {
     pub tool_calls: HashMap<i32, ToolCallAcc>,
     /// 是否已看到首块内容（用于判断是否已发送初始 delta）
     pub has_content: bool,
-    /// 当前内容块索引（用于 Anthropic content_block 追踪）
-    pub content_block_index: i32,
+    /// Chat → Anthropic 流式转换中已打开的 text content_block index。
+    pub text_block_index: Option<i32>,
+    /// Chat → Anthropic 流式转换下一个 Anthropic content_block 全局 index。
+    pub next_content_block_index: i32,
+    /// OpenAI Chat tool_call index → Anthropic content_block index 的映射。
+    /// Chat 的 tool_call index 只计工具调用；Anthropic content_block index 需要与 text 块共享全局序号。
+    pub tool_call_to_block_index: HashMap<i32, i32>,
     /// Anthropic content_block index → OpenAI tool_call index 的映射。
     /// 同一条回复里 text 块（index 0）和 tool_use 块（index 1,2...）共用一个
     /// 自增序号，但 OpenAI 的 tool_calls[].index 必须从 0 开始且只计工具调用。
@@ -55,7 +60,9 @@ impl StreamContext {
             created_at,
             tool_calls: HashMap::new(),
             has_content: false,
-            content_block_index: 0,
+            text_block_index: None,
+            next_content_block_index: 0,
+            tool_call_to_block_index: HashMap::new(),
             block_to_tool_index: HashMap::new(),
         }
     }

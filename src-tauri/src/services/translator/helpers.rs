@@ -4,95 +4,61 @@
 /// 参考 design.md §3 协议转换器契约。
 use serde_json::Value;
 
-/// 映射角色名（Anthropic ↔ OpenAI Chat / Responses）。
-///
-/// # 方向
-/// - `"to_chat"`: 将 Anthropic 角色名映射到 OpenAI Chat 格式（`assistant`→`assistant`, `user`→`user`）
-/// - `"to_anthropic"`: 将 OpenAI Chat 角色映射到 Anthropic 格式（同上，但 `tool`→`user`）
-/// - 其他方向原样返回。
-pub fn map_role(role: &str, direction: &str) -> String {
-    match direction {
-        "to_chat" | "to_anthropic" => match role {
-            "assistant" => "assistant",
-            "user" => "user",
-            "system" => "system",
-            "tool" => "tool",
-            _ => role,
-        }
-        .to_string(),
-        "responses_to_chat" => match role {
-            "assistant" => "assistant",
-            "user" => "user",
-            "system" => "system",
-            _ => "user",
-        }
-        .to_string(),
-        _ => role.to_string(),
-    }
-}
-
 /// 从消息的 content 字段提取纯文本。
 ///
 /// 处理两种形式：
 /// - 直接字符串 `"content": "hello"`
 /// - 内容块数组 `"content": [{"type":"text","text":"hello"}, ...]`
 ///
-/// 返回第一个文本块的文本内容，或 None。
+/// 返回全部文本块拼接后的文本内容，或 None。
 pub fn extract_content_text(content: &Value) -> Option<String> {
     match content {
         Value::String(s) => Some(s.clone()),
         Value::Array(arr) => {
-            for item in arr {
-                if item.get("type").and_then(|t| t.as_str()) == Some("text") {
-                    if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                        return Some(text.to_string());
+            let text = arr
+                .iter()
+                .filter_map(|item| {
+                    if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                        item.get("text").and_then(|t| t.as_str())
+                    } else {
+                        None
                     }
-                }
+                })
+                .collect::<Vec<_>>()
+                .join("");
+            if text.is_empty() {
+                None
+            } else {
+                Some(text)
             }
-            None
         }
         _ => None,
-    }
-}
-
-/// 从 content 字段提取全部文本块，拼接返回。
-pub fn extract_all_text(content: &Value) -> String {
-    match content {
-        Value::String(s) => s.clone(),
-        Value::Array(arr) => arr
-            .iter()
-            .filter_map(|item| {
-                if item.get("type").and_then(|t| t.as_str()) == Some("text") {
-                    item.get("text").and_then(|t| t.as_str()).map(String::from)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(""),
-        _ => String::new(),
     }
 }
 
 /// 构建协议相关的错误终端 SSE 事件。
 ///
 /// - `"anthropic"`: 输出 `event: error\ndata: {"type":"error","error":{"type":"...","message":"..."}}\n\n`
-/// - `"openai-chat"`: 输出 `data: {"choices":[{"index":0,"delta":{},"finish_reason":"error"}]}\n\ndata: [DONE]\n\n`
+/// - `"openai-chat"`: 输出携带错误消息的 chat chunk 后接 `[DONE]`
 /// - `"openai-responses"`: 输出 `event: response.failed\ndata: {"type":"response.failed","error":...}\n\n`
 pub fn build_error_event(msg: &str, protocol: &str) -> String {
     match protocol {
         "anthropic" => {
-            let escaped = serde_json::to_string(msg).unwrap_or_else(|_| format!("\"{}\"", msg));
+            let escaped = serde_json::to_string(msg).unwrap_or_else(|_| "\"upstream_error\"".to_string());
             format!(
                 "event: error\ndata: {{\"type\":\"error\",\"error\":{{\"type\":\"upstream_error\",\"message\":{}}}}}\n\n",
                 escaped
             )
         }
         "openai-chat" => {
-            "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"error\"}]}\n\ndata: [DONE]\n\n".to_string()
+            let escaped = serde_json::to_string(msg).unwrap_or_else(|_| "\"upstream_error\"".to_string());
+            format!(
+                "data: {{\"choices\":[{{\"index\":0,\"delta\":{{\"content\":{}}},\"finish_reason\":\"error\"}}]}}\n\ndata: [DONE]\n\n",
+                escaped
+            )
         }
         "openai-responses" => {
-            let escaped = serde_json::to_string(msg).unwrap_or_else(|_| format!("\"{}\"", msg));
+            let escaped = serde_json::to_string(msg).unwrap_or_else(|_| "\"upstream_error\"".to_string());
             format!(
                 "event: response.failed\ndata: {{\"type\":\"response.failed\",\"error\":{{\"message\":{}}}}}\n\n",
                 escaped
@@ -100,11 +66,6 @@ pub fn build_error_event(msg: &str, protocol: &str) -> String {
         }
         _ => "data: [DONE]\n\n".to_string(),
     }
-}
-
-/// 判断一行 SSE 数据是否为事件结束（空行）。
-pub fn is_sse_event_end(line: &str) -> bool {
-    line.trim().is_empty()
 }
 
 /// 从 SSE `data: ...` 行中提取 JSON 正文。
@@ -160,36 +121,17 @@ pub fn is_streaming(body: &Value) -> bool {
         .unwrap_or(false)
 }
 
-/// 从 Anthropic 内容块提取文本，支持 text_delta / input_json_delta。
-pub fn extract_delta_text(delta: &Value) -> String {
-    match delta.get("type").and_then(|t| t.as_str()) {
-        Some("text_delta") => delta
-            .get("text")
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_string(),
-        Some("input_json_delta") => delta
-            .get("partial_json")
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_string(),
-        _ => String::new(),
-    }
-}
-
 /// 将 Anthropic 的 `thinking` 配置转换为 OpenAI Chat 的 `reasoning_effort`。
 pub fn anthropic_thinking_to_reasoning_effort(body: &mut Value) {
     if let Some(thinking) = body.get("thinking") {
         let effort = match thinking.get("type").and_then(|t| t.as_str()) {
             Some("enabled") => Some("high"),
             Some("disabled") => Some("none"),
-            Some("adaptive") => {
-                // 从 output_config.effort 获取
-                thinking
-                    .get("output_config.effort")
-                    .and_then(|e| e.as_str())
-                    .or(Some("medium"))
-            }
+            Some("adaptive") => thinking
+                .get("output_config")
+                .and_then(|oc| oc.get("effort"))
+                .and_then(|e| e.as_str())
+                .or(Some("medium")),
             _ => None,
         };
         if let Some(e) = effort {
@@ -226,13 +168,6 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn test_map_role_to_chat() {
-        assert_eq!(map_role("assistant", "to_chat"), "assistant");
-        assert_eq!(map_role("user", "to_chat"), "user");
-        assert_eq!(map_role("tool", "to_chat"), "tool");
-    }
-
-    #[test]
     fn test_extract_content_text_string() {
         let v = json!("hello");
         assert_eq!(extract_content_text(&v), Some("hello".to_string()));
@@ -242,9 +177,10 @@ mod tests {
     fn test_extract_content_text_array() {
         let v = json!([
             {"type": "text", "text": "Hello"},
-            {"type": "tool_use", "id": "t1", "name": "x", "input": {}}
+            {"type": "tool_use", "id": "t1", "name": "x", "input": {}},
+            {"type": "text", "text": " world"}
         ]);
-        assert_eq!(extract_content_text(&v), Some("Hello".to_string()));
+        assert_eq!(extract_content_text(&v), Some("Hello world".to_string()));
     }
 
     #[test]
@@ -265,6 +201,7 @@ mod tests {
     fn test_build_error_event_openai_chat() {
         let event = build_error_event("test", "openai-chat");
         assert!(event.contains("finish_reason"));
+        assert!(event.contains("test"));
         assert!(event.contains("[DONE]"));
     }
 
@@ -304,18 +241,6 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_delta_text() {
-        let td = json!({"type": "text_delta", "text": "hello"});
-        assert_eq!(extract_delta_text(&td), "hello");
-
-        let jd = json!({"type": "input_json_delta", "partial_json": "{\"loc"});
-        assert_eq!(extract_delta_text(&jd), "{\"loc");
-
-        let other = json!({"type": "other"});
-        assert_eq!(extract_delta_text(&other), "");
-    }
-
-    #[test]
     fn test_thinking_conversion() {
         let mut body = json!({
             "model": "test",
@@ -324,6 +249,20 @@ mod tests {
         anthropic_thinking_to_reasoning_effort(&mut body);
         assert_eq!(body["reasoning_effort"], "high");
         assert!(body.get("thinking").is_none());
+
+        let mut adaptive = json!({
+            "model": "test",
+            "thinking": {"type": "adaptive", "output_config": {"effort": "low"}}
+        });
+        anthropic_thinking_to_reasoning_effort(&mut adaptive);
+        assert_eq!(adaptive["reasoning_effort"], "low");
+
+        let mut adaptive_default = json!({
+            "model": "test",
+            "thinking": {"type": "adaptive"}
+        });
+        anthropic_thinking_to_reasoning_effort(&mut adaptive_default);
+        assert_eq!(adaptive_default["reasoning_effort"], "medium");
 
         let mut body2 = json!({
             "model": "test",

@@ -178,6 +178,9 @@ function TestPanel({ routeId, routeLabel }: { routeId: string; routeLabel: strin
   });
 
   const handleSendTest = () => {
+    if (!prompt.trim()) return;
+    if (stream ? streamState === 'streaming' : testMutation.isPending) return;
+
     if (stream) {
       // 流式路径：用 testsApi.runStream
       setStreamedText('');

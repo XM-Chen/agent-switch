@@ -4,6 +4,7 @@
 /// 将新凭据加密后写回 DB。使用 per-account `tokio::sync::Mutex` 防止同一账号并发刷新。
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 
 use reqwest::Client;
 use rusqlite::Connection;
@@ -150,6 +151,20 @@ pub async fn ensure_valid_token(
     Ok(credentials.access_token)
 }
 
+/// 构建带超时的 OAuth 刷新 HTTP 客户端。
+///
+/// 该请求位于代理主循环的认证预检阶段；若 auth.openai.com 半挂，
+/// 无超时会永久阻塞故障转移，因此必须设置 connect + 总超时。
+fn refresh_http_client() -> Result<Client, ProxyError> {
+    Client::builder()
+        .connect_timeout(Duration::from_secs(
+            constants::OAUTH_REFRESH_CONNECT_TIMEOUT_SECS,
+        ))
+        .timeout(Duration::from_secs(constants::OAUTH_REFRESH_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| ProxyError::new(ProxyErrorKind::LocalError, format!("创建刷新客户端失败: {}", e)))
+}
+
 /// 使用 refresh_token 获取新 token。
 async fn refresh_token(
     credentials: &CodexCredentials,
@@ -164,8 +179,9 @@ async fn refresh_token(
         )
     })?;
 
-    // 请求新 token
-    let client = Client::new();
+    // 请求新 token。OAuth 刷新发生在代理主循环预检阶段，必须带超时；
+    // auth.openai.com 半挂时应返回 Timeout 并进入故障转移，而不是无限等待。
+    let client = refresh_http_client()?;
     let params = [
         ("grant_type", "refresh_token"),
         ("refresh_token", refresh_token),
@@ -178,10 +194,12 @@ async fn refresh_token(
         .send()
         .await
         .map_err(|e| {
-            ProxyError::new(
-                ProxyErrorKind::NetworkError,
-                format!("Token 刷新请求失败: {}", e),
-            )
+            let kind = if e.is_timeout() {
+                ProxyErrorKind::Timeout
+            } else {
+                ProxyErrorKind::NetworkError
+            };
+            ProxyError::new(kind, format!("Token 刷新请求失败: {}", e))
         })?;
 
     if !resp.status().is_success() {

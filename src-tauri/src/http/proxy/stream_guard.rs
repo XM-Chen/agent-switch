@@ -92,10 +92,12 @@ impl StreamGuard {
                 ));
             }
             None => {
-                // 空响应
-                return Ok(BufferedResult {
-                    first_chunk: Bytes::new(),
-                    remaining_stream: Box::pin(futures::stream::empty()),
+                return Err(ProxyError {
+                    kind: ProxyErrorKind::UpstreamError(502),
+                    status: 502,
+                    message: "上游流式响应为空，未收到任何首块".to_string(),
+                    retryable: true,
+                    stream_started: false,
                 });
             }
         };
@@ -115,10 +117,13 @@ impl StreamGuard {
                     stream_started: false,
                 });
             }
-            return Err(ProxyError::new(
-                ProxyErrorKind::UpstreamError(502),
-                format!("上游流式响应返回错误: {}", err_text),
-            ));
+            return Err(ProxyError {
+                kind: ProxyErrorKind::UpstreamError(502),
+                status: 502,
+                message: format!("上游流式响应返回错误: {}", err_text),
+                retryable: true,
+                stream_started: false,
+            });
         }
 
         // 首块正常，标记流已开始
@@ -161,6 +166,11 @@ fn extract_error_code(text: &str) -> Option<u16> {
             }
             if let Some(code) = error.get("code").and_then(|v| v.as_u64()) {
                 return Some(code as u16);
+            }
+            if let Some(code) = error.get("code").and_then(|v| v.as_str()) {
+                if let Ok(n) = code.parse::<u16>() {
+                    return Some(n);
+                }
             }
         }
     }
@@ -208,4 +218,51 @@ fn detect_sse_error(chunk: &str) -> Option<String> {
         }
     }
     None
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::stream;
+
+    #[tokio::test]
+    async fn empty_stream_first_chunk_is_retryable_error() {
+        let mut guard = StreamGuard::new();
+        let body = stream::empty::<Result<Bytes, std::io::Error>>();
+
+        let err = match guard.buffer_first_chunk(true, StatusCode::OK, body).await {
+            Ok(_) => panic!("empty stream should be an error before client output starts"),
+            Err(err) => err,
+        };
+
+        assert_eq!(err.status, 502);
+        assert!(err.retryable);
+        assert!(!err.stream_started);
+        assert!(!guard.is_stream_started());
+    }
+
+    #[tokio::test]
+    async fn inline_sse_error_without_status_is_retryable() {
+        let mut guard = StreamGuard::new();
+        let body = stream::iter([Ok::<Bytes, std::io::Error>(Bytes::from_static(
+            b"data: {\"error\":{\"message\":\"overloaded\"}}\n\n",
+        ))]);
+
+        let err = match guard.buffer_first_chunk(true, StatusCode::OK, body).await {
+            Ok(_) => panic!("inline SSE error should be detected before forwarding"),
+            Err(err) => err,
+        };
+
+        assert_eq!(err.status, 502);
+        assert!(err.retryable);
+        assert!(!err.stream_started);
+        assert!(!guard.is_stream_started());
+    }
+
+    #[test]
+    fn extracts_nested_string_error_code() {
+        let code = extract_error_code(r#"{"error":{"code":"429"}}"#);
+        assert_eq!(code, Some(429));
+    }
 }

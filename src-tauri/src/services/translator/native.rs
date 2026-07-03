@@ -76,7 +76,9 @@ mod tests {
             created_at: 0,
             tool_calls: HashMap::new(),
             has_content: false,
-            content_block_index: 0,
+            text_block_index: None,
+            next_content_block_index: 0,
+            tool_call_to_block_index: HashMap::new(),
             block_to_tool_index: HashMap::new(),
         };
         let result = t
