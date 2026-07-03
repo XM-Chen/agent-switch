@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/guides/app-stack-conventions.md", "reason": "应用骨架权威约定：技术栈、Rust 后端目录结构、Tauri 生命周期与 Axum graceful shutdown、路径隔离路由、SQLite 连接与迁移、前端目录结构、关键陷阱。本子任务骨架据此落地，实现/复核必须对齐。"}
+{"file": ".trellis/spec/guides/project-conventions.md", "reason": "项目级约定：文档默认中文、参考项目简称（ccs/cpa）、远程仓库规则、技术栈决策处理规则。"}
+{"file": ".trellis/tasks/06-27-app-shell-local-service/prd.md", "reason": "本子任务需求与验收标准：Tauri+Rust+Web 骨架、127.0.0.1:42567、/health、路径隔离占位、8 中文页面、SQLite 初始化最小闭环、关闭即停服务。"}
+{"file": ".trellis/tasks/06-27-app-shell-local-service/design.md", "reason": "本子任务技术设计：单进程单端口、启动顺序、路径隔离路由契约、/health 响应、数据库边界、AppState、前端骨架、安全边界、关键陷阱。"}
+{"file": ".trellis/tasks/06-27-app-shell-local-service/implement.md", "reason": "本子任务执行计划：回溯实现清单、关键文件、验证命令、验收核对、回滚点。"}

@@ -1,5 +1,5 @@
-# Trellis workspace and generated agent files
-.trellis/
+# Generated platform adapter files (Trellis-managed; .trellis/ itself is tracked,
+# with runtime state ignored by .trellis/.gitignore)
 .agents/
 .claude/
 .codex/

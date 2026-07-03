@@ -1,0 +1,4 @@
+{"file":".trellis/spec/guides/project-conventions.md","reason":"检查实现是否遵守中文文档、参考项目标注、技术栈决策处理和需求质疑规则。"}
+{"file":".trellis/tasks/06-27-app-shell-local-service/prd.md","reason":"检查实现是否满足应用骨架、本地服务、路径隔离、SQLite 初始化和中文导航的验收标准。"}
+{"file":".trellis/tasks/06-27-app-shell-local-service/design.md","reason":"检查实现是否符合 Tauri 生命周期、Axum 路由、SQLite 迁移、前端结构和安全边界设计。"}
+{"file":".trellis/tasks/06-27-app-shell-local-service/implement.md","reason":"检查实现是否按计划完成初始化、依赖、验证命令和回滚点。"}

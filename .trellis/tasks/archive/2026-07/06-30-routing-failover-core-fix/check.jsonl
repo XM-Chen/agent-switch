@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/guides/app-stack-conventions.md", "reason": "验收依据：检查主循环是否真正调用 translator/StreamGuard/model_locks（第10节验证方法：grep 调用点 + 拒绝 let _ = <可用对象> 写法），并核对 API 分层/迁移约定未被破坏"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "检查请求转换(from→to)与响应转换(to→from)方向一致性、流式 stream_started 跨层状态、冷却写 DB 与内存态一致，防止跨层契约漂移"}

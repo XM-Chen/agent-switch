@@ -1,0 +1,3 @@
+{"file":".trellis/spec/guides/project-conventions.md","reason":"包含中文文档、参考项目简称、决策选项参考来源标注、技术栈问题自行参考成熟项目后集中 review 等项目级约定。"}
+{"file":".trellis/tasks/06-26-agent-switch-web-router-mvp/prd.md","reason":"父任务记录 agent-switch MVP 的总体产品约束、单端口路径隔离、中文 UI、Tauri/Rust/Web、子任务拆分和跨模块决策。"}
+{"file":".trellis/tasks/06-27-app-shell-local-service/research/app-shell-tech-stack-decisions.md","reason":"记录应用骨架技术栈和工程默认项的参考来源与最终选择。"}

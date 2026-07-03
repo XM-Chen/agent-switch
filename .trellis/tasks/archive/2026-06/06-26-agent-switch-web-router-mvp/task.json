@@ -1,0 +1,31 @@
+{
+  "id": "agent-switch-web-router-mvp",
+  "name": "agent-switch-web-router-mvp",
+  "title": "规划 agent-switch Web 管理与本地路由 MVP",
+  "description": "规划第一阶段：网页版上游供应商管理、Claude Code/Codex/OpenCode 配置管理、本地路由与自动故障转移，默认服务地址 http://127.0.0.1:42567",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "xm-chen",
+  "assignee": "xm-chen",
+  "createdAt": "2026-06-26",
+  "completedAt": "2026-06-29",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "06-27-app-shell-local-service",
+    "06-27-openai-compatible-v1-endpoints",
+    "06-27-chain-testing-debugger",
+    "06-27-import-export-settings"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

@@ -1,0 +1,3 @@
+{"file": ".trellis/tasks/06-29-dashboard-overview/prd.md", "reason": "本任务需求与验收 AC1-AC9、技术决策 D1-D4（纯前端组合不加后端接口、响应式网格布局、轻量状态分桶、近期日志 10 条）、数据源契约（accountsApi/endpointsApi/modelsApi/routesApi/toolsApi/logsApi/settingsApi.getAutoRefresh）。"}
+{"file": ".trellis/spec/guides/app-stack-conventions.md", "reason": "前端 API 客户端约定：src/lib/api.ts 按资源分组 *Api、Content-Type json、204 返 undefined、错误抛 Error、TanStack Query queryKey 按资源命名（['accounts']/['endpoints']/['models']/['routes']/['tools']/['logs']/['auto-refresh']）、UI 文案默认中文、组件目录组织。Dashboard 实现须对齐。"}
+{"file": ".trellis/spec/guides/project-conventions.md", "reason": "UI 文案与注释默认中文、参考项目简称（ccs/sub2api/9router/cpa）。"}
