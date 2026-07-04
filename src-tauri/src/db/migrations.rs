@@ -211,6 +211,12 @@ const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_providers_app_sort
             ON providers(app_type, sort_index);",
     },
+    Migration {
+        version: 8,
+        name: "tool_takeover_dual_mode",
+        sql: "ALTER TABLE tool_takeover ADD COLUMN mode TEXT NOT NULL DEFAULT 'proxy';
+        ALTER TABLE tool_takeover ADD COLUMN active_provider_id TEXT;",
+    },
 ];
 
 /// Ensure the migration tracking table exists, then run pending migrations.
@@ -367,6 +373,22 @@ mod tests {
         assert!(
             second_insert.is_err(),
             "partial unique index 应阻止同 app_type 出现两条 is_current=1"
+        );
+
+        // v8 应已给 tool_takeover 加上 mode / active_provider_id 列
+        let mut stmt = db.prepare("PRAGMA table_info(tool_takeover)").unwrap();
+        let cols: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert!(
+            cols.iter().any(|c| c == "mode"),
+            "tool_takeover.mode 应存在"
+        );
+        assert!(
+            cols.iter().any(|c| c == "active_provider_id"),
+            "tool_takeover.active_provider_id 应存在"
         );
 
         // 所有迁移版本均已记录

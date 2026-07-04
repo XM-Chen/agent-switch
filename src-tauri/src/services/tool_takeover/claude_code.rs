@@ -1,7 +1,9 @@
 use serde_json::Value;
 use std::path::Path;
 
-use super::{atomic_write, LiveCategory, CLAUDE_CODE_SUFFIX, LOCAL_BASE, PLACEHOLDER_TOKEN};
+use super::{
+    atomic_write, DirectConfig, LiveCategory, CLAUDE_CODE_SUFFIX, LOCAL_BASE, PLACEHOLDER_TOKEN,
+};
 
 /// Claude Code 配置文件路径。
 fn settings_path(config_dir: &Path) -> std::path::PathBuf {
@@ -73,6 +75,45 @@ pub fn apply(config_dir: &Path) -> Result<(), String> {
                 "ANTHROPIC_AUTH_TOKEN".to_string(),
                 Value::String(PLACEHOLDER_TOKEN.to_string()),
             );
+        }
+    }
+
+    let json_bytes = serde_json::to_vec_pretty(&root)
+        .map_err(|e| format!("序列化 settings.json 失败: {}", e))?;
+    atomic_write(&path, &json_bytes)?;
+    Ok(())
+}
+
+/// 将 Claude Code 配置写入 direct（直连）态。
+///
+/// 与 `apply` 不同：写入 provider 引用端点的**真实** base_url 与解密后的 API key，
+/// 使工具直连上游、绕过本地代理。`cfg.api_key` 是明文，仅用于写入文件，不记日志。
+/// 合并写入（保留其它顶层键与 env 内其它键），原子写。
+pub fn apply_direct(config_dir: &Path, cfg: &DirectConfig) -> Result<(), String> {
+    let path = settings_path(config_dir);
+
+    let mut root: Value = match std::fs::read_to_string(&path) {
+        Ok(c) => serde_json::from_str(&c).unwrap_or(Value::Object(serde_json::Map::new())),
+        Err(_) => Value::Object(serde_json::Map::new()),
+    };
+
+    if !root.get("env").is_some_and(|v| v.is_object()) {
+        root["env"] = Value::Object(serde_json::Map::new());
+    }
+
+    if let Some(env) = root.get_mut("env") {
+        if let Some(obj) = env.as_object_mut() {
+            obj.insert(
+                "ANTHROPIC_BASE_URL".to_string(),
+                Value::String(cfg.base_url.clone()),
+            );
+            obj.insert(
+                "ANTHROPIC_AUTH_TOKEN".to_string(),
+                Value::String(cfg.api_key.clone()),
+            );
+            if let Some(model) = &cfg.model {
+                obj.insert("ANTHROPIC_MODEL".to_string(), Value::String(model.clone()));
+            }
         }
     }
 

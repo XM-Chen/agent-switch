@@ -5,6 +5,10 @@ use std::sync::Mutex;
 #[derive(Debug, Clone)]
 pub struct ToolTakeoverRow {
     pub enabled: bool,
+    /// 'proxy' | 'direct'（v8 新增）。
+    pub mode: String,
+    /// direct 模式下激活的 provider id（v8 新增）。
+    pub active_provider_id: Option<String>,
     pub last_applied_at: Option<String>,
     pub last_target: Option<String>,
     pub last_error: Option<String>,
@@ -25,12 +29,14 @@ pub struct ToolBackupRow {
 pub fn get_state(db: &Mutex<Connection>, tool: &str) -> Result<Option<ToolTakeoverRow>, String> {
     let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
     let mut stmt = db
-        .prepare("SELECT enabled, last_applied_at, last_target, last_error FROM tool_takeover WHERE tool = ?1")
+        .prepare("SELECT enabled, mode, active_provider_id, last_applied_at, last_target, last_error FROM tool_takeover WHERE tool = ?1")
         .map_err(|e| format!("查询接管状态失败: {}", e))?;
     let mut rows = stmt
         .query_map(params![tool], |row| {
             Ok(ToolTakeoverRow {
                 enabled: row.get::<_, i64>("enabled")? != 0,
+                mode: row.get("mode")?,
+                active_provider_id: row.get("active_provider_id")?,
                 last_applied_at: row.get("last_applied_at")?,
                 last_target: row.get("last_target")?,
                 last_error: row.get("last_error")?,
@@ -43,10 +49,17 @@ pub fn get_state(db: &Mutex<Connection>, tool: &str) -> Result<Option<ToolTakeov
 }
 
 /// 插入或更新工具接管状态。
+///
+/// `mode` / `active_provider_id` 为 v8 双模式字段；旧调用方传 "proxy" / None 即可保持原行为。
+///
+/// 参数数量对应接管状态行的完整字段集，写整行时逐一显式传入比包一层结构体更直观。
+#[allow(clippy::too_many_arguments)]
 pub fn upsert_state(
     db: &Mutex<Connection>,
     tool: &str,
     enabled: bool,
+    mode: &str,
+    active_provider_id: Option<&str>,
     last_applied_at: Option<&str>,
     last_target: Option<&str>,
     last_error: Option<&str>,
@@ -54,17 +67,47 @@ pub fn upsert_state(
     let now = iso_now()?;
     let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
     db.execute(
-        "INSERT INTO tool_takeover (tool, enabled, last_applied_at, last_target, last_error, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        "INSERT INTO tool_takeover (tool, enabled, mode, active_provider_id, last_applied_at, last_target, last_error, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
          ON CONFLICT(tool) DO UPDATE SET
            enabled=excluded.enabled,
+           mode=excluded.mode,
+           active_provider_id=excluded.active_provider_id,
            last_applied_at=excluded.last_applied_at,
            last_target=excluded.last_target,
            last_error=excluded.last_error,
            updated_at=excluded.updated_at",
-        params![tool, enabled as i64, last_applied_at, last_target, last_error, now],
+        params![
+            tool,
+            enabled as i64,
+            mode,
+            active_provider_id,
+            last_applied_at,
+            last_target,
+            last_error,
+            now
+        ],
     )
     .map_err(|e| format!("更新接管状态失败: {}", e))?;
+    Ok(())
+}
+
+/// 仅切换模式与激活 provider，不动 enabled（用于 direct↔proxy 切换）。
+/// 子任务 3 的切换 API 接线前暂未被引用。
+#[allow(dead_code)]
+pub fn set_mode(
+    db: &Mutex<Connection>,
+    tool: &str,
+    mode: &str,
+    active_provider_id: Option<&str>,
+) -> Result<(), String> {
+    let now = iso_now()?;
+    let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
+    db.execute(
+        "UPDATE tool_takeover SET mode=?1, active_provider_id=?2, updated_at=?3 WHERE tool=?4",
+        params![mode, active_provider_id, now, tool],
+    )
+    .map_err(|e| format!("更新接管模式失败: {}", e))?;
     Ok(())
 }
 
@@ -132,4 +175,79 @@ fn iso_now() -> Result<String, String> {
     time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Iso8601::DEFAULT)
         .map_err(|e| format!("时间格式化失败: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::migrations::run_migrations;
+
+    fn setup() -> Mutex<Connection> {
+        let conn = Connection::open_in_memory().expect("无法创建内存数据库");
+        let db = Mutex::new(conn);
+        run_migrations(&db).expect("迁移应成功");
+        db
+    }
+
+    #[test]
+    fn upsert_defaults_mode_proxy() {
+        let db = setup();
+        upsert_state(&db, "claude-code", true, "proxy", None, None, None, None).unwrap();
+        let row = get_state(&db, "claude-code").unwrap().unwrap();
+        assert!(row.enabled);
+        assert_eq!(row.mode, "proxy");
+        assert!(row.active_provider_id.is_none());
+    }
+
+    #[test]
+    fn upsert_persists_direct_mode_and_provider() {
+        let db = setup();
+        upsert_state(
+            &db,
+            "codex",
+            true,
+            "direct",
+            Some("prov-1"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let row = get_state(&db, "codex").unwrap().unwrap();
+        assert_eq!(row.mode, "direct");
+        assert_eq!(row.active_provider_id.as_deref(), Some("prov-1"));
+    }
+
+    #[test]
+    fn set_mode_changes_only_mode_and_provider() {
+        let db = setup();
+        upsert_state(&db, "claude-code", true, "proxy", None, None, None, None).unwrap();
+        set_mode(&db, "claude-code", "direct", Some("prov-2")).unwrap();
+        let row = get_state(&db, "claude-code").unwrap().unwrap();
+        assert_eq!(row.mode, "direct");
+        assert_eq!(row.active_provider_id.as_deref(), Some("prov-2"));
+        // enabled 不应被 set_mode 改动
+        assert!(row.enabled);
+    }
+
+    #[test]
+    fn set_enabled_preserves_mode() {
+        let db = setup();
+        upsert_state(
+            &db,
+            "claude-code",
+            true,
+            "direct",
+            Some("prov-1"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        set_enabled(&db, "claude-code", false).unwrap();
+        let row = get_state(&db, "claude-code").unwrap().unwrap();
+        assert!(!row.enabled);
+        assert_eq!(row.mode, "direct", "set_enabled 不应清空 mode");
+        assert_eq!(row.active_provider_id.as_deref(), Some("prov-1"));
+    }
 }

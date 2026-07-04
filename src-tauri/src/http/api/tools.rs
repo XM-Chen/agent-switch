@@ -107,7 +107,8 @@ async fn set_takeover(
         tool_takeover::enable(&state.db, t, &state.data_dir)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     } else {
-        tool_takeover::disable(&state.db, t).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        tool_takeover::disable(&state.db, t, &state.data_dir)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -129,13 +130,15 @@ async fn reapply_takeover(
         ));
     }
 
-    tool_takeover::reapply(&state.db, t, &state.data_dir).map_err(|e| {
-        if e.contains("未开启接管") {
-            (StatusCode::CONFLICT, e)
-        } else {
-            (StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    })?;
+    tool_takeover::reapply(&state.db, t, &state.data_dir, state.crypto.as_deref()).map_err(
+        |e| {
+            if e.contains("未开启接管") {
+                (StatusCode::CONFLICT, e)
+            } else {
+                (StatusCode::INTERNAL_SERVER_ERROR, e)
+            }
+        },
+    )?;
 
     Ok(StatusCode::NO_CONTENT)
 }
