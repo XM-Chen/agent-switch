@@ -4,6 +4,7 @@ pub mod auth;
 pub mod endpoints;
 pub mod logs;
 pub mod models;
+pub mod providers;
 pub mod routes;
 pub mod settings;
 pub mod tests;

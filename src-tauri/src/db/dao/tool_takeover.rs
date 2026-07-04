@@ -93,8 +93,6 @@ pub fn upsert_state(
 }
 
 /// 仅切换模式与激活 provider，不动 enabled（用于 direct↔proxy 切换）。
-/// 子任务 3 的切换 API 接线前暂未被引用。
-#[allow(dead_code)]
 pub fn set_mode(
     db: &Mutex<Connection>,
     tool: &str,

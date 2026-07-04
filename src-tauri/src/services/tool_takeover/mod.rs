@@ -191,7 +191,6 @@ fn enable_at(
 /// 以 direct（直连）模式启用接管。
 ///
 /// 薄包装：解析工具配置目录后委派给 `enable_direct_at`（接收显式 config_dir 便于测试）。
-#[allow(dead_code)] // 子任务3 切换 API 接线后移除
 pub fn enable_direct(
     db: &Mutex<rusqlite::Connection>,
     tool: Tool,
