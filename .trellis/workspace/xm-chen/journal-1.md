@@ -473,3 +473,36 @@ app-shell 收尾后梳理剩余任务时发现：`06-27-` 路径下有 4 个 pla
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: Provider CRUD 与切换 HTTP API (P1 subtask 3)
+
+**Date**: 2026-07-04
+**Task**: Provider CRUD 与切换 HTTP API (P1 subtask 3)
+**Branch**: `main`
+
+### Summary
+
+新建 http/api/providers.rs 挂 /api/providers：list/create/get/put/delete/reorder + 核心 switch（set_current 先行、按 mode 调 enable/enable_direct、接管失败回滚 is_current、direct 缺 crypto 报 503 不降级）。router 在 /api/{*path} 兜底前 nest，/reorder 先于 /{id}。删除 current 时清 tool_takeover.active_provider_id。退掉 enable_direct/set_mode 上已生效的 dead_code 标注。补 http-proxy spec 的路由注册顺序与切换原子性契约。门禁全绿：fmt/clippy -D warnings/158 tests（含 switch 成功+回滚覆盖）。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b82c5d812` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
