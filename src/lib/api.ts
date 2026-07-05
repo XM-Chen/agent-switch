@@ -38,10 +38,6 @@ export interface CodexLoginResponse {
   message: string;
 }
 
-export interface CodexStatus {
-  login_in_progress: boolean;
-}
-
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const resp = await fetch(`${API_BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -59,7 +55,6 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const accountsApi = {
   list: () => request<Account[]>('/accounts'),
-  get: (id: string) => request<Account>(`/accounts/${id}`),
   create: (data: {
     name: string;
     account_type: string;
@@ -67,18 +62,11 @@ export const accountsApi = {
     api_key?: string;
     priority?: number;
   }) => request<Account>('/accounts', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: {
-    name?: string;
-    status?: string;
-    api_key?: string | null;
-    priority?: number;
-  }) => request<void>(`/accounts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) => request<void>(`/accounts/${id}`, { method: 'DELETE' }),
 };
 
 export const endpointsApi = {
   list: () => request<Endpoint[]>('/endpoints'),
-  get: (id: string) => request<Endpoint>(`/endpoints/${id}`),
   create: (data: {
     account_id?: string;
     name: string;
@@ -88,15 +76,6 @@ export const endpointsApi = {
     api_key?: string;
     priority?: number;
   }) => request<Endpoint>('/endpoints', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: {
-    account_id?: string | null;
-    name?: string;
-    base_url?: string;
-    protocol_type?: string;
-    auth_mode?: string;
-    api_key?: string | null;
-    priority?: number;
-  }) => request<void>(`/endpoints/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   toggle: (id: string, enabled: boolean) =>
     request<void>(`/endpoints/${id}/toggle`, {
       method: 'POST',
@@ -108,7 +87,75 @@ export const endpointsApi = {
 export const authApi = {
   startCodexLogin: () =>
     request<CodexLoginResponse>('/auth/codex/login', { method: 'POST' }),
-  codexStatus: () => request<CodexStatus>('/auth/codex/status'),
+};
+
+// ── 切换器 Provider ───────────────────────────────────────
+
+/** Provider 模式：proxy（走代理接管）| direct（直连接管）。 */
+export type ProviderMode = 'proxy' | 'direct';
+
+/**
+ * Provider 实体，字段对齐后端 `ProviderResponse`。
+ *
+ * `settings_config` / `meta` 为任意 JSON，前端只透传/编辑文本。
+ */
+export interface Provider {
+  id: string;
+  app_type: string;
+  name: string;
+  mode: ProviderMode;
+  settings_config: unknown;
+  is_current: boolean;
+  category: string | null;
+  sort_index: number | null;
+  notes: string | null;
+  meta: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 创建 provider 请求体，对齐后端 `CreateProviderRequest`。 */
+export interface CreateProviderBody {
+  app_type: string;
+  name: string;
+  mode?: ProviderMode;
+  settings_config: unknown;
+  category?: string | null;
+  notes?: string | null;
+}
+
+/** 更新 provider 请求体，对齐后端 `UpdateProviderRequest`（部分字段）。 */
+export interface UpdateProviderBody {
+  name?: string;
+  mode?: ProviderMode;
+  settings_config?: unknown;
+  category?: string | null;
+  notes?: string | null;
+}
+
+/** 切换响应：warnings 承载非致命提示。 */
+export interface SwitchResult {
+  warnings: string[];
+}
+
+/** reorder 单项：仅 id + 新 sort_index。 */
+export interface ReorderItem {
+  id: string;
+  sort_index: number;
+}
+
+export const providersApi = {
+  list: (appType: string) =>
+    request<Provider[]>(`/providers?app_type=${encodeURIComponent(appType)}`),
+  create: (body: CreateProviderBody) =>
+    request<Provider>('/providers', { method: 'POST', body: JSON.stringify(body) }),
+  update: (id: string, body: UpdateProviderBody) =>
+    request<void>(`/providers/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  remove: (id: string) => request<void>(`/providers/${id}`, { method: 'DELETE' }),
+  switch: (id: string) =>
+    request<SwitchResult>(`/providers/${id}/switch`, { method: 'POST' }),
+  reorder: (items: ReorderItem[]) =>
+    request<void>('/providers/reorder', { method: 'POST', body: JSON.stringify({ items }) }),
 };
 
 export interface ModelItem {
@@ -287,7 +334,6 @@ export interface ToolBackup {
 
 export const toolsApi = {
   list: () => request<ToolStatus[]>('/tools'),
-  get: (tool: string) => request<ToolStatus>(`/tools/${tool}`),
   setTakeover: (tool: string, enabled: boolean) =>
     request<void>(`/tools/${tool}/takeover`, {
       method: 'POST',
@@ -336,7 +382,6 @@ export interface UpdateRouteRequest {
 
 export const routesApi = {
   list: () => request<RouteSettings[]>('/routes'),
-  get: (id: string) => request<RouteSettings>(`/routes/${id}`),
   update: (id: string, data: UpdateRouteRequest) =>
     request<void>(`/routes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 };
