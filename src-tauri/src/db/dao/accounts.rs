@@ -1,6 +1,7 @@
 use rusqlite::{params, Connection};
 use std::sync::Mutex;
-use time::OffsetDateTime;
+
+use super::now_iso;
 
 /// 账号行（数据库原始表示，含加密 BLOB）。
 #[derive(Debug, Clone)]
@@ -45,12 +46,6 @@ pub struct AccountUpdate {
     pub last_login_at: Option<Option<String>>,
     pub last_error: Option<Option<String>>,
     pub last_error_at: Option<Option<String>>,
-}
-
-fn now_iso() -> Result<String, String> {
-    OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Iso8601::DEFAULT)
-        .map_err(|e| format!("时间格式化失败: {}", e))
 }
 
 fn row_to_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<AccountRow> {

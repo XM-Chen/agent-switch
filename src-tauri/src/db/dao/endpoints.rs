@@ -1,6 +1,7 @@
 use rusqlite::{params, Connection};
 use std::sync::Mutex;
-use time::OffsetDateTime;
+
+use super::now_iso;
 
 /// 端点行（数据库原始表示，含加密 BLOB）。
 #[derive(Debug, Clone)]
@@ -54,12 +55,6 @@ pub struct EndpointUpdate {
     pub last_failure_at: Option<Option<String>>,
     pub last_error_kind: Option<Option<String>>,
     pub extra_json: Option<Option<String>>,
-}
-
-fn now_iso() -> Result<String, String> {
-    OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Iso8601::DEFAULT)
-        .map_err(|e| format!("时间格式化失败: {}", e))
 }
 
 fn row_to_endpoint(row: &rusqlite::Row<'_>) -> rusqlite::Result<EndpointRow> {

@@ -73,7 +73,6 @@ mod tests {
         let mut ctx = StreamContext {
             response_id: "test".into(),
             model: "m".into(),
-            created_at: 0,
             tool_calls: HashMap::new(),
             has_content: false,
             text_block_index: None,

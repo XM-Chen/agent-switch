@@ -3,10 +3,7 @@
 //! 根据端点的认证模式为上游请求注入认证 Header。
 //! 支持 API Key 模式（解密 → 注入 Bearer / x-api-key）和 OAuth Codex 模式（通过 oauth_refresh 获取 token）。
 //! 注入前清除请求中原有的 Authorization 和 x-api-key 头。
-//!
-//! `AuthResult` 的 `auth_type` / `endpoint_id` 字段为可观测性/日志侧预留。
 #![allow(dead_code)]
-use std::path::Path;
 use std::sync::Mutex;
 
 use axum::http::{HeaderMap, HeaderValue};
@@ -14,41 +11,27 @@ use rusqlite::Connection;
 
 use crate::db::dao::endpoints::EndpointRow;
 use crate::http::proxy::error::{ProxyError, ProxyErrorKind};
-use crate::services::codex_oauth::CodexOAuthService;
 use crate::services::crypto::CryptoService;
-
-/// 认证注入结果。
-#[derive(Debug, Clone)]
-pub struct AuthResult {
-    /// 使用的认证模式（"apikey" / "oauth_codex"）。
-    pub auth_type: String,
-    /// 注入时使用的端点 ID。
-    pub endpoint_id: String,
-}
 
 /// 为端点注入认证 Header。
 ///
 /// - `endpoint`：目标端点。
-/// - `crypto`：加密服务（API Key 解密需要）。
-/// - `codex_oauth`：CodeX OAuth 服务（OAuth 模式需要）。
-/// - `data_dir`：数据目录路径。
+/// - `crypto`：加密服务（API Key 解密 / OAuth 凭据处理需要）。
 /// - `db`：数据库连接（OAuth refresh 时需要）。
 /// - `headers`：请求 Header，会被操作（清除原有认证头 + 注入新认证头）。
 pub async fn inject_auth(
     endpoint: &EndpointRow,
     crypto: Option<&CryptoService>,
-    codex_oauth: &CodexOAuthService,
-    data_dir: &Path,
     db: &Mutex<Connection>,
     headers: &mut HeaderMap,
-) -> Result<AuthResult, ProxyError> {
+) -> Result<(), ProxyError> {
     // 清除原有的认证头
     headers.remove(axum::http::header::AUTHORIZATION);
     headers.remove("x-api-key");
 
     match endpoint.auth_mode.as_str() {
         "apikey" => inject_apikey(endpoint, crypto, headers),
-        "oauth_codex" => inject_oauth(endpoint, crypto, codex_oauth, data_dir, db, headers).await,
+        "oauth_codex" => inject_oauth(endpoint, crypto, db, headers).await,
         other => Err(ProxyError::new(
             ProxyErrorKind::LocalError,
             format!("不支持的认证模式: {}", other),
@@ -61,7 +44,7 @@ fn inject_apikey(
     endpoint: &EndpointRow,
     crypto: Option<&CryptoService>,
     headers: &mut HeaderMap,
-) -> Result<AuthResult, ProxyError> {
+) -> Result<(), ProxyError> {
     let crypto = crypto.ok_or_else(|| {
         ProxyError::new(
             ProxyErrorKind::LocalError,
@@ -122,21 +105,16 @@ fn inject_apikey(
         );
     }
 
-    Ok(AuthResult {
-        auth_type: "apikey".to_string(),
-        endpoint_id: endpoint.id.clone(),
-    })
+    Ok(())
 }
 
 /// OAuth Codex 认证注入。
 async fn inject_oauth(
     endpoint: &EndpointRow,
     crypto: Option<&CryptoService>,
-    _codex_oauth: &CodexOAuthService,
-    _data_dir: &Path,
     db: &Mutex<Connection>,
     headers: &mut HeaderMap,
-) -> Result<AuthResult, ProxyError> {
+) -> Result<(), ProxyError> {
     let crypto = crypto.ok_or_else(|| {
         ProxyError::new(
             ProxyErrorKind::LocalError,
@@ -154,8 +132,5 @@ async fn inject_oauth(
         })?,
     );
 
-    Ok(AuthResult {
-        auth_type: "oauth_codex".to_string(),
-        endpoint_id: endpoint.id.clone(),
-    })
+    Ok(())
 }

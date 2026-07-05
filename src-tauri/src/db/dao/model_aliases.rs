@@ -1,6 +1,7 @@
 use rusqlite::{params, Connection};
 use std::sync::Mutex;
-use time::OffsetDateTime;
+
+use super::now_iso;
 
 /// 模型别名行。
 #[derive(Debug, Clone)]
@@ -27,12 +28,6 @@ pub struct NewModelAlias {
     pub target_endpoint_id: Option<String>,
     pub target_model_name: String,
     pub priority: i64,
-}
-
-fn now_iso() -> Result<String, String> {
-    OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Iso8601::DEFAULT)
-        .map_err(|e| format!("时间格式化失败: {}", e))
 }
 
 fn row_to_alias(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelAliasRow> {

@@ -18,6 +18,7 @@ use std::sync::Mutex;
 
 use apply::{ApplyStrategy, ImportReport};
 use collect::CollectMode;
+use crate::db::dao::now_iso;
 use package::{
     ExportPackage, KdfParams, Payload, ALGO_AES_GCM, FORMAT_VERSION, KDF_ARGON2ID, KDF_NONE,
     MODE_FULL_BACKUP, MODE_PORTABLE,
@@ -177,7 +178,7 @@ fn seal_payload(
             // 主密钥模式：load_master_key 不可用 → 503 由 handler 转。
             let master_key = keychain::load_master_key()?
                 .ok_or_else(|| "系统凭据管理器不可用，无法导出完整备份".to_string())?;
-            let (blob, _) = crypto_box::seal(&master_key, payload_json)?;
+            let blob = crypto_box::seal(&master_key, payload_json)?;
             let (nonce_b64, ciphertext_b64) = split_blob(&blob)?;
             Ok(Sealed {
                 kdf: KDF_NONE,
@@ -196,7 +197,7 @@ fn seal_payload(
                 KdfParams::DEFAULT_T_COST,
                 KdfParams::DEFAULT_P_COST,
             )?;
-            let (blob, _) = crypto_box::seal(&key, payload_json)?;
+            let blob = crypto_box::seal(&key, payload_json)?;
             let (nonce_b64, ciphertext_b64) = split_blob(&blob)?;
             Ok(Sealed {
                 kdf: KDF_ARGON2ID,
@@ -314,12 +315,6 @@ fn backup_db_file(db: &Mutex<Connection>, data_dir: &Path) -> Result<PathBuf, St
     Ok(dst)
 }
 
-fn now_iso() -> Result<String, String> {
-    time::OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Iso8601::DEFAULT)
-        .map_err(|e| format!("时间格式化失败: {}", e))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -396,7 +391,7 @@ mod tests {
 
         // seal → open（显式密钥，绕过 keychain）。
         let payload_json = serde_json::to_vec(&payload).unwrap();
-        let (blob, _) = crypto_box::seal(&master_key, &payload_json).unwrap();
+        let blob = crypto_box::seal(&master_key, &payload_json).unwrap();
         let recovered = crypto_box::open(&master_key, &blob).unwrap();
         let payload2: Payload = serde_json::from_slice(&recovered).unwrap();
         assert_eq!(payload2.accounts.len(), 1);
@@ -583,7 +578,7 @@ mod tests {
     #[test]
     fn wrong_key_fails_readable() {
         let plain = b"hello world";
-        let (blob, _) = crypto_box::seal(&[1u8; 32], plain).unwrap();
+        let blob = crypto_box::seal(&[1u8; 32], plain).unwrap();
         let err = crypto_box::open(&[2u8; 32], &blob).unwrap_err();
         assert!(err.contains("解密失败"));
     }

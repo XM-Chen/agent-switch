@@ -2,8 +2,6 @@
 //!
 //! 管理端点切换状态、重试计数、冷却逻辑和回退链。
 //! `FailoverState` 提供状态追踪和辅助方法，`proxy_request` 内部驱动路由主循环。
-//!
-//! `RouteAttempt` 与部分重试计数辅助方法为路由管理层预留，尚未在主循环全量接线。
 #![allow(dead_code)]
 use std::collections::{HashMap, HashSet};
 
@@ -28,17 +26,6 @@ pub struct FallbackHop {
     pub latency_ms: Option<u64>,
 }
 
-/// 路由尝试结果。
-#[derive(Debug)]
-pub enum RouteAttempt<T> {
-    /// 成功。
-    Success(T),
-    /// 可重试错误。
-    Retryable(ProxyError),
-    /// 不可重试错误（立即终止）。
-    Fatal(ProxyError),
-}
-
 /// 故障转移状态。
 pub struct FailoverState {
     /// 当前切换次数。
@@ -59,8 +46,6 @@ pub struct FailoverState {
     pub stream_started: bool,
     /// 回退链记录。
     pub chain: Vec<FallbackHop>,
-    /// 请求开始时间（Unix 毫秒）。
-    pub start_time_ms: u64,
     /// 是否为测试模式（不写冷却/故障转移状态）。
     pub test_only: bool,
 }
@@ -94,7 +79,6 @@ impl FailoverState {
             last_error: None,
             stream_started: false,
             chain: Vec::new(),
-            start_time_ms: current_time_millis(),
             test_only,
         }
     }
@@ -293,11 +277,4 @@ fn sanitize_cooldown_multiplier(multiplier: f64) -> f64 {
     } else {
         1.0
     }
-}
-
-fn current_time_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }

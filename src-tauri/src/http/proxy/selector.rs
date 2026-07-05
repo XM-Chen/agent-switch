@@ -2,7 +2,7 @@
 ///
 /// 从 DB 中按协议类型加载候选端点，提供 Fill-First 和 Round-Robin 两种选择策略。
 /// 自动跳过已禁用、冷却中、已失败的端点。
-/// 支持模型锁检查回调和能力过滤。
+/// 支持能力过滤。
 use std::collections::HashSet;
 use std::sync::Mutex;
 
@@ -16,10 +16,6 @@ use crate::http::proxy::constants;
 
 /// 端点选择器。
 pub struct EndpointSelector {
-    /// 入站协议类型。当前仅记录，不用于过滤候选（跨协议由 translate 层处理）；
-    /// 保留供未来按协议亲和性优先级排序使用。
-    #[allow(dead_code)]
-    protocol_type: String,
     /// 已加载的候选端点（按 priority ASC 排序）。
     candidates: Vec<EndpointRow>,
     /// 当前位置游标（用于 Round-Robin）。
@@ -33,10 +29,10 @@ pub struct EndpointSelector {
 }
 
 impl EndpointSelector {
-    /// 创建选择器，指定协议类型。
-    pub fn new(protocol_type: &str) -> Self {
+    /// 创建选择器。`protocol_type` 参数保留以兼容调用点签名；候选加载不按协议过滤
+    /// （跨协议翻译由 translate 层处理）。
+    pub fn new(_protocol_type: &str) -> Self {
         Self {
-            protocol_type: protocol_type.to_string(),
             candidates: Vec::new(),
             cursor: 0,
             strategy: constants::FILL_FIRST.to_string(),
@@ -107,12 +103,13 @@ impl EndpointSelector {
     /// 选择下一个可用端点。
     ///
     /// - `failed_ids`：已失败的端点 ID 集合（本轮跳过）。
-    /// - `model_lock_check`：回调函数，接收 endpoint_id 返回该端点模型是否可用（true=可用）。
     /// - 返回 `(EndpointRow, index_in_candidates)` 或 `None`（无可用端点）。
+    ///
+    /// 模型锁检查已移至模型映射之后（需 `upstream_model` 才能正确查锁），
+    /// 由主循环在 `next` 返回后单独执行，故此处不再需要回调。
     pub fn next(
         &mut self,
         failed_ids: &HashSet<String>,
-        model_lock_check: impl Fn(&str) -> bool,
     ) -> Option<(EndpointRow, usize)> {
         if self.candidates.is_empty() {
             return None;
@@ -141,11 +138,6 @@ impl EndpointSelector {
 
             // 跳过已失败的
             if failed_ids.contains(&candidate.id) {
-                continue;
-            }
-
-            // 跳过模型锁定的
-            if !model_lock_check(&candidate.id) {
                 continue;
             }
 

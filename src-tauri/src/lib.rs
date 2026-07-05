@@ -85,17 +85,9 @@ pub fn run() {
 
             let web_dist_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../dist");
 
-            // 初始化协议转换器注册表
-            use services::translator::{
-                AnthropicToChatTranslator, ChatToAnthropicTranslator, ChatToResponsesTranslator,
-                ResponsesToChatTranslator, TranslatorRegistry,
-            };
-            let mut registry = TranslatorRegistry::new();
-            registry.register(Box::new(AnthropicToChatTranslator));
-            registry.register(Box::new(ChatToAnthropicTranslator));
-            registry.register(Box::new(ChatToResponsesTranslator));
-            registry.register(Box::new(ResponsesToChatTranslator));
-            let registry = Arc::new(registry);
+            // 初始化协议转换器注册表（new() 已注册 4 个内置转换器 + Passthrough）
+            use services::translator::TranslatorRegistry;
+            let registry = Arc::new(TranslatorRegistry::new());
 
             // 初始化代理转发服务
             let route_proxy = Arc::new(http::proxy::RouteProxy::new(

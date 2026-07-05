@@ -1,6 +1,7 @@
 use rusqlite::{params, Connection};
 use std::sync::Mutex;
-use time::OffsetDateTime;
+
+use super::now_iso;
 
 /// 端点模型行。
 #[derive(Debug, Clone)]
@@ -28,12 +29,6 @@ pub struct NewEndpointModel {
     pub capabilities: Option<String>,
     pub context_window: Option<i64>,
     pub last_seen_at: Option<String>,
-}
-
-fn now_iso() -> Result<String, String> {
-    OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Iso8601::DEFAULT)
-        .map_err(|e| format!("时间格式化失败: {}", e))
 }
 
 fn row_to_model(row: &rusqlite::Row<'_>) -> rusqlite::Result<EndpointModelRow> {

@@ -3,14 +3,13 @@
 //! 对应设计文档 §2 数据模型 `route_settings` 表。
 //! 每条路由（claude-code / codex）一行，存储选择策略与故障转移参数。
 //!
-//! `upsert` 为路由设置 UI 写入侧预留，尚未接线。
-//!
-//! `upsert` / `upsert_partial` 参数与 DB 列一一对应，故超出默认参数上限。
+//! `upsert_partial` 参数与 DB 列一一对应，故超出默认参数上限。
 #![allow(dead_code)]
 #![allow(clippy::too_many_arguments)]
 use rusqlite::{params, Connection};
 use std::sync::Mutex;
-use time::OffsetDateTime;
+
+use super::now_iso;
 
 /// 路由设置行。
 #[derive(Debug, Clone)]
@@ -24,12 +23,6 @@ pub struct RouteSettingsRow {
     pub same_account_retries: i64,
     pub cooldown_multiplier: f64,
     pub updated_at: String,
-}
-
-fn now_iso() -> Result<String, String> {
-    OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Iso8601::DEFAULT)
-        .map_err(|e| format!("时间格式化失败: {}", e))
 }
 
 fn row_to_settings(row: &rusqlite::Row<'_>) -> rusqlite::Result<RouteSettingsRow> {
@@ -74,48 +67,6 @@ pub fn list_all(db: &Mutex<Connection>) -> Result<Vec<RouteSettingsRow>, String>
         out.push(r.map_err(|e| format!("路由设置行解析失败: {}", e))?);
     }
     Ok(out)
-}
-
-/// 插入或更新一条路由设置（全字段 upsert）。
-pub fn upsert(
-    db: &Mutex<Connection>,
-    id: &str,
-    label: &str,
-    strategy: &str,
-    protocol_type: &str,
-    failover_enabled: bool,
-    max_switches: i64,
-    same_account_retries: i64,
-    cooldown_multiplier: f64,
-) -> Result<(), String> {
-    let now = now_iso()?;
-    let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
-    db.execute(
-        "INSERT INTO route_settings (id, label, strategy, protocol_type, failover_enabled, max_switches, same_account_retries, cooldown_multiplier, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-         ON CONFLICT(id) DO UPDATE SET
-           label=excluded.label,
-           strategy=excluded.strategy,
-           protocol_type=excluded.protocol_type,
-           failover_enabled=excluded.failover_enabled,
-           max_switches=excluded.max_switches,
-           same_account_retries=excluded.same_account_retries,
-           cooldown_multiplier=excluded.cooldown_multiplier,
-           updated_at=excluded.updated_at",
-        params![
-            id,
-            label,
-            strategy,
-            protocol_type,
-            failover_enabled as i64,
-            max_switches,
-            same_account_retries,
-            cooldown_multiplier,
-            now,
-        ],
-    )
-    .map_err(|e| format!("更新路由设置失败: {}", e))?;
-    Ok(())
 }
 
 /// 部分字段更新路由设置（只传 Some 的字段）。

@@ -19,10 +19,6 @@ pub type ByteStream =
 
 /// 缓冲首块后的结果。
 pub struct BufferedResult {
-    /// 第一个 data chunk（若为流式且成功）。已合并进 `remaining_stream`，
-    /// 单独保留供调用方做首块检查/调试。
-    #[allow(dead_code)]
-    pub first_chunk: Bytes,
     /// 包含首块 + 剩余数据的完整流（供客户端消费）。
     pub remaining_stream: ByteStream,
 }
@@ -61,7 +57,6 @@ impl StreamGuard {
     {
         if !stream {
             return Ok(BufferedResult {
-                first_chunk: Bytes::new(),
                 remaining_stream: Box::pin(futures::stream::empty()),
             });
         }
@@ -138,7 +133,6 @@ impl StreamGuard {
             );
 
         Ok(BufferedResult {
-            first_chunk,
             remaining_stream: Box::pin(remaining),
         })
     }

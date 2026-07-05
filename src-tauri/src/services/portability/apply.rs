@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use rusqlite::Connection;
 
 use super::package::{Payload, PORTABLE_METADATA_KEYS};
+use crate::db::dao::now_iso;
 use crate::services::crypto::b64_decode;
 
 /// 导入结果统计。
@@ -476,10 +477,4 @@ fn decode_blob_opt(b64: &Option<String>) -> Result<Option<Vec<u8>>, String> {
         None => Ok(None),
         Some(s) => Ok(Some(b64_decode(s)?)),
     }
-}
-
-fn now_iso() -> Result<String, String> {
-    time::OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Iso8601::DEFAULT)
-        .map_err(|e| format!("时间格式化失败: {}", e))
 }

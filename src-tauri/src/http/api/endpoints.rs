@@ -9,6 +9,8 @@ use std::sync::Arc;
 use crate::app_state::AppState;
 use crate::db::dao::endpoints::{self, EndpointRow, EndpointUpdate, NewEndpoint};
 
+use super::encrypt_api_key;
+
 /// 端点脱敏响应（不含凭据）。
 #[derive(Serialize)]
 pub struct EndpointResponse {
@@ -174,34 +176,4 @@ async fn delete(
 ) -> Result<StatusCode, (StatusCode, String)> {
     endpoints::delete(&state.db, &id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-fn encrypt_api_key(
-    state: &AppState,
-    id: &str,
-    api_key: Option<&str>,
-) -> Result<Option<Vec<u8>>, (StatusCode, String)> {
-    let key = match api_key {
-        None => None,
-        Some(k) => {
-            let crypto = state.crypto.as_ref().ok_or((
-                StatusCode::SERVICE_UNAVAILABLE,
-                "系统凭据管理器不可用，无法保存凭据".to_string(),
-            ))?;
-            let json = serde_json::json!({ "api_key": k });
-            let json_bytes = serde_json::to_vec(&json).map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("序列化凭据失败: {}", e),
-                )
-            })?;
-            Some(crypto.encrypt(&json_bytes, id.as_bytes()).map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("加密失败: {}", e),
-                )
-            })?)
-        }
-    };
-    Ok(key)
 }

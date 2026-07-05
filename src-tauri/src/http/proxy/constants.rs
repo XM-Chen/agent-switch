@@ -2,10 +2,6 @@
 //!
 //! 参考设计文档 §4「常量与路径契约」。
 //! 协议类常量同时用作 `protocol_type` 校验取值。
-//!
-//! 部分默认参数常量为路由管理层预留，尚未在主循环接线，
-//! 保留以对齐设计契约。
-#![allow(dead_code)]
 
 // ── 协议类 ──────────────────────────────────────────────
 /// Anthropic Messages API 协议。
@@ -22,12 +18,6 @@ pub const PROTOCOL_OPENAI_COMPATIBLE: &str = "openai-compatible";
 pub const FILL_FIRST: &str = "fill-first";
 /// 在相同优先级内轮询，带粘性会话。
 pub const ROUND_ROBIN: &str = "round-robin";
-
-// ── 故障转移默认参数 ────────────────────────────────────
-/// 候选链最大切换次数。
-pub const DEFAULT_MAX_SWITCHES: u32 = 10;
-/// 同端点最大重试次数。
-pub const DEFAULT_SAME_ACCOUNT_RETRIES: u32 = 3;
 
 // ── OAuth ────────────────────────────────────────────────
 /// OAuth access_token 过期前提前刷新时间（秒）。

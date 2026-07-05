@@ -13,7 +13,6 @@ use axum::http::{HeaderMap, Request, StatusCode};
 use axum::response::Response;
 use rusqlite::Connection;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 
 use crate::db::dao::route_settings::RouteSettingsRow;
 use crate::http::proxy::auth_injector::inject_auth;
@@ -47,7 +46,12 @@ pub struct RouteProxy {
     pub db: Arc<Mutex<Connection>>,
     pub translator_registry: Arc<TranslatorRegistry>,
     pub crypto: Option<Arc<crate::services::crypto::CryptoService>>,
+    /// Codex OAuth 服务。当前未在 inject_auth 路径读取（OAuth 刷新通过 oauth_refresh 模块
+    /// 直连 DB 完成），保留以兼容构造签名与未来扩展。
+    #[allow(dead_code)]
     pub codex_oauth: Arc<crate::services::codex_oauth::CodexOAuthService>,
+    /// 数据目录。当前未在主循环读取，保留以兼容构造签名与未来扩展。
+    #[allow(dead_code)]
     pub data_dir: std::path::PathBuf,
     pub http_client: reqwest::Client,
 }
@@ -112,7 +116,6 @@ impl RouteProxy {
 
         // 加载路由设置
         let route_settings = load_route_settings(&self.db, route_id)
-            .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
         // v1 路由：从子路径解析 required_capability
@@ -190,10 +193,7 @@ impl RouteProxy {
         let mut last_mapping: Option<ModelMappingResult> = None;
 
         while failover.can_continue() {
-            let endpoint = match selector.next(&failover.failed_ids, |_eid| {
-                // 模型锁检查已移至模型映射之后（需要 upstream_model 才能正确查锁）。
-                true
-            }) {
+            let endpoint = match selector.next(&failover.failed_ids) {
                 Some((ep, _)) => ep,
                 None => break, // 无可用端点
             };
@@ -276,8 +276,6 @@ impl RouteProxy {
             if let Err(e) = inject_auth(
                 &endpoint,
                 self.crypto.as_deref(),
-                &self.codex_oauth,
-                &self.data_dir,
                 &self.db,
                 &mut upstream_headers,
             )
@@ -651,7 +649,7 @@ impl RouteProxy {
 
                     // 媒体响应 SHA256 哈希（仅记录哈希，不存储内容）
                     let media_body_hash = if is_passthrough {
-                        Some(hash_bytes(&out_bytes))
+                        Some(RequestLogEntry::hash_body(&out_bytes))
                     } else {
                         None
                     };
@@ -754,7 +752,7 @@ impl RouteProxy {
     }
 }
 
-async fn load_route_settings(
+fn load_route_settings(
     db: &Mutex<Connection>,
     route_id: &str,
 ) -> Result<RouteSettingsRow, String> {
@@ -826,11 +824,4 @@ fn persist_cooldown(
     ) {
         tracing::warn!("写入端点 '{}' 冷却失败: {}", endpoint_id, e);
     }
-}
-
-/// 计算字节数组的 SHA256 哈希（用于媒体响应日志）。
-fn hash_bytes(data: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    format!("{:x}", hasher.finalize())
 }

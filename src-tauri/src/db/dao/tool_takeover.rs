@@ -1,6 +1,8 @@
 use rusqlite::{params, Connection};
 use std::sync::Mutex;
 
+use super::now_iso;
+
 /// 工具接管状态行。
 #[derive(Debug, Clone)]
 pub struct ToolTakeoverRow {
@@ -64,7 +66,7 @@ pub fn upsert_state(
     last_target: Option<&str>,
     last_error: Option<&str>,
 ) -> Result<(), String> {
-    let now = iso_now()?;
+    let now = now_iso()?;
     let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
     db.execute(
         "INSERT INTO tool_takeover (tool, enabled, mode, active_provider_id, last_applied_at, last_target, last_error, updated_at)
@@ -99,7 +101,7 @@ pub fn set_mode(
     mode: &str,
     active_provider_id: Option<&str>,
 ) -> Result<(), String> {
-    let now = iso_now()?;
+    let now = now_iso()?;
     let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
     db.execute(
         "UPDATE tool_takeover SET mode=?1, active_provider_id=?2, updated_at=?3 WHERE tool=?4",
@@ -111,7 +113,7 @@ pub fn set_mode(
 
 /// 仅更新启停状态(关闭路径)。
 pub fn set_enabled(db: &Mutex<Connection>, tool: &str, enabled: bool) -> Result<(), String> {
-    let now = iso_now()?;
+    let now = now_iso()?;
     let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
     db.execute(
         "UPDATE tool_takeover SET enabled=?1, updated_at=?2 WHERE tool=?3",
@@ -131,7 +133,7 @@ pub fn insert_backup(
     original_existed: bool,
     takeover_target: Option<&str>,
 ) -> Result<(), String> {
-    let now = iso_now()?;
+    let now = now_iso()?;
     let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
     db.execute(
         "INSERT INTO tool_takeover_backups (id, tool, original_path, backup_path, original_existed, takeover_target, created_at)
@@ -167,12 +169,6 @@ pub fn list_backups(db: &Mutex<Connection>, tool: &str) -> Result<Vec<ToolBackup
         out.push(r.map_err(|e| format!("备份记录行解析失败: {}", e))?);
     }
     Ok(out)
-}
-
-fn iso_now() -> Result<String, String> {
-    time::OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Iso8601::DEFAULT)
-        .map_err(|e| format!("时间格式化失败: {}", e))
 }
 
 #[cfg(test)]

@@ -312,18 +312,12 @@ impl Translator for ChatToResponsesTranslator {
 
         // 首个 chunk（role delta → response.created）
         if role == Some("assistant") && !context.has_content {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-
             let resp_id = parsed
                 .get("id")
                 .and_then(|i| i.as_str())
                 .unwrap_or("resp_unknown");
 
             context.response_id = resp_id.to_string();
-            context.created_at = now;
 
             output.push_str(&format!(
                 "event: response.created\ndata: {{\"type\":\"response.created\",\"response\":{{\"id\":\"{}\",\"object\":\"response\",\"model\":\"{}\",\"status\":\"in_progress\",\"output\":[]}}}}\n\n",
@@ -741,7 +735,6 @@ impl Translator for ResponsesToChatTranslator {
 
                     context.response_id = resp_id.to_string();
                     context.model = model_name.to_string();
-                    context.created_at = now;
 
                     let chunk = json!({
                         "id": resp_id,
@@ -1019,7 +1012,7 @@ mod tests {
     #[test]
     fn test_chat_to_responses_stream_basic() {
         let t = ChatToResponsesTranslator;
-        let mut ctx = StreamContext::new("", "gpt-4", 0);
+        let mut ctx = StreamContext::new("", "gpt-4");
 
         // 首个 chunk → response.created
         let line1 = "data: {\"id\":\"resp_1\",\"object\":\"chat.completion.chunk\",\"created\":12345,\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}";
@@ -1111,7 +1104,7 @@ mod tests {
     #[test]
     fn test_responses_to_chat_stream_basic() {
         let t = ResponsesToChatTranslator;
-        let mut ctx = StreamContext::new("", "gpt-4", 0);
+        let mut ctx = StreamContext::new("", "gpt-4");
 
         // response.created → 首个 chat chunk
         let line1 = "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"model\":\"gpt-4\",\"status\":\"in_progress\",\"output\":[]}}";
@@ -1237,7 +1230,7 @@ mod tests {
     #[test]
     fn test_chat_to_responses_stream_function_call_done_before_completed() {
         let t = ChatToResponsesTranslator;
-        let mut ctx = StreamContext::new("chatcmpl_abc", "gpt-4", 0);
+        let mut ctx = StreamContext::new("chatcmpl_abc", "gpt-4");
         let _ = t.translate_stream_line(
             "data: {\"id\":\"resp_1\",\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}",
             &mut ctx,
@@ -1268,7 +1261,7 @@ mod tests {
     #[test]
     fn test_chat_to_responses_stream_text_special_chars() {
         let t = ChatToResponsesTranslator;
-        let mut ctx = StreamContext::new("chatcmpl_abc", "gpt-4", 0);
+        let mut ctx = StreamContext::new("chatcmpl_abc", "gpt-4");
         let _ = t.translate_stream_line(
             "data: {\"id\":\"resp_1\",\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}",
             &mut ctx,

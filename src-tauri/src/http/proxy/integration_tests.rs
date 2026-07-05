@@ -55,16 +55,16 @@ fn encrypt_api_key(crypto: &CryptoService, endpoint_id: &str, key_value: &str) -
 
 /// 插入一条路由设置。
 fn insert_route_settings(db: &Mutex<Connection>, route_id: &str, protocol_type: &str) {
-    route_settings::upsert(
+    route_settings::upsert_partial(
         db,
         route_id,
-        &format!("测试路由-{}", route_id),
-        constants::FILL_FIRST,
-        protocol_type,
-        true, // failover_enabled
-        5,    // max_switches
-        2,    // same_account_retries
-        1.5,  // cooldown_multiplier
+        Some(&format!("测试路由-{}", route_id)),
+        Some(constants::FILL_FIRST),
+        Some(protocol_type),
+        Some(true), // failover_enabled
+        Some(5),    // max_switches
+        Some(2),    // same_account_retries
+        Some(1.5),  // cooldown_multiplier
     )
     .expect("插入路由设置失败");
 }

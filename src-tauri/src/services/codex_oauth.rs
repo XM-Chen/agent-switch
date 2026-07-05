@@ -33,21 +33,13 @@ pub struct CodexCredentials {
     pub plan_type: Option<String>,
 }
 
-/// 登录会话状态。
-#[allow(dead_code)]
-pub struct LoginSession {
-    pub code_verifier: String,
-    pub state: String,
-    pub auth_url: String,
-}
-
 /// 回调服务关闭句柄，跨任务共享。
 type SharedShutdown = Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>;
 
 /// OAuth 登录管理器，同一时刻只允许一个登录会话。
 pub struct CodexOAuthService {
-    /// 当前会话（None 表示无进行中的登录）。
-    pub session: Mutex<Option<LoginSession>>,
+    /// 当前是否有进行中的登录会话。
+    pub session: Mutex<bool>,
     /// 回调服务句柄，用于完成后释放。
     pub callback_shutdown: SharedShutdown,
 }
@@ -55,7 +47,7 @@ pub struct CodexOAuthService {
 impl CodexOAuthService {
     pub fn new() -> Self {
         Self {
-            session: Mutex::new(None),
+            session: Mutex::new(false),
             callback_shutdown: Arc::new(Mutex::new(None)),
         }
     }
@@ -66,7 +58,7 @@ impl CodexOAuthService {
     pub async fn start_login(&self, app_state: Arc<AppState>) -> Result<String, String> {
         // 互斥：同一时刻只允许一个登录会话。
         let mut session_guard = self.session.lock().await;
-        if session_guard.is_some() {
+        if *session_guard {
             return Err("已有 Codex OAuth 登录进行中".to_string());
         }
 
@@ -92,7 +84,6 @@ impl CodexOAuthService {
         let app_state_for_callback = app_state.clone();
         let state_for_callback = state.clone();
         let verifier_for_callback = code_verifier.clone();
-        let callback_shutdown = self.callback_shutdown.clone();
 
         tokio::spawn(async move {
             if let Err(e) = run_callback_server(
@@ -100,7 +91,6 @@ impl CodexOAuthService {
                 verifier_for_callback,
                 state_for_callback,
                 rx,
-                callback_shutdown,
             )
             .await
             {
@@ -108,24 +98,21 @@ impl CodexOAuthService {
             }
         });
 
-        let url = auth_url.clone();
-        *session_guard = Some(LoginSession {
-            code_verifier,
-            state,
-            auth_url,
-        });
+        *session_guard = true;
 
-        Ok(url)
+        Ok(auth_url)
     }
 
-    /// 查询当前登录会话状态（仅返回是否进行中，不暴露敏感字段）。
+    /// 查询当前登录会话状态。
     pub async fn status(&self) -> bool {
-        self.session.lock().await.is_some()
+        *self.session.lock().await
     }
 
     /// 清理会话（登录完成或失败后调用）。
+    ///
+    /// 同时置空会话标记并关闭回调服务（关停信号幂等：guard 取走后二次调用为 no-op）。
     pub async fn clear_session(&self) {
-        *self.session.lock().await = None;
+        *self.session.lock().await = false;
         let mut guard = self.callback_shutdown.lock().await;
         if let Some(tx) = guard.take() {
             let _ = tx.send(()).ok();
@@ -139,7 +126,6 @@ async fn run_callback_server(
     code_verifier: String,
     expected_state: String,
     shutdown_rx: tokio::sync::oneshot::Receiver<()>,
-    callback_shutdown: SharedShutdown,
 ) -> Result<(), String> {
     let addr = format!("127.0.0.1:{}", CALLBACK_PORT);
     let listener = tokio::net::TcpListener::bind(&addr)
@@ -156,7 +142,6 @@ async fn run_callback_server(
                 app_state.clone(),
                 code_verifier.clone(),
                 expected_state.clone(),
-                callback_shutdown.clone(),
             )
         }),
     );
@@ -187,14 +172,13 @@ async fn handle_callback(
     app_state: Arc<AppState>,
     code_verifier: String,
     expected_state: String,
-    callback_shutdown: SharedShutdown,
 ) -> impl axum::response::IntoResponse {
     use axum::http::StatusCode;
     use axum::response::Json;
 
     // 校验 error。
     if let Some(err) = &query.error {
-        cleanup_session(&app_state, &callback_shutdown).await;
+        cleanup_session(&app_state).await;
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
@@ -206,7 +190,7 @@ async fn handle_callback(
 
     // 校验 state（防 CSRF）。
     if query.state.as_deref() != Some(&expected_state) {
-        cleanup_session(&app_state, &callback_shutdown).await;
+        cleanup_session(&app_state).await;
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
@@ -219,7 +203,7 @@ async fn handle_callback(
     let code = match &query.code {
         Some(c) => c.clone(),
         None => {
-            cleanup_session(&app_state, &callback_shutdown).await;
+            cleanup_session(&app_state).await;
             return (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
@@ -242,7 +226,7 @@ async fn handle_callback(
 
             let account_id = account_id.or(subject);
             let Some(account_id_str) = account_id.clone() else {
-                cleanup_session(&app_state, &callback_shutdown).await;
+                cleanup_session(&app_state).await;
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(serde_json::json!({
@@ -273,7 +257,7 @@ async fn handle_callback(
             let json = match serde_json::to_vec(&credentials) {
                 Ok(j) => j,
                 Err(e) => {
-                    cleanup_session(&app_state, &callback_shutdown).await;
+                    cleanup_session(&app_state).await;
                     return (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(serde_json::json!({
@@ -288,7 +272,7 @@ async fn handle_callback(
 
             // Upsert：已存在则更新凭据，不存在则创建。
             if let Err(e) = upsert_codex_account(&app_state, &account_id_str, &name, &json) {
-                cleanup_session(&app_state, &callback_shutdown).await;
+                cleanup_session(&app_state).await;
                 // 503 crypto_unavailable 保留原错误码映射
                 if e.contains("加密服务不可用") {
                     return (
@@ -309,7 +293,7 @@ async fn handle_callback(
             }
 
             // 清理会话和回调服务。
-            cleanup_session(&app_state, &callback_shutdown).await;
+            cleanup_session(&app_state).await;
 
             (
                 StatusCode::OK,
@@ -321,7 +305,7 @@ async fn handle_callback(
             )
         }
         Err(e) => {
-            cleanup_session(&app_state, &callback_shutdown).await;
+            cleanup_session(&app_state).await;
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
@@ -334,12 +318,11 @@ async fn handle_callback(
 }
 
 /// 清理登录会话并关闭回调服务。
-async fn cleanup_session(app_state: &Arc<AppState>, callback_shutdown: &SharedShutdown) {
+///
+/// 只调 `clear_session`：它同时置空会话标记并发送关停信号（信号幂等，
+/// guard 已被取走时为 no-op），无需在此重复操作 `callback_shutdown`。
+async fn cleanup_session(app_state: &Arc<AppState>) {
     app_state.codex_oauth.clear_session().await;
-    let mut guard = callback_shutdown.lock().await;
-    if let Some(tx) = guard.take() {
-        let _ = tx.send(()).ok();
-    }
 }
 
 /// 加密凭据并 upsert 到数据库（已存在则 update，不存在则 create）。

@@ -390,7 +390,6 @@ impl Translator for AnthropicToChatTranslator {
 
                     context.response_id = format!("chatcmpl_{}", &msg_id[..msg_id.len().min(28)]);
                     context.model = model_name.to_string();
-                    context.created_at = now;
 
                     let chunk = json!({
                         "id": context.response_id,
@@ -895,11 +894,6 @@ impl Translator for ChatToAnthropicTranslator {
                 .unwrap_or("chatcmpl_unknown");
             let model_name = parsed.get("model").and_then(|m| m.as_str()).unwrap_or("");
 
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-
             let (inp, _out) = if let Some(u) = usage {
                 let p = u.get("prompt_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
                 let c = u
@@ -918,7 +912,6 @@ impl Translator for ChatToAnthropicTranslator {
                 format!("msg_{}", msg_id)
             };
             context.model = model_name.to_string();
-            context.created_at = now;
 
             output.push_str(&format!(
                 "event: message_start\ndata: {{\"type\":\"message_start\",\"message\":{{\"id\":\"{}\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"{}\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{{\"input_tokens\":{},\"output_tokens\":{}}}}}}}\n\n",
@@ -1292,7 +1285,7 @@ mod tests {
     #[test]
     fn test_chat_to_anthropic_stream_text_with_special_chars() {
         let t = ChatToAnthropicTranslator;
-        let mut ctx = StreamContext::new("chatcmpl_abc", "gpt-4", 0);
+        let mut ctx = StreamContext::new("chatcmpl_abc", "gpt-4");
         // 先发首块建立 message_start
         let _ = t.translate_stream_line(
             "data: {\"id\":\"chatcmpl_abc\",\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}",
@@ -1321,7 +1314,7 @@ mod tests {
     #[test]
     fn test_chat_to_anthropic_stream_tool_args_not_double_escaped() {
         let t = ChatToAnthropicTranslator;
-        let mut ctx = StreamContext::new("chatcmpl_abc", "gpt-4", 0);
+        let mut ctx = StreamContext::new("chatcmpl_abc", "gpt-4");
         let _ = t.translate_stream_line(
             "data: {\"id\":\"chatcmpl_abc\",\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}",
             &mut ctx,
@@ -1429,7 +1422,7 @@ mod tests {
     #[test]
     fn test_anthropic_to_chat_stream_message_start() {
         let t = AnthropicToChatTranslator;
-        let mut ctx = StreamContext::new("", "", 0);
+        let mut ctx = StreamContext::new("", "");
 
         let line = "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_01\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-3\",\"stop_reason\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}";
         let result = t.translate_stream_line(line, &mut ctx).unwrap();
@@ -1443,7 +1436,7 @@ mod tests {
     #[test]
     fn test_anthropic_to_chat_stream_text_delta() {
         let t = AnthropicToChatTranslator;
-        let mut ctx = StreamContext::new("chatcmpl_01", "claude-3", 12345);
+        let mut ctx = StreamContext::new("chatcmpl_01", "claude-3");
 
         let line = "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}";
         let result = t.translate_stream_line(line, &mut ctx).unwrap();
@@ -1455,7 +1448,7 @@ mod tests {
     #[test]
     fn test_anthropic_to_chat_stream_tool_call() {
         let t = AnthropicToChatTranslator;
-        let mut ctx = StreamContext::new("chatcmpl_01", "claude-3", 12345);
+        let mut ctx = StreamContext::new("chatcmpl_01", "claude-3");
 
         // tool_use content_block_start
         let line1 = "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"get_weather\",\"input\":{}}}";
@@ -1472,7 +1465,7 @@ mod tests {
     #[test]
     fn test_anthropic_to_chat_stream_message_delta() {
         let t = AnthropicToChatTranslator;
-        let mut ctx = StreamContext::new("chatcmpl_01", "claude-3", 12345);
+        let mut ctx = StreamContext::new("chatcmpl_01", "claude-3");
 
         let line = "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":25}}";
         let result = t.translate_stream_line(line, &mut ctx).unwrap();
@@ -1482,7 +1475,7 @@ mod tests {
     #[test]
     fn test_anthropic_to_chat_stream_message_stop() {
         let t = AnthropicToChatTranslator;
-        let mut ctx = StreamContext::new("chatcmpl_01", "claude-3", 12345);
+        let mut ctx = StreamContext::new("chatcmpl_01", "claude-3");
 
         let line = "data: {\"type\":\"message_stop\"}";
         let result = t.translate_stream_line(line, &mut ctx).unwrap();
@@ -1659,7 +1652,7 @@ mod tests {
     #[test]
     fn test_chat_to_anthropic_stream_basic() {
         let t = ChatToAnthropicTranslator;
-        let mut ctx = StreamContext::new("", "", 0);
+        let mut ctx = StreamContext::new("", "");
 
         // 首个 chunk（role delta → message_start）
         let line1 = "data: {\"id\":\"chatcmpl_abc\",\"object\":\"chat.completion.chunk\",\"created\":12345,\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}";
@@ -1702,7 +1695,7 @@ mod tests {
     #[test]
     fn test_chat_to_anthropic_stream_text_block_start_and_stop() {
         let t = ChatToAnthropicTranslator;
-        let mut ctx = StreamContext::new("", "", 0);
+        let mut ctx = StreamContext::new("", "");
 
         let _ = t.translate_stream_line(
             "data: {\"id\":\"chatcmpl_abc\",\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}",
@@ -1735,7 +1728,7 @@ mod tests {
     #[test]
     fn test_chat_to_anthropic_stream_mixed_text_and_tool_blocks_are_closed_in_order() {
         let t = ChatToAnthropicTranslator;
-        let mut ctx = StreamContext::new("", "", 0);
+        let mut ctx = StreamContext::new("", "");
 
         let _ = t.translate_stream_line(
             "data: {\"id\":\"chatcmpl_abc\",\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}",
@@ -1796,7 +1789,7 @@ mod tests {
     #[test]
     fn test_anthropic_to_chat_stream_ignores_unmapped_input_json_delta() {
         let t = AnthropicToChatTranslator;
-        let mut ctx = StreamContext::new("chatcmpl_01", "claude-3", 12345);
+        let mut ctx = StreamContext::new("chatcmpl_01", "claude-3");
 
         let line = "data: {\"type\":\"content_block_delta\",\"index\":7,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\\\"NYC\\\"}\"}}";
         let result = t.translate_stream_line(line, &mut ctx).unwrap();

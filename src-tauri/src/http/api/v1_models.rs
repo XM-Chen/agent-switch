@@ -93,7 +93,13 @@ pub async fn get_models(
         seen.insert(m.model_name.clone());
 
         // 尝试从 created_at 解析 ISO8601 → epoch
-        let created = parse_iso8601_to_epoch(&m.created_at).unwrap_or(now_epoch);
+        let created = time::OffsetDateTime::parse(
+            &m.created_at,
+            &time::format_description::well_known::Iso8601::DEFAULT,
+        )
+        .ok()
+        .map(|dt| dt.unix_timestamp())
+        .unwrap_or(now_epoch);
 
         data.push(ModelEntry {
             id: m.model_name.clone(),
@@ -110,13 +116,4 @@ pub async fn get_models(
         object: "list".to_string(),
         data,
     }))
-}
-
-/// 解析 ISO8601 时间字符串为 Unix 时间戳（秒）。
-fn parse_iso8601_to_epoch(iso_str: &str) -> Option<i64> {
-    use time::format_description::well_known::Iso8601;
-    use time::OffsetDateTime;
-    OffsetDateTime::parse(iso_str, &Iso8601::DEFAULT)
-        .ok()
-        .map(|dt| dt.unix_timestamp())
 }

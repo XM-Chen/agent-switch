@@ -33,8 +33,6 @@ pub struct StreamContext {
     pub response_id: String,
     /// 模型名称
     pub model: String,
-    /// 创建时间戳（Unix 秒）
-    pub created_at: i64,
     /// Tool call 累积器（OpenAI tool_call index → ToolCallAcc）
     pub tool_calls: HashMap<i32, ToolCallAcc>,
     /// 是否已看到首块内容（用于判断是否已发送初始 delta）
@@ -53,11 +51,10 @@ pub struct StreamContext {
 }
 
 impl StreamContext {
-    pub fn new(response_id: &str, model: &str, created_at: i64) -> Self {
+    pub fn new(response_id: &str, model: &str) -> Self {
         Self {
             response_id: response_id.to_string(),
             model: model.to_string(),
-            created_at,
             tool_calls: HashMap::new(),
             has_content: false,
             text_block_index: None,
@@ -153,16 +150,6 @@ impl TranslatorRegistry {
         self.get(from, to)
             .ok_or_else(|| format!("无可用转换器: {} → {}", from, to))
     }
-
-    /// 返回当前注册的转换器数量（不含 Passthrough）。
-    pub fn len(&self) -> usize {
-        self.translators.len()
-    }
-
-    /// 注册表是否为空。
-    pub fn is_empty(&self) -> bool {
-        self.translators.is_empty()
-    }
 }
 
 impl Default for TranslatorRegistry {
@@ -175,13 +162,6 @@ impl Default for TranslatorRegistry {
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[test]
-    fn test_registry_new_not_empty() {
-        let reg = TranslatorRegistry::new();
-        assert!(!reg.is_empty());
-        assert_eq!(reg.len(), 4);
-    }
 
     #[test]
     fn test_registry_resolve_passthrough() {
@@ -234,7 +214,7 @@ mod tests {
     #[test]
     fn test_passthrough_translate_stream_line() {
         let t = PassthroughTranslator;
-        let mut ctx = StreamContext::new("msg_1", "model", 12345);
+        let mut ctx = StreamContext::new("msg_1", "model");
         let result = t
             .translate_stream_line("data: {\"key\":\"val\"}", &mut ctx)
             .unwrap();

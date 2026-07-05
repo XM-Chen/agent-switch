@@ -42,8 +42,6 @@ pub struct ImportRequest {
     pub package: String,
     /// 脱敏包必填；完整备份忽略。
     pub password: Option<String>,
-    /// 冲突模式占位：当前仅 "auto"（按包 mode 决定 replace/merge），保留扩展。
-    pub conflict_mode: Option<String>,
 }
 
 pub fn routes() -> Router<Arc<AppState>> {
@@ -98,7 +96,7 @@ async fn export_config(
 
 /// POST /api/settings/import
 ///
-/// body `{ package, password?, conflict_mode? }` → `{ imported, pre_import_backup?, warnings? }`。
+/// body `{ package, password? }` → `{ imported, pre_import_backup?, warnings? }`。
 /// - 解密失败 / 版本不符 → 400。
 /// - 事务失败 → 500。
 async fn import_config(
@@ -110,7 +108,7 @@ async fn import_config(
         &state.data_dir,
         &req.package,
         req.password.as_deref(),
-        req.conflict_mode.as_deref(),
+        None,
     )
     .map_err(|e| map_import_error(&e))?;
     Ok(Json(result))

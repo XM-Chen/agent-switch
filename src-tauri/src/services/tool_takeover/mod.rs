@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::db::dao::endpoints as endpoints_dao;
+use crate::db::dao::now_iso;
 use crate::db::dao::providers::ProviderRow;
 use crate::db::dao::tool_takeover as dao;
 use crate::services::crypto::CryptoService;
@@ -173,7 +174,7 @@ fn enable_at(
         Tool::Codex => format!("{}{}", LOCAL_BASE, CODEX_SUFFIX),
         _ => unreachable!(),
     };
-    let now = iso_now()?;
+    let now = now_iso()?;
     dao::upsert_state(
         db,
         tool.as_str(),
@@ -240,7 +241,7 @@ fn enable_direct_at(
     }
 
     // 持久化状态：mode=direct、active_provider_id=provider.id、target=真实 base_url。
-    let now = iso_now()?;
+    let now = now_iso()?;
     dao::upsert_state(
         db,
         tool.as_str(),
@@ -343,7 +344,7 @@ fn disable_at(
             Tool::Codex => format!("{}{}", LOCAL_BASE, CODEX_SUFFIX),
             _ => unreachable!(),
         };
-        let now = iso_now()?;
+        let now = now_iso()?;
         dao::upsert_state(
             db,
             tool.as_str(),
@@ -501,7 +502,7 @@ fn backup_before_write(
         _ => return Ok(()),
     };
 
-    let timestamp = iso_now()?;
+    let timestamp = now_iso()?;
     // Windows 文件名不允许 ':', 替换为 '-'
     let safe_ts = timestamp.replace(':', "-");
     let safe_name = original_path
@@ -559,12 +560,6 @@ pub fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
     std::fs::rename(&tmp, path)
         .map_err(|e| format!("重命名 {} -> {} 失败: {}", tmp.display(), path.display(), e))?;
     Ok(())
-}
-
-fn iso_now() -> Result<String, String> {
-    time::OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Iso8601::DEFAULT)
-        .map_err(|e| format!("时间格式化失败: {}", e))
 }
 
 #[cfg(test)]

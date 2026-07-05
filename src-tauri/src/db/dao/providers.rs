@@ -4,8 +4,8 @@
 
 use rusqlite::{params, Connection};
 use std::sync::Mutex;
-use time::OffsetDateTime;
 
+use super::now_iso;
 use crate::services::provider::AppType;
 use crate::services::tool_takeover::Tool;
 
@@ -62,12 +62,6 @@ pub struct ProviderUpdate {
     pub sort_index: Option<Option<i64>>,
     pub notes: Option<Option<String>>,
     pub meta: Option<String>,
-}
-
-fn now_iso() -> Result<String, String> {
-    OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Iso8601::DEFAULT)
-        .map_err(|e| format!("时间格式化失败: {}", e))
 }
 
 fn row_to_provider(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProviderRow> {

@@ -3,11 +3,10 @@
 //! 对应设计文档 §2 数据模型 `request_logs` 表。
 //! 每次转发写一条记录；支持按 tool/status/时间范围/limit/offset 筛选查询。
 //!
-//! 写入侧 `insert`/`new_log`/`now_iso` 为主循环日志接线预留。
+//! 写入侧（主循环日志接线）尚未启用，当前仅保留查询与清理路径。
 #![allow(dead_code)]
 use rusqlite::{params, Connection};
 use std::sync::Mutex;
-use time::OffsetDateTime;
 
 /// 请求日志行。
 #[derive(Debug, Clone)]
@@ -55,12 +54,6 @@ pub struct LogFilter {
     pub to: Option<String>,
     pub limit: i64,
     pub offset: i64,
-}
-
-fn now_iso() -> Result<String, String> {
-    OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Iso8601::DEFAULT)
-        .map_err(|e| format!("时间格式化失败: {}", e))
 }
 
 fn row_to_log(row: &rusqlite::Row<'_>) -> rusqlite::Result<RequestLogRow> {
@@ -203,49 +196,6 @@ pub fn list(
     Ok((out, total))
 }
 
-/// 插入一条请求日志。
-pub fn insert(db: &Mutex<Connection>, log: &RequestLogRow) -> Result<(), String> {
-    let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
-    db.execute(
-        "INSERT INTO request_logs (
-            id, request_id, tool, inbound_endpoint, requested_model,
-            resolved_alias, resolved_scope, target_endpoint_id, upstream_model,
-            upstream_endpoint, protocol_from, protocol_to, status, error_kind,
-            fallback_chain, stream, duration_ms, first_token_ms,
-            input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
-            request_body_hash, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
-        params![
-            log.id,
-            log.request_id,
-            log.tool,
-            log.inbound_endpoint,
-            log.requested_model,
-            log.resolved_alias,
-            log.resolved_scope,
-            log.target_endpoint_id,
-            log.upstream_model,
-            log.upstream_endpoint,
-            log.protocol_from,
-            log.protocol_to,
-            log.status,
-            log.error_kind,
-            log.fallback_chain,
-            log.stream as i64,
-            log.duration_ms,
-            log.first_token_ms,
-            log.input_tokens,
-            log.output_tokens,
-            log.cache_creation_tokens,
-            log.cache_read_tokens,
-            log.request_body_hash,
-            log.created_at,
-        ],
-    )
-    .map_err(|e| format!("插入日志失败: {}", e))?;
-    Ok(())
-}
-
 /// 删除超过保留条数的旧日志（按 created_at ASC / id ASC 删除最旧的）。
 ///
 /// 先计算超额行数，再只删除最旧的 `overflow` 条 rowid，避免 `id NOT IN
@@ -275,42 +225,6 @@ pub fn prune_old(db: &Mutex<Connection>, max_rows: i64) -> Result<usize, String>
         )
         .map_err(|e| format!("清理旧日志失败: {}", e))?;
     Ok(count)
-}
-
-/// 创建一个新的 RequestLogRow（生成 id 和 created_at）。
-pub fn new_log(
-    request_id: &str,
-    tool: Option<&str>,
-    inbound_endpoint: &str,
-) -> Result<RequestLogRow, String> {
-    let id = uuid::Uuid::new_v4().to_string();
-    let created = now_iso()?;
-    Ok(RequestLogRow {
-        id,
-        request_id: request_id.to_string(),
-        tool: tool.map(|s| s.to_string()),
-        inbound_endpoint: inbound_endpoint.to_string(),
-        requested_model: None,
-        resolved_alias: None,
-        resolved_scope: None,
-        target_endpoint_id: None,
-        upstream_model: None,
-        upstream_endpoint: None,
-        protocol_from: None,
-        protocol_to: None,
-        status: None,
-        error_kind: None,
-        fallback_chain: None,
-        stream: false,
-        duration_ms: None,
-        first_token_ms: None,
-        input_tokens: None,
-        output_tokens: None,
-        cache_creation_tokens: None,
-        cache_read_tokens: None,
-        request_body_hash: None,
-        created_at: created,
-    })
 }
 
 #[cfg(test)]

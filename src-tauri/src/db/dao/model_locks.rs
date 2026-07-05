@@ -7,7 +7,8 @@
 #![allow(dead_code)]
 use rusqlite::{params, Connection};
 use std::sync::Mutex;
-use time::OffsetDateTime;
+
+use super::now_iso;
 
 /// 模型锁行。
 #[derive(Debug, Clone)]
@@ -18,12 +19,6 @@ pub struct ModelLockRow {
     pub locked_until: String,
     pub lock_reason: Option<String>,
     pub created_at: String,
-}
-
-fn now_iso() -> Result<String, String> {
-    OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Iso8601::DEFAULT)
-        .map_err(|e| format!("时间格式化失败: {}", e))
 }
 
 /// 设置模型级锁。

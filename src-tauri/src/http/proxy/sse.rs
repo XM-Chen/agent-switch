@@ -37,7 +37,7 @@ pub fn translate_stream(
         inner,
         decoder: SseLineDecoder::new(),
         translator,
-        ctx: crate::services::translator::StreamContext::new("", &model, 0),
+        ctx: crate::services::translator::StreamContext::new("", &model),
         inbound_protocol: inbound_protocol.to_string(),
         errored: false,
     };

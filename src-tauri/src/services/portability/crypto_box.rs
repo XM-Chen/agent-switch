@@ -91,8 +91,8 @@ pub fn derive_key_argon2id(
 
 /// 用给定 key 加密 gzip(payload_bytes)，返回 `nonce || ciphertext`（含 tag）。
 ///
-/// `key` 必须为 32 字节。AAD 为包级常量。
-pub fn seal(key: &[u8], payload_bytes: &[u8]) -> Result<(Vec<u8>, [u8; 12]), String> {
+/// `key` 必须为 32 字节。AAD 为包级常量。nonce 已包含在返回 blob 头部，调用方无需单独保存。
+pub fn seal(key: &[u8], payload_bytes: &[u8]) -> Result<Vec<u8>, String> {
     if key.len() != 32 {
         return Err("加密密钥必须为 32 字节".to_string());
     }
@@ -115,7 +115,7 @@ pub fn seal(key: &[u8], payload_bytes: &[u8]) -> Result<(Vec<u8>, [u8; 12]), Str
     let mut out = Vec::with_capacity(12 + ciphertext.len());
     out.extend_from_slice(&nonce_bytes);
     out.extend_from_slice(&ciphertext);
-    Ok((out, nonce_bytes))
+    Ok(out)
 }
 
 /// 解密 `nonce || ciphertext`（含 tag），返回 gunzip 后的 payload 明文。
