@@ -506,3 +506,36 @@ app-shell 收尾后梳理剩余任务时发现：`06-27-` 路径下有 4 个 pla
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: 代理模式与 providers 桥接及升级回填 (P1 subtask 4)
+
+**Date**: 2026-07-05
+**Task**: 代理模式与 providers 桥接及升级回填 (P1 subtask 4)
+**Branch**: `main`
+
+### Summary
+
+新增 providers::backfill_from_takeover：启动期把存量 tool_takeover.enabled=1 的 claude-code/codex 桥接为默认 proxy provider（is_current=1）保证升级无缝。幂等（确定性 id prov-backfill-<tool>）、已有 current/已存在行不覆盖、纯 DB 不调 tool_takeover::enable。lib.rs 接线在迁移后/AppState 前，失败 panic。集成测试驱动 RouteProxy 验证回填后转发行为不变。spec 沉淀启动期数据回填模式。门禁全绿 165 tests。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e9519dad8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

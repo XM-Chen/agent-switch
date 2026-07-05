@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 11
-- **Last Active**: 2026-07-04
+- **Total Sessions**: 12
+- **Last Active**: 2026-07-05
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~508 | Active |
+| `journal-1.md` | ~541 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 12 | 2026-07-05 | 代理模式与 providers 桥接及升级回填 (P1 subtask 4) | `e9519dad8` | `main` |
 | 11 | 2026-07-04 | Provider CRUD 与切换 HTTP API (P1 subtask 3) | `b82c5d812` | `main` |
 | 10 | 2026-07-03 | 完成审计剩余缺陷修复 - 全部 6 个子任务 | `56ccad2b5`, `670fea63d` | `main` |
 | 9 | 2026-07-03 | Session 9: P1 审计缺陷修复 | `0bf60ec2d`, `788160c32`, `64d55d14e`, `450151740` | `main` |
