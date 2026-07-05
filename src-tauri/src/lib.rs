@@ -50,6 +50,20 @@ pub fn run() {
                 panic!("数据库迁移失败: {}", e);
             });
 
+            // 升级回填：把存量 tool_takeover.enabled=1 的 tool 桥接为默认 proxy provider。
+            // 必须在迁移后（providers 表已建）+ AppState 构造前运行；失败按迁移失败同等处理。
+            let backfill =
+                db::dao::providers::backfill_from_takeover(db.as_ref()).unwrap_or_else(|e| {
+                    tracing::error!("升级回填失败: {}", e);
+                    panic!("升级回填失败: {}", e);
+                });
+            tracing::info!(
+                created = backfill.created,
+                skipped_existing_current = backfill.skipped_existing_current,
+                skipped_takeover_disabled = backfill.skipped_takeover_disabled,
+                "升级回填完成"
+            );
+
             // 初始化凭据加密服务。
             // Keychain 不可用时为 None，应用仍可启动，但凭据相关功能进入降级模式。
             let crypto = match services::keychain::ensure_master_key() {

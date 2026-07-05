@@ -18,6 +18,8 @@ use rusqlite::Connection;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 
+use crate::db::dao::providers as providers_dao;
+use crate::db::dao::tool_takeover::upsert_state;
 use crate::db::dao::{endpoints, route_settings};
 use crate::db::migrations::run_migrations;
 use crate::http::proxy::constants;
@@ -567,4 +569,77 @@ async fn test_model_lock_skips_locked_endpoint() {
     assert_eq!(resp.status(), StatusCode::OK);
     // 如果 ep-locked 被选中了，会成功（因为两者指向同 mock），
     // 但我们可以通过日志或更精细的方式验证——这里至少确认流程不卡
+}
+
+/// 场景 7：升级回填后转发行为与改造前一致。
+/// 存量用户 `tool_takeover.enabled=1` + 空 providers → 回填出 `is_current=1` 的 proxy
+/// provider，请求仍经本地代理 → selector 从 `endpoints` 选路上游（行为不依赖
+/// providers.is_current，proxy 模式上游由 endpoints 管道决定）。
+#[tokio::test]
+async fn test_backfill_preserves_forwarding_behavior() {
+    let router = Router::new().route("/v1/messages", post(mock_anthropic_messages));
+    let addr = start_mock_upstream(router).await;
+
+    let db = test_db();
+    let crypto = test_crypto();
+
+    // 存量状态：tool_takeover.enabled=1（claude-code），providers 表为空。
+    upsert_state(&db, "claude-code", true, "proxy", None, None, None, None).unwrap();
+    assert!(providers_dao::list_by_app(&db, "claude-code")
+        .unwrap()
+        .is_empty());
+
+    // 配置 endpoints 管道（与场景 1 同构）。
+    insert_route_settings(&db, "claude-code", constants::PROTOCOL_ANTHROPIC);
+    insert_endpoint(
+        &db,
+        &crypto,
+        "ep-anthro-backfill",
+        &format!("http://127.0.0.1:{}", addr.port()),
+        constants::PROTOCOL_ANTHROPIC,
+        1,
+    );
+
+    // 运行升级回填。
+    let report = providers_dao::backfill_from_takeover(&db).unwrap();
+    assert_eq!(report.created, 1, "应回填出 1 个 claude-code provider");
+
+    let current = providers_dao::get_current(&db, "claude-code")
+        .unwrap()
+        .unwrap();
+    assert_eq!(current.id, "prov-backfill-claude-code");
+    assert_eq!(current.mode, "proxy");
+    assert!(current.is_current);
+
+    // 经 RouteProxy 转发：仍走本地代理 → selector → endpoint（与无 providers 时一致）。
+    let proxy = build_proxy(db.clone(), crypto);
+    let body = anthropic_request_body("claude-sonnet-4-20250514", false);
+    let req = make_request("/v1/messages", &body);
+
+    let result = proxy.proxy_request("claude-code", req, false).await;
+    assert!(result.is_ok(), "回填后转发应成功: {:?}", result.err());
+
+    let resp = result.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let resp_bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let resp_json: Value = serde_json::from_slice(&resp_bytes).unwrap();
+    assert_eq!(resp_json["type"], "message");
+    assert_eq!(resp_json["model"], "claude-sonnet-4-20250514");
+    assert!(resp_json["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("mock Anthropic"));
+
+    // 幂等：二次回填不重复创建。
+    let again = providers_dao::backfill_from_takeover(&db).unwrap();
+    assert_eq!(again.created, 0, "二次回填不应重复创建");
+    assert_eq!(
+        providers_dao::list_by_app(&db, "claude-code")
+            .unwrap()
+            .len(),
+        1
+    );
 }

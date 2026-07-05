@@ -6,6 +6,9 @@ use rusqlite::{params, Connection};
 use std::sync::Mutex;
 use time::OffsetDateTime;
 
+use crate::services::provider::AppType;
+use crate::services::tool_takeover::Tool;
+
 /// Provider 行（数据库原始表示）。
 ///
 /// `providers` 是 ccs 式「可切换单元」，是切换面（UI 选哪个、当前激活哪个）。
@@ -304,6 +307,100 @@ pub fn delete(db: &Mutex<Connection>, id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// 升级回填结果统计。
+///
+/// 用于一次性把存量 `tool_takeover.enabled=1` 的用户桥接到 providers 表。
+/// 字段含义：`created` 本次新建的回填行数；`skipped_existing_current` 因目标 app_type
+/// 已有 `is_current=1` 行而被跳过的次数；`skipped_takeover_disabled` 因对应 tool
+/// 未启用接管而被跳过的次数。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct BackfillReport {
+    pub created: usize,
+    pub skipped_existing_current: usize,
+    pub skipped_takeover_disabled: usize,
+}
+
+/// 升级回填：把存量 `tool_takeover.enabled=1` 的 tool 桥接为默认 proxy provider。
+///
+/// 触发场景：v7 之前用户已通过旧 API 写入 `tool_takeover.enabled=1`，但 `providers`
+/// 表为空。本函数在迁移后一次性运行，为每个启用 tool 造一行确定性 id 的
+/// `mode=proxy`/`is_current=1` provider，使 `/api/providers` 列表非空、UI 可显示。
+///
+/// 契约（详见 design.md）：
+/// - 对每个 tool（claude-code / codex）：
+///   1. `tool_takeover::get_state` 查 enabled；非 enabled=1 跳过
+///      （`skipped_takeover_disabled` +1）。
+///   2. `providers::get_current` 查是否已有 current；有则不覆盖
+///      （`skipped_existing_current` +1，尊重用户已配置的 current）。
+///   3. 否则用 `providers::create` 造一行确定性 id `prov-backfill-<tool>`。
+///   4. 若该 id 已存在（用户保留了回填行但改了字段）→ 不覆盖，视为已完成。
+/// - 幂等：可重复调用，二次运行 `created=0`。
+/// - 不动 `tool_takeover` 状态、不调 `tool_takeover::enable`、不写工具配置文件。
+/// - tool→app_type 映射复用 `services::tool_takeover::Tool` 与 `services::provider::AppType`，
+///   避免跨表标识漂移。
+pub fn backfill_from_takeover(db: &Mutex<Connection>) -> Result<BackfillReport, String> {
+    let mut report = BackfillReport::default();
+
+    // 仅回填支持接管的 tool（claude-code / codex）。OpenCode 当前无接管语义，跳过。
+    let tools = [Tool::ClaudeCode, Tool::Codex];
+
+    for tool in tools {
+        let tool_str = tool.as_str();
+
+        // 1. 查 tool_takeover 启用状态；未启用 → 跳过。
+        let state = crate::db::dao::tool_takeover::get_state(db, tool_str)?;
+        let enabled = state.as_ref().map(|s| s.enabled).unwrap_or(false);
+        if !enabled {
+            report.skipped_takeover_disabled += 1;
+            continue;
+        }
+
+        // 2. 查该 app_type 是否已有 current provider；有则不覆盖。
+        let app_type = tool_to_app_type(tool)?;
+        if get_current(db, app_type.as_str())?.is_some() {
+            report.skipped_existing_current += 1;
+            continue;
+        }
+
+        // 3. 若确定性 id 已存在（用户保留回填行但改了字段）→ 不覆盖。
+        let backfill_id = format!("prov-backfill-{}", tool_str);
+        if get(db, &backfill_id)?.is_some() {
+            // 视为已完成，不重复创建也不计数为 created。
+            continue;
+        }
+
+        // 4. 造一行默认 proxy provider。
+        let new = NewProvider {
+            id: backfill_id,
+            app_type: app_type.as_str().to_string(),
+            name: format!("默认代理 ({})", tool_str),
+            mode: "proxy".to_string(),
+            settings_config: "{}".to_string(),
+            category: None,
+            sort_index: Some(0),
+            notes: None,
+            meta: "{}".to_string(),
+        };
+        let created = create(db, new)?;
+        // 回填行需直接 is_current=1（create 内部恒置 0，互斥激活走 set_current）。
+        set_current(db, &created.id)?;
+        report.created += 1;
+    }
+
+    Ok(report)
+}
+
+/// tool → app_type 映射。复用 `services::tool_takeover::Tool` 与 `services::provider::AppType`，
+/// 避免硬编码字符串导致跨表标识漂移（参考 `provider/mod.rs:23` 注释）。
+fn tool_to_app_type(tool: Tool) -> Result<AppType, String> {
+    match tool {
+        Tool::ClaudeCode => Ok(AppType::ClaudeCode),
+        Tool::Codex => Ok(AppType::Codex),
+        // OpenCode 当前无对应 AppType，且不支持接管；调用方已过滤，这里兜底报错。
+        other => Err(format!("tool {:?} 无对应 app_type", other)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -448,5 +545,152 @@ mod tests {
         create(&db, new_provider("p1", "claude-code")).unwrap();
         delete(&db, "p1").unwrap();
         assert!(get(&db, "p1").unwrap().is_none());
+    }
+
+    // ── backfill_from_takeover 单测 ──────────────────────────────
+
+    use crate::db::dao::tool_takeover::upsert_state;
+
+    /// 写一条 tool_takeover 状态行。
+    fn takeover(db: &Mutex<Connection>, tool: &str, enabled: bool) {
+        upsert_state(db, tool, enabled, "proxy", None, None, None, None).unwrap();
+    }
+
+    #[test]
+    fn backfill_empty_takeover_creates_nothing() {
+        let db = setup();
+        let report = backfill_from_takeover(&db).unwrap();
+        // 空 takeover：两个 tool 都未启用 → skipped_takeover_disabled=2，无创建。
+        assert_eq!(report.created, 0, "空 takeover 不应创建 provider");
+        assert_eq!(report.skipped_existing_current, 0);
+        assert_eq!(
+            report.skipped_takeover_disabled, 2,
+            "两个 tool 都未启用应计入 2 次跳过"
+        );
+        // providers 仍应空。
+        assert!(list_by_app(&db, "claude-code").unwrap().is_empty());
+        assert!(list_by_app(&db, "codex").unwrap().is_empty());
+    }
+
+    #[test]
+    fn backfill_enabled_takeover_creates_current_proxy_row() {
+        let db = setup();
+        takeover(&db, "claude-code", true);
+
+        let report = backfill_from_takeover(&db).unwrap();
+        assert_eq!(report.created, 1, "应创建 1 行");
+        assert_eq!(report.skipped_existing_current, 0);
+        assert_eq!(
+            report.skipped_takeover_disabled, 1,
+            "codex 未启用应计入跳过"
+        );
+
+        let current = get_current(&db, "claude-code").unwrap().unwrap();
+        assert_eq!(current.id, "prov-backfill-claude-code");
+        assert_eq!(current.app_type, "claude-code");
+        assert_eq!(current.name, "默认代理 (claude-code)");
+        assert_eq!(current.mode, "proxy");
+        assert_eq!(current.settings_config, "{}");
+        assert!(current.is_current, "回填行应为 current");
+        assert_eq!(current.sort_index, Some(0));
+        assert_eq!(current.meta, "{}");
+    }
+
+    #[test]
+    fn backfill_skips_when_current_already_exists() {
+        let db = setup();
+        takeover(&db, "claude-code", true);
+        // 用户已手动建过 current provider。
+        create(&db, new_provider("user-p", "claude-code")).unwrap();
+        set_current(&db, "user-p").unwrap();
+
+        let report = backfill_from_takeover(&db).unwrap();
+        assert_eq!(report.created, 0, "已有 current 不应再创建");
+        assert_eq!(
+            report.skipped_existing_current, 1,
+            "应计入 skipped_existing_current"
+        );
+
+        // 不覆盖用户 current。
+        let current = get_current(&db, "claude-code").unwrap().unwrap();
+        assert_eq!(current.id, "user-p");
+        // 回填行不应被创建。
+        assert!(get(&db, "prov-backfill-claude-code").unwrap().is_none());
+    }
+
+    #[test]
+    fn backfill_is_idempotent_on_second_run() {
+        let db = setup();
+        takeover(&db, "claude-code", true);
+        takeover(&db, "codex", true);
+
+        let first = backfill_from_takeover(&db).unwrap();
+        assert_eq!(first.created, 2, "首次应创建 2 行");
+
+        let second = backfill_from_takeover(&db).unwrap();
+        assert_eq!(second.created, 0, "二次运行不应重复创建");
+        assert_eq!(
+            second.skipped_existing_current, 2,
+            "二次运行两个 app_type 都已有 current"
+        );
+
+        // 仍各只有一行回填 provider，且为 current。
+        assert_eq!(list_by_app(&db, "claude-code").unwrap().len(), 1);
+        assert_eq!(list_by_app(&db, "codex").unwrap().len(), 1);
+        assert_eq!(
+            get_current(&db, "claude-code").unwrap().unwrap().id,
+            "prov-backfill-claude-code"
+        );
+        assert_eq!(
+            get_current(&db, "codex").unwrap().unwrap().id,
+            "prov-backfill-codex"
+        );
+    }
+
+    #[test]
+    fn backfill_skips_disabled_takeover() {
+        let db = setup();
+        // 显式 enabled=0。
+        takeover(&db, "claude-code", false);
+
+        let report = backfill_from_takeover(&db).unwrap();
+        assert_eq!(report.created, 0);
+        assert_eq!(
+            report.skipped_takeover_disabled, 2,
+            "两个 tool 都未启用应计入 2 次跳过"
+        );
+        assert!(get(&db, "prov-backfill-claude-code").unwrap().is_none());
+    }
+
+    #[test]
+    fn backfill_preserves_user_edited_backfill_row() {
+        let db = setup();
+        takeover(&db, "claude-code", true);
+        // 用户保留了回填 id 的行，但改了名字/没设 current。
+        create(
+            &db,
+            NewProvider {
+                id: "prov-backfill-claude-code".to_string(),
+                app_type: "claude-code".to_string(),
+                name: "我的自定义代理".to_string(),
+                mode: "proxy".to_string(),
+                settings_config: "{}".to_string(),
+                category: None,
+                sort_index: Some(0),
+                notes: None,
+                meta: "{}".to_string(),
+            },
+        )
+        .unwrap();
+
+        let report = backfill_from_takeover(&db).unwrap();
+        // 已存在同 id → 不覆盖；同时没有 current，但 id 已存在直接视为完成，
+        // 既不计 created 也不计 skipped_existing_current。
+        assert_eq!(report.created, 0);
+        assert_eq!(report.skipped_existing_current, 0);
+
+        let row = get(&db, "prov-backfill-claude-code").unwrap().unwrap();
+        assert_eq!(row.name, "我的自定义代理", "不应覆盖用户改动");
+        assert!(!row.is_current, "不应擅自激活用户保留的行");
     }
 }
