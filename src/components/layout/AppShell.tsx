@@ -1,4 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { getVersion } from '@tauri-apps/api/app';
 import type { ReactNode } from 'react';
 
 const NAV_ITEMS = [
@@ -31,12 +33,19 @@ export function AppShell({ children }: AppShellProps) {
 function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [version, setVersion] = useState<string>('');
+
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => {});
+  }, []);
 
   return (
     <aside className="w-56 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col">
       <div className="p-4 border-b border-gray-200 dark:border-gray-800">
         <h1 className="text-lg font-bold">Agent-Switch</h1>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">管理控制台 v0.1.0</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          管理控制台 {version && `v${version}`}
+        </p>
       </div>
       <nav className="flex-1 p-2 space-y-0.5">
         {NAV_ITEMS.map((item) => {

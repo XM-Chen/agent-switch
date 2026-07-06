@@ -20,3 +20,6 @@ src-tauri/target/
 # public key belongs in tauri.conf.json, not as a repo file copy)
 *.key
 *.key.pub
+
+# Release manifest (generated per-release, uploaded to GitHub Release, not tracked)
+/latest.json
