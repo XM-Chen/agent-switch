@@ -1,7 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { settingsApi, portabilityApi } from '../lib/api';
 import type { ImportResult } from '../lib/api';
+import {
+  checkForUpdate,
+  getCurrentVersion,
+  type DownloadProgress,
+  type UpdateInfo,
+} from '../lib/updater';
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -77,6 +83,162 @@ export function SettingsPage() {
       )}
 
       <PortabilityCard />
+
+      <UpdaterCard />
+    </div>
+  );
+}
+
+// ── 关于与更新卡片 ─────────────────────────────────────
+
+function UpdaterCard() {
+  const [currentVersion, setCurrentVersion] = useState<string>('');
+  // 检查/下载状态
+  const [checking, setChecking] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [progress, setProgress] = useState<DownloadProgress | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // 组件卸载后不再 setState，避免下载中卸载报警告。
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    getCurrentVersion()
+      .then((v) => {
+        if (mounted.current) setCurrentVersion(v);
+      })
+      .catch(() => {
+        // 取版本失败不阻塞检查更新，留空即可。
+      });
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const handleCheck = async () => {
+    setChecking(true);
+    setError(null);
+    setMsg(null);
+    setUpdate(null);
+    setProgress(null);
+    try {
+      const info = await checkForUpdate();
+      if (!mounted.current) return;
+      setUpdate(info);
+      if (!info.available) {
+        setMsg('当前已是最新版本。');
+      }
+    } catch (e) {
+      if (mounted.current) setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      if (mounted.current) setChecking(false);
+    }
+  };
+
+  const handleInstall = async () => {
+    if (!update?.downloadAndInstall) return;
+    setInstalling(true);
+    setError(null);
+    setMsg('正在下载更新...');
+    try {
+      await update.downloadAndInstall((p) => {
+        if (mounted.current) setProgress(p);
+      });
+      // downloadAndInstall 内部会在安装后重启应用；正常不会执行到这里。
+      if (mounted.current) setMsg('更新完成，正在重启...');
+    } catch (e) {
+      if (mounted.current) {
+        setError(e instanceof Error ? e.message : String(e));
+        setInstalling(false);
+      }
+    }
+  };
+
+  // 下载进度百分比（内容长度可用时）。
+  const percent =
+    progress && progress.contentLength
+      ? Math.min(100, Math.round((progress.downloaded / progress.contentLength) * 100))
+      : null;
+
+  return (
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-5 space-y-4">
+      <div>
+        <h2 className="font-semibold">关于与更新</h2>
+        <p className="text-xs text-gray-500 mt-0.5">
+          检查是否有新版本，若有可一键下载并安装（下载后自动校验签名，安装完成后重启生效）。
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium">当前版本</p>
+          <p className="text-xs text-gray-500 font-mono">
+            {currentVersion ? `v${currentVersion}` : '读取中...'}
+          </p>
+        </div>
+        <button
+          onClick={handleCheck}
+          disabled={checking || installing}
+          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
+        >
+          {checking ? '检查中...' : '检查更新'}
+        </button>
+      </div>
+
+      {/* 有新版 */}
+      {update?.available && (
+        <div className="border-t border-gray-200 dark:border-gray-800 pt-4 space-y-3">
+          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md p-3 space-y-2">
+            <p className="text-sm font-medium text-green-700 dark:text-green-300">
+              发现新版本 v{update.version}
+            </p>
+            {update.notes && (
+              <div className="text-xs text-green-700 dark:text-green-300 whitespace-pre-wrap">
+                {update.notes}
+              </div>
+            )}
+          </div>
+
+          {installing ? (
+            <div className="space-y-1">
+              <div className="h-2 w-full rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                <div
+                  className="h-full bg-blue-600 transition-all"
+                  style={{ width: percent !== null ? `${percent}%` : '40%' }}
+                />
+              </div>
+              <p className="text-xs text-gray-500">
+                {percent !== null
+                  ? `下载中 ${percent}%`
+                  : progress
+                    ? `已下载 ${(progress.downloaded / 1024 / 1024).toFixed(1)} MB`
+                    : '准备下载...'}
+              </p>
+            </div>
+          ) : (
+            <button
+              onClick={handleInstall}
+              className="px-4 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 disabled:opacity-50"
+            >
+              立即更新
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 反馈 */}
+      {msg && !error && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3 text-sm text-blue-700 dark:text-blue-300">
+          {msg}
+        </div>
+      )}
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-3 text-sm text-red-700 dark:text-red-300 whitespace-pre-wrap">
+          {error}
+        </div>
+      )}
     </div>
   );
 }

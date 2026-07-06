@@ -90,6 +90,15 @@ Axum 0.8 使用 `/{*path}` 风格通配路由，旧式 `/*path` 不再适用：
 - 窗口 `on_window_event(CloseRequested)` 中触发 `shutdown_tx.send(())`。
 - 关闭窗口即停止本地服务，第一版不做托盘/后台常驻。
 
+### 3.1 Tauri 2 插件接入：注册 + capabilities 双接线
+
+接入 `tauri-plugin-*`（如 updater / process / shell / dialog / fs）必须**两处都接**，缺一不可：
+
+1. **后端注册**（`src-tauri/src/lib.rs`）：`tauri::Builder::default().plugin(tauri_plugin_xxx::init())` 或 `.plugin(tauri_plugin_xxx::Builder::new().build())`（按插件文档，updater 用 Builder 形式）。`Cargo.toml` 加 `tauri-plugin-xxx = "2"`（与 `tauri = "2"` 主版本对齐）。
+2. **capabilities 授权**（`src-tauri/capabilities/default.json`）：在 `permissions` 数组加插件需要的权限集（如 `updater:default`、`process:default` + `process:allow-restart`），绑定到 `windows: ["main"]`。**漏掉这步 → 前端 IPC 调用被拒**（前端 `@tauri-apps/plugin-xxx` 的 JS 函数报权限错误），后端插件装了也没用。
+
+前端对应装 `@tauri-apps/plugin-xxx`（`package.json`），在 `src/lib/` 封装一个模块（如 `updater.ts`）隔离插件 API，UI 层不直接 import 插件。参考 `updater.ts` 的 `checkForUpdate()`/`downloadAndInstall(onProgress)` 封装：错误向上抛由 UI 转中文，进度事件转 `DownloadProgress`，签名校验失败由插件内部 reject（不会半安装）。
+
 ### 4. 固定端口，不自动换端口
 
 `127.0.0.1:42567` 绑定失败时直接启动失败，不自动寻找下一个可用端口。原因：服务地址被 Claude Code / Codex / OpenCode 配置和自动接管依赖。
