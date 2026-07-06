@@ -574,3 +574,39 @@ app-shell 收尾后梳理剩余任务时发现：`06-27-` 路径下有 4 个 pla
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: spec 更新、全量门禁与归档 (P1 subtask 6 收尾)
+
+**Date**: 2026-07-06
+**Task**: spec 更新、全量门禁与归档
+**Branch**: `main`
+
+### Summary
+
+双模式切换内核 P1 承重墙收尾。复盘发现原任务描述里的多数 spec 交付物已在 subtask 5（`70f91719`）顺带沉淀（http-proxy 的切换原子性/is_current 互斥/删除复位、database 的启动期回填、前端切换器契约），真实缺口只剩 `database-guidelines.md` 未成文的 **providers 数据模型章节**（列语义、`mode=proxy|direct`、`idx_providers_current` partial unique index 互斥、`settings_config` 在 providers 表按原样 JSON 存储、加密职责在接管服务侧）。补齐该章节并清理文件末尾重复的 request_logs 块。
+
+全量门禁触发一处遗留问题：`cargo fmt --check` 在 3 个已提交文件（proxy/mod.rs、proxy/selector.rs、portability/mod.rs）报格式违规，是 subtask ponytail-audit（`41c3bb130`）的遗留瑕疵，工作树原本 clean。`cargo fmt` 自动修复，纯格式无逻辑变更。门禁全绿：fmt/clippy -D warnings/155 tests + npm build/45 tests。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `42276afad` | docs(spec): 沉淀 providers 数据模型契约并清理 database-guidelines 重复块 |
+| `54fbecb9b` | style: cargo fmt 修复 3 处遗留格式违规 |
+
+### Testing
+
+- [OK] cargo fmt --check（自动修复后干净）
+- [OK] cargo clippy --all-targets -- -D warnings（0 warnings）
+- [OK] cargo test --lib（155 passed）
+- [OK] npm run build（built 19.42s）
+- [OK] npm run test（45 passed）
+
+### Status
+
+[OK] **Completed** — 双模式切换内核 P1 承重墙全部 6 子任务闭环。
+
+### Next Steps
+
+- 归档 subtask 6 + 父任务 dual-mode-switching-core
