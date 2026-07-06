@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use crate::app_state::AppState;
 use crate::db::dao::providers::{self, NewProvider, ProviderRow, ProviderUpdate};
 use crate::db::dao::tool_takeover as takeover_dao;
+use crate::services::importers::ccs as ccs_importer;
 use crate::services::tool_takeover::{self, Tool};
 
 /// Provider 响应体。settings_config / meta 以 JSON Value 返回。
@@ -98,11 +99,19 @@ pub struct ReorderRequest {
     pub items: Vec<ReorderItem>,
 }
 
+/// ccs 导入请求：仅 items（每项含 original_id + imported_name）。
+#[derive(Deserialize)]
+pub struct ImportCcsRequest {
+    pub items: Vec<ccs_importer::ImportItem>,
+}
+
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(list).post(create))
-        // 固定段 /reorder 必须先于 /{id} 注册，避免被参数路由吞掉。
+        // 固定段必须先于 /{id} 注册，避免被参数路由吞掉。
         .route("/reorder", post(reorder))
+        .route("/import-ccs/detect", post(detect_ccs))
+        .route("/import-ccs", post(import_ccs))
         .route("/{id}", get(get_one).put(update).delete(delete))
         .route("/{id}/switch", post(switch))
 }
@@ -219,6 +228,25 @@ async fn reorder(
     providers::update_sort_order(&state.db, &updates)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// POST /api/providers/import-ccs/detect — 探测本地 ccs 安装并返回预览列表（只读）。
+async fn detect_ccs(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ccs_importer::DetectResponse>, (StatusCode, String)> {
+    let resp = ccs_importer::detect(&state.db, None, None)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(resp))
+}
+
+/// POST /api/providers/import-ccs — 批量导入 ccs 渠道：建 endpoint + direct provider。
+async fn import_ccs(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ImportCcsRequest>,
+) -> Result<Json<ccs_importer::ImportResponse>, (StatusCode, String)> {
+    let resp = ccs_importer::import(&state.db, state.crypto.as_deref(), None, None, req.items)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(resp))
 }
 
 /// POST /api/providers/{id}/switch — 切换：设 is_current + 按 mode 接管，失败回滚。

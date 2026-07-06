@@ -751,6 +751,50 @@ POST /api/settings/import   body { package: string, password?: string, conflict_
 
 ---
 
+## 外部数据源导入编排约定
+
+> 来源：`import-from-ccs` 任务。从本地第三方工具（cc-switch 等）一键导入上游渠道到 agent-switch。集中在 `services/importers/` 子模块，HTTP 入口扩展在 `http/api/<domain>.rs`。
+
+### 核心契约：direct provider 不内联明文凭据
+
+agent-switch 的 direct 模式 **刻意偏离 ccs 的明文内联**（`services/tool_takeover/mod.rs:126-128` 注释明说"偏离 ccs 明文做法"）：
+
+- direct provider 的 `settings_config` 是 `{"endpoint_id": <必填>, "model"?, "wire_api"?, "requires_openai_auth"?}`，**不含** `base_url`/`token`。
+- 真实 `base_url` 从 `endpoints` 表按 `endpoint_id` 查出，token 从 `endpoints.api_key_encrypted` 经 AES-256-GCM 解密。
+- **因此从外部源导入一条"上游渠道"必须拆成两行**：先建 `endpoints`（加密存 token），再建 `providers`（`mode=direct`，`settings_config` 引用 `endpoint_id`）。只写 providers 一行 → 切换时 `resolve_direct_config` 反序列化失败（`endpoint_id` 必填无 default），provider 永远无法激活。
+
+### 批量导入编排模式（逐项独立 + 双表原子 + 幂等追溯）
+
+从外部源批量导入时用以下模式（`services/importers/ccs.rs` 为参考实现）：
+
+1. **detect（只读预览）+ import（写入）分离**：detect 返回 `DetectItem` 列表供 UI 勾选，不含明文凭据（`has_api_key: bool` 而非回传 token）；import 只收 `original_id` + `imported_name`，**后端按 `original_id` 重新读源数据**（不信任前端传 base_url/token，防篡改/漏传）。
+2. **逐项独立，非全有全无**：批量导入单个失败记入 `errors`，其余继续。用户看到部分成功 + 失败清单，体验优于整批回滚。
+3. **双表原子（单项内）**：建 endpoint 成功但建 provider 失败 → `endpoints::delete` 回滚 endpoint，避免孤儿端点。回滚失败不掩盖原错误（拼进 error message）。
+4. **幂等追溯**：导入的 provider 在 `meta` 记 `{"imported_from":"<源>","original_id":"<源id>",...}`；detect/import 按 `meta.original_id` 匹配本地已有项 → `already_imported`，二次导入跳过（`skipped, reason="已导入过"`）。
+5. **冲突重命名**：与本地同名 provider 冲突时加后缀保留两者（`原名 (ccs)` → `原名 (ccs 2)` 递增），不覆盖、不跳过。算法：`resolve_unique_name(desired, existing_names)`，`existing_names` 含本地 name ∪ 本次已确定名字（避免批量内部撞名）。
+6. **不激活**：导入只创建（`is_current` 恒 0），用户导入后自行切换。
+
+### 加密复用
+
+service 层内联 `crypto.encrypt(json!({"api_key": k}), endpoint_id.as_bytes())`，与 `http/api/mod.rs::encrypt_api_key` 逻辑一致（AAD = endpoint.id）。不复用 HTTP 层 `pub(crate)` 函数以解耦 AppState。crypto 不可用（Keychain 降级）且含 api_key → 该项 `errors` 不建 endpoint；无 api_key 时仍可导入。
+
+### 多数据源屏蔽
+
+外部工具有多种存储格式时，用统一类型 `CcsSourceProvider { id, name, settings_config: Value, website_url, category }` 屏蔽差异，`read_ccs_providers()` 先探新源（SQLite）再探旧源（config.json），后续 extract_env/比对/落库逻辑不感知数据源。SQLite 用 `OpenFlags::SQLITE_OPEN_READ_ONLY` 只读打开，避免锁冲突和误写。
+
+### HTTP 路由注册顺序
+
+导入端点是固定段（如 `/import-ccs/detect`、`/import-ccs`），**必须先于 `/{id}` 参数路由注册**，否则被参数路由吞掉（参考现有 `/reorder` 先例）。
+
+### 测试要求（已在 `services::importers::ccs::tests`）
+
+- detect：文件不存在/正常/空 env/冲突/已导入/多数据源优先级。
+- import：正常/冲突重命名/空 env 跳过/二次导入幂等/crypto 不可用含 key 报错/crypto 不可用无 key 仍导入/missing id 跳过/批量内部撞名/不激活/不改源数据。
+- resolve_unique_name：无冲突/首后缀/递增。
+- SQLite 测试用 tempdir + `Connection::open` 建临时 db + 插 mock 行；config.json 测试注入不存在的 sqlite_path 避免命中本机真实库。
+
+---
+
 ## 路径隔离契约
 
 ```text

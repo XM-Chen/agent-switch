@@ -1,5 +1,8 @@
 pub mod codex_oauth;
 pub mod crypto;
+/// 从外部配置（ccs 等）批量导入 provider。
+#[allow(dead_code)]
+pub mod importers;
 pub mod keychain;
 pub mod model_alias;
 pub mod model_sync;

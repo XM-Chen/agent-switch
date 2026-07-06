@@ -7,6 +7,7 @@ import {
   type UpdateProviderBody,
 } from '../lib/api';
 import { AppTypeSection } from '../components/providers/AppTypeSection';
+import { ImportCcsDialog } from '../components/providers/ImportCcsDialog';
 import { ProviderForm } from '../components/providers/ProviderForm';
 import {
   APP_TYPES,
@@ -55,6 +56,7 @@ export function ProvidersPage() {
 
   const [formError, setFormError] = useState<string | null>(null);
   const [switchingId, setSwitchingId] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   function clearBannerTimer() {
     if (bannerTimer.current) {
@@ -177,16 +179,25 @@ export function ProvidersPage() {
             按 app_type 分组管理 provider，点一下即切。
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setFormError(null);
-            setFormState({ open: true, initial: null });
-          }}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
-        >
-          添加 provider
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setImportOpen(true)}
+            className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-md text-sm hover:bg-gray-200 dark:hover:bg-gray-700"
+          >
+            从 ccs 导入
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setFormError(null);
+              setFormState({ open: true, initial: null });
+            }}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
+          >
+            添加 provider
+          </button>
+        </div>
       </div>
 
       {banner && <BannerView banner={banner} onDismiss={() => setBanner(null)} />}
@@ -225,6 +236,16 @@ export function ProvidersPage() {
           }}
           pending={upsertMutation.isPending}
           error={formError}
+        />
+      )}
+
+      {importOpen && (
+        <ImportCcsDialog
+          onClose={() => setImportOpen(false)}
+          onImported={() => {
+            void queryClient.invalidateQueries({ queryKey: ['providers'] });
+            showBanner('success', '从 ccs 导入完成，列表已刷新');
+          }}
         />
       )}
     </div>

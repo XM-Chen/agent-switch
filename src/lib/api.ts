@@ -158,6 +158,62 @@ export const providersApi = {
     request<void>('/providers/reorder', { method: 'POST', body: JSON.stringify({ items }) }),
 };
 
+// ── 从本地 ccs 一键导入 Claude 渠道 ───────────────────────
+
+/** ccs provider 探测单项，对齐后端 `DetectItem`。 */
+export interface CcsDetectItem {
+  original_id: string;
+  name: string;
+  base_url: string | null;
+  has_api_key: boolean;
+  model: string | null;
+  website_url: string | null;
+  importable: boolean;
+  conflict: boolean;
+  imported_name: string;
+  already_imported: boolean;
+  warning: string | null;
+}
+
+/** ccs 探测响应，对齐后端 `DetectResponse`。 */
+export interface CcsDetectResponse {
+  config_path: string;
+  /** 数据源：`"sqlite"` / `"config.json"` / `"none"`。 */
+  source: string;
+  found: boolean;
+  providers: CcsDetectItem[];
+}
+
+/** ccs 导入请求单项：仅 original_id + imported_name（含冲突后缀）。 */
+export interface CcsImportItem {
+  original_id: string;
+  imported_name: string;
+}
+
+/** ccs 导入成功项。 */
+export interface CcsImportedProvider {
+  original_id: string;
+  provider_id: string;
+  endpoint_id: string;
+  name: string;
+}
+
+/** ccs 导入响应，对齐后端 `ImportResponse`。 */
+export interface CcsImportResponse {
+  created_providers: CcsImportedProvider[];
+  skipped: { original_id: string; reason: string }[];
+  errors: { original_id: string; message: string }[];
+}
+
+export const ccsImportApi = {
+  detect: () => request<CcsDetectResponse>('/providers/import-ccs/detect', { method: 'POST' }),
+  import: (items: CcsImportItem[]) =>
+    request<CcsImportResponse>('/providers/import-ccs', {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    }),
+};
+
 export interface ModelItem {
   id: string;
   endpoint_id: string;
