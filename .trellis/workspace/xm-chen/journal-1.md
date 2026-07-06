@@ -610,3 +610,79 @@ app-shell 收尾后梳理剩余任务时发现：`06-27-` 路径下有 4 个 pla
 ### Next Steps
 
 - 归档 subtask 6 + 父任务 dual-mode-switching-core
+
+---
+
+## 2026-07-06 — ccs 导入 + 应用内自动更新 + Bug 修复
+
+### Goals
+
+1. 从本地 cc-switch (ccs) 一键导入 Claude 上游渠道（支持新版 SQLite + 旧版 config.json）
+2. 接入 Tauri 官方 updater 实现应用内检查更新与一键增量更新
+3. 修复已知 UI bug（侧边栏版本号硬编码 + 总览页残留同步错误）
+
+### Completed
+
+**import-from-ccs** (07-06-import-from-ccs):
+- 双数据源探测：SQLite (`~/.cc-switch/cc-switch.db`) + config.json (`~/.claude/cc_switch/config.json`)
+- 批量导入：拆成 encrypted_endpoint + direct_provider（与导出逻辑对齐）
+- 冲突重命名：同名检测 + 自动追加 `_1/_2` 后缀
+- 幂等追溯：用原始 provider.id 作 external_id 防重
+- 端到端验证：用户本机 45 个 claude provider 全识别（tauri dev + SQLite）
+
+**app-updater** (07-06-app-updater):
+- 后端：lib.rs 注册 tauri-plugin-updater (Builder 形式) + tauri-plugin-process
+- 配置：tauri.conf.json 加 createUpdaterArtifacts + plugins.updater.{pubkey, endpoints}；capabilities/default.json 加 updater:default + process 权限（漏则 IPC 被拒）
+- 前端：src/lib/updater.ts 封装 checkForUpdate/downloadAndInstall(onProgress)；SettingsPage UpdaterCard 三态 + 下载进度条 + 错误提示
+- 签名密钥：~/.tauri/agent-switch.key + .key.pub (minisign)，pubkey 写入 tauri.conf.json
+- 发版验证：v0.2.0 手动安装 → v0.2.1 应用内检查更新 → 一键升级成功（完整自更新链路打通）
+- 文档：docs/release.md 完整手动发版流程（版本同步、env、构建、gh release、latest.json 模板）
+- Spec 沉淀：app-stack-conventions 新增「Tauri 2 插件接入：注册 + capabilities 双接线」约定
+
+**fix-credential-decrypt** (07-06-fix-credential-decrypt):
+- 根因排查：test-endpoint 早已删除（endpoints 表空），但 app_metadata.last_model_sync_error 残留 6-28 的历史错误快照（错误只在下次同步成功时才清空）
+- 立即修复：UPDATE app_metadata 清除残留错误 → 总览页"最近同步错误"消失（用户确认）
+- 502 日志：历史 request_logs 记录保留（合理的历史，有自动清理机制）
+
+**UI Bug 修复**:
+- 侧边栏版本号：AppShell.tsx 改用 getVersion() 动态读取（v0.2.1 后生效）
+- .gitignore 加 /latest.json（发版临时清单，不入库）
+
+### Deliverables
+
+- Commits: 
+  - cb1fbe639 feat(import): 从本地 ccs 一键导入 Claude 上游渠道
+  - 3c82dbded chore(task): 规划 import + updater 任务
+  - adb37c05f feat(updater): 应用内检查更新与一键增量更新
+  - 7f6c58721 chore(task): 更新 app-updater 任务追踪
+  - c495bbedc fix(updater): 修正签名公钥与更新包产出形态描述
+  - 8e6d4d36a fix(ui): 侧边栏版本号改为动态读取 + 发布 v0.2.1
+  - 84c15cd15 chore(task): 建 fix-credential-decrypt bug 任务
+  - e561ade3d docs(task): fix-credential-decrypt 排查结论
+- GitHub Releases:
+  - v0.2.0 (首个支持自动更新的版本 + ccs 一键导入)
+  - v0.2.1 (自动更新验证版)
+- Spec 更新: app-stack-conventions 新增 Tauri 插件双接线约定
+
+### Testing
+
+- [OK] import-from-ccs: 45 个 claude provider 全部识别（用户本机 tauri dev 验证）
+- [OK] app-updater: v0.2.0 → v0.2.1 应用内自动更新成功（签名校验 + 安装 + 重启）
+- [OK] fix-credential-decrypt: 总览页"最近同步错误"消失（用户确认）
+- [OK] cargo fmt --check + clippy (0 warnings) + test --lib (181 passed)
+- [OK] npm run build
+
+### Caveats
+
+- import-from-ccs AC5 (tauri dev 切换器点导入→切换→验证 settings.json 写入) 未做完整 GUI 端到端（用户确认功能可用但未走完该流程）
+- updater 公钥首次生成时输出与落盘不一致（c495bbedc 修正），后续发版需用正确公钥
+- Tauri 2 Windows updater 产出是 .msi + .msi.sig（不是 .msi.zip），docs/release.md 和 design.md 已修正
+- AppShell 侧边栏版本号修复要到下一版本(0.2.2+)才生效（0.2.1 是修复前构建的）
+
+### Status
+
+[OK] **Completed** — ccs 导入 + 应用内自动更新双功能闭环，用户已在 v0.2.1 体验完整自更新链路。
+
+### Next Steps
+
+- 后续可优化：主密钥跨版本迁移策略、endpoint 删除时主动清除相关同步错误、侧边栏版本号在 0.2.2 验证
