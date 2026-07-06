@@ -16,9 +16,9 @@ use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use crate::db::dao::now_iso;
 use apply::{ApplyStrategy, ImportReport};
 use collect::CollectMode;
-use crate::db::dao::now_iso;
 use package::{
     ExportPackage, KdfParams, Payload, ALGO_AES_GCM, FORMAT_VERSION, KDF_ARGON2ID, KDF_NONE,
     MODE_FULL_BACKUP, MODE_PORTABLE,

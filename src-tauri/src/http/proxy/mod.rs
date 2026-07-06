@@ -752,10 +752,7 @@ impl RouteProxy {
     }
 }
 
-fn load_route_settings(
-    db: &Mutex<Connection>,
-    route_id: &str,
-) -> Result<RouteSettingsRow, String> {
+fn load_route_settings(db: &Mutex<Connection>, route_id: &str) -> Result<RouteSettingsRow, String> {
     use crate::db::dao::route_settings;
     route_settings::get(db, route_id)?.ok_or_else(|| format!("路由 '{}' 未配置", route_id))
 }

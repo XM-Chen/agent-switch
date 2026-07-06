@@ -107,10 +107,7 @@ impl EndpointSelector {
     ///
     /// 模型锁检查已移至模型映射之后（需 `upstream_model` 才能正确查锁），
     /// 由主循环在 `next` 返回后单独执行，故此处不再需要回调。
-    pub fn next(
-        &mut self,
-        failed_ids: &HashSet<String>,
-    ) -> Option<(EndpointRow, usize)> {
+    pub fn next(&mut self, failed_ids: &HashSet<String>) -> Option<(EndpointRow, usize)> {
         if self.candidates.is_empty() {
             return None;
         }
