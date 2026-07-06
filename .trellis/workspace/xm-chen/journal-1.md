@@ -539,3 +539,38 @@ app-shell 收尾后梳理剩余任务时发现：`06-27-` 路径下有 4 个 pla
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: 切换器页面实现 + 全仓 ponytail 精简
+
+**Date**: 2026-07-06
+**Task**: 切换器页面实现 + 全仓 ponytail 精简
+**Branch**: `main`
+
+### Summary
+
+落地 /providers 切换器页面（路由/导航/providersApi/组件树/纯函数+测试）；全仓 ponytail-audit 精简约 710 行（后端 8 批死代码与 now_iso 去重 ~687 行，前端删 7 个无调用者 CRUD 方法）；沉淀前后端 spec 契约。三次提交：refactor 精简、feat 页面、docs spec。cargo test 155 通过、npm test 45 通过。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `41c3bb130` | (see git log) |
+| `9fcabf302` | (see git log) |
+| `70f917192` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
