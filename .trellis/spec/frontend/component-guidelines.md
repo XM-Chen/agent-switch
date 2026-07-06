@@ -16,3 +16,16 @@
 ## 死代码
 
 新增组件或 helper 后必须有真实引用或测试引用；没有引用的 `cn`/placeholder 这类工具应删除。
+
+`lib/api.ts` 的 API 方法同理：无页面/测试引用的 `.get`/`.update` 等预置方法应删除，不为"完整 REST 表面"留死代码（见 [API Client 规范](./api-client-guidelines.md)）。
+
+## 操作反馈 banner 模式
+
+页面级操作反馈用本地 `useState<Banner | null>` 管理，不引第三方 toast 库：
+
+- `success` / `warning`：3s 后自动清（`setTimeout` + `useRef` 持有 timer，卸载/新 banner 时 clear）。
+- `error`：常驻，直到下次操作或用户手动 ✕ 关闭。
+- `mutation.onSuccess` 按"有 warnings → warning，无 warnings → success"分流（见 providersApi switch 契约）；`onError` → error。
+- `onSettled` 统一 `invalidateQueries` 刷新列表。
+
+参考实现：`pages/ProvidersPage.tsx` 的 `BannerView` + `showBanner` + 各 `useMutation` 的回调装配。其他页面若需要操作反馈，沿用此模式而非各写一套。

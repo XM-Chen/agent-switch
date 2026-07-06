@@ -11,6 +11,13 @@
 - Handler/service 调用 DAO，不直接拼散落 SQL。
 - DAO 返回 `Result<_, String>` 时错误消息必须可诊断。
 - 模型能力字段是 JSON 字符串数组；能力过滤必须做 JSON token 级匹配，禁止 `LIKE '%cap%'` 子串匹配。
+- 时间戳（`created_at`/`updated_at` 等）统一用 ISO8601 字符串存储。写入时调用共享 helper `crate::db::dao::now_iso() -> Result<String,String>`，**不要在各 DAO 里重复实现 `now_iso`/`iso_now`**（本次精简一次性合并了 11 处副本）。新增 DAO 文件直接 `use crate::db::dao::now_iso;`。
+
+## request_logs
+
+- 请求日志只保存摘要，不保存 prompt/messages/完整 headers/API key/token。
+- prune 应按 overflow 删除最旧行，避免 `NOT IN (SELECT ...)` 反连接造成大表 O(N²) 风险。
+- **写入侧不走 DAO**：`db/dao/request_logs.rs` 只保留 `list`/`prune_old`/`RequestLogRow`；运行期日志写入由 `http/proxy/logger.rs::write_log` 直接执行，DAO 不再提供 `insert`/`new_log`（曾预留但无生产调用，已删）。如需新增写入路径，复用 `write_log` 而非在 DAO 重建。
 
 ## 模型同步
 
