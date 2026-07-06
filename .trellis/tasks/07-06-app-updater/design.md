@@ -12,7 +12,7 @@
 构建期（开发者本机）
   npm run tauri signer generate → 生成私钥 .key + 公钥 .key.pub（一次性）
   TAURI_SIGNING_PRIVATE_KEY=<...> npm run tauri build
-    → 生成 *.msi.zip + .msi.zip.sig + *-setup.exe + .sig
+    → 生成 *.msi + .msi.sig + *-setup.exe + .exe.sig
   手动创建 GitHub Release（tag=vX.Y.Z）
     → 上传更新包 + .sig + latest.json
 
@@ -53,7 +53,7 @@
 }
 ```
 
-- `createUpdaterArtifacts: true` 让构建产出可更新的 `.msi.zip`/`-setup.exe` + `.sig`。
+- `createUpdaterArtifacts: true` 让构建产出可更新的 `.msi`/`-setup.exe` + 各自 `.sig`（Tauri 2 直接签 MSI 本身，不是 `.msi.zip`）。
 - `endpoints` 用 `releases/latest/download/latest.json`——GitHub 自动把 `latest` 解析为最新 Release tag。
 - `pubkey` 是公钥 PEM 文本，写死在配置里（公钥可公开，私钥不可）。
 
@@ -66,8 +66,8 @@
   "pub_date": "2026-07-06T12:00:00Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "<.msi.zip.sig 文件全文内容>",
-      "url": "https://github.com/XM-Chen/agent-switch/releases/download/v0.2.0/Agent-Switch_0.2.0_x64_zh-CN.msi.zip"
+      "signature": "<.msi.sig 文件全文内容>",
+      "url": "https://github.com/XM-Chen/agent-switch/releases/download/v0.2.0/Agent-Switch_0.2.0_x64_zh-CN.msi"
     }
   }
 }
@@ -76,7 +76,7 @@
 - `version` 必须高于当前 `tauri.conf.json.version` 才触发更新。
 - `signature` 是 `.sig` 文件的**完整文本内容**（不是 URL）。
 - `url` 用具体 tag 的下载链接（`/releases/download/vX.Y.Z/<file>`），不用 `latest`（`latest` 在文件名维度不稳定）。
-- 选 `.msi.zip` 作为更新包（MSI 安装器压缩后适合 updater 替换安装）；NSIS `-setup.exe` 作为备选/手动安装用。
+- 选 `.msi` 作为更新包（Tauri 2 直接签 MSI 本身产出 `.msi` + `.msi.sig`）；NSIS `-setup.exe` 作为备选/手动安装用。
 
 ### 3. 前端 updater 模块（`src/lib/updater.ts`）
 
@@ -146,13 +146,13 @@ tauri::Builder::default()
 
 - **对已安装旧版的影响**：当前已构建的 `0.1.0` MSI **没有 updater 插件**，无法收到本次更新能力。本次改动从 `0.2.0`（或下一个版本号）起生效——已装 `0.1.0` 的用户需手动下载一次新版安装包，之后的更新才能走应用内。这是 updater 方案的固有冷启动限制，文档里说明。
 - **版本号**：发新版要同步改 `tauri.conf.json.version` + `package.json.version` + `latest.json.version`。`latest.json.version` 必须大于当前才触发更新。
-- **bundle.targets = "all"**：保持不变，仍同时产出 MSI + NSIS。updater 用其中 `.msi.zip` 那份。
+- **bundle.targets = "all"**：保持不变，仍同时产出 MSI + NSIS。updater 用其中 `.msi` + `.msi.sig` 那份。
 - **`windows.wix.language = "zh-CN"`**：保持不变。
 
 ## 关键 trade-off
 
 1. **手动发版 vs CI 自动化**：本期手动。代价是每次发版开发者本地跑 4 步（设 env、build、创 Release、传资产+latest.json）；收益是不引入 CI 复杂度，先把功能跑通。design 末尾给 CI 演进方向。
-2. **`.msi.zip` vs `-setup.exe` 作更新包**：选 `.msi.zip`。Tauri updater 对 MSI 的替换安装更标准（单用户安装无 UAC）；NSIS 也可但 MSI 是 Windows 标准。两个 `.sig` 都生成，`latest.json` 只填 MSI 那份。
+2. **`.msi` vs `-setup.exe` 作更新包**：选 `.msi`。Tauri 2 直接签 MSI 本身产出 `.msi` + `.msi.sig`；NSIS 也可但 MSI 是 Windows 标准。两个 `.sig` 都生成，`latest.json` 只填 MSI 那份。
 3. **`endpoints` 单 URL vs 多 URL 镜像**：单 URL（GitHub Release）。后续若考虑 CDN 镜像可加备用 URL，本期不需要。
 4. **私钥加密码 vs 不加**：加密码（`-p`）。代价是构建时要额外传 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`；收益是私钥文件泄露也不能直接签名。密码同样不入 git。
 5. **检查更新手动触发 vs 启动自动检查**：本期手动（设置页按钮）。自动后台检查涉及启动时网络请求+频率控制+不打扰策略，列为后续演进。

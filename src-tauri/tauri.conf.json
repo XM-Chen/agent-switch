@@ -42,7 +42,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZBRDcwRTM2NkQ4RUY5NkYKUldadit1NXROZzczK3F0RVBWZ0hFWDVpb2ttdmZlMFZNTUdENDZ0Yjl4WHYzY0lETVdJR3habTQK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ0RDE2RjZCMTRCNzAwNzcKUldSM0FMY1VhMi9SMUg4WHllSlpzZEQ2YkU0UUpGR0U1ZzMyK1A3eGF2cVcwZGRtM0dFTktkRXIK",
       "endpoints": [
         "https://github.com/XM-Chen/agent-switch/releases/latest/download/latest.json"
       ]
