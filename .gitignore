@@ -15,3 +15,8 @@ AGENTS.md
 dist/
 node_modules/
 src-tauri/target/
+
+# Tauri updater signing keys (private key must never be committed;
+# public key belongs in tauri.conf.json, not as a repo file copy)
+*.key
+*.key.pub
