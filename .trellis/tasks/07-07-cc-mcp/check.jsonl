@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Rust 检查命令与测试要求（fmt/clippy/test 质量门），提交前必跑"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "校验新增 mcp_servers 表迁移是否符合迁移 append-only、幂等、DAO 加解密边界约定"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端 tsc/vitest 检查要求，校验 MCP 页面构建与测试"}

@@ -19,7 +19,8 @@
   "pr_url": null,
   "subtasks": [],
   "children": [
-    "07-07-cc-switch-semantics"
+    "07-07-cc-switch-semantics",
+    "07-07-cc-mcp"
   ],
   "parent": null,
   "relatedFiles": [],
