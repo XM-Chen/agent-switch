@@ -721,3 +721,38 @@ app-shell 收尾后梳理剩余任务时发现：`06-27-` 路径下有 4 个 pla
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: cc-mcp 完成：Claude Code MCP 统一管理（全量投影 + 反向导入）
+
+**Date**: 2026-07-07
+**Task**: cc-mcp 完成：Claude Code MCP 统一管理（全量投影 + 反向导入）
+**Branch**: `main`
+
+### Summary
+
+为 agent-switch 补齐 Claude Code MCP 管理：mcp_servers 表 + DAO、独立 MCP service（全量投影写 ~/.claude.json mcpServers 字段 + 反向导入 + Windows cmd /c 包装 + WSL 检测 + 规范校验）、/api/mcp HTTP API、MCP 页面完整 CRUD UI。仅 Claude Code，固定路径不做 override_dir，与 tool_takeover 解耦。241 后端测试 + 45 前端测试全绿。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9a1af01bb` | (see git log) |
+| `65661fda8` | (see git log) |
+| `8b122a07b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
