@@ -686,3 +686,38 @@ app-shell 收尾后梳理剩余任务时发现：`06-27-` 路径下有 4 个 pla
 ### Next Steps
 
 - 后续可优化：主密钥跨版本迁移策略、endpoint 删除时主动清除相关同步错误、侧边栏版本号在 0.2.2 验证
+
+
+## Session 14: cc-switch-semantics 完成：回填保护 + Common Config Snippet（A1-hybrid）
+
+**Date**: 2026-07-07
+**Task**: cc-switch-semantics 完成：回填保护 + Common Config Snippet（A1-hybrid）
+**Branch**: `main`
+
+### Summary
+
+完成 Claude Code 切换语义增强子任务。补齐 switch_claude 编排的 6 个端到端切换测试（AC3-AC7：整文件覆盖、backfill 往返、direct/proxy 凭证、common config 三态、strip 正确、明文 token 不落库）；实现 stage 4 后端 common config HTTP API（GET/PUT /api/common-config/{tool}）+ per-provider 三态开关（common_enabled_into_meta）；stage 5 前端 commonConfigApi 接线。设计中途从「重定义 settings_config」改为「meta.snapshot 快照层」以规避 DB 迁移与 Codex 回归。四条验证命令全绿（fmt/clippy/215 Rust tests/45 前端 tests）。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b39ac289b` | (see git log) |
+| `36dfdef0b` | (see git log) |
+| `ff924eee6` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

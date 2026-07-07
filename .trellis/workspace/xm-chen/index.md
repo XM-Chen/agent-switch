@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 13
-- **Last Active**: 2026-07-06
+- **Total Sessions**: 14
+- **Last Active**: 2026-07-07
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~576 | Active |
+| `journal-1.md` | ~723 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 14 | 2026-07-07 | cc-switch-semantics 完成：回填保护 + Common Config Snippet（A1-hybrid） | `b39ac289b`, `36dfdef0b`, `ff924eee6` | `main` |
 | 13 | 2026-07-06 | 切换器页面实现 + 全仓 ponytail 精简 | `41c3bb130`, `9fcabf302`, `70f917192` | `main` |
 | 12 | 2026-07-05 | 代理模式与 providers 桥接及升级回填 (P1 subtask 4) | `e9519dad8` | `main` |
 | 11 | 2026-07-04 | Provider CRUD 与切换 HTTP API (P1 subtask 3) | `b82c5d812` | `main` |
