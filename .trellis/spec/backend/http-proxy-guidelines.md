@@ -51,3 +51,12 @@
 因为接管服务把 `tool_takeover` 状态的 `upsert_state` 放在最后一步，接管失败时该状态保持不变，与回滚后的 `is_current` 自然一致。Claude Code 快照编排在写任何文件前先解析（并解密）连接层，解析失败即早退，同样不留副作用。
 
 删除 current provider：先 `clear_current`，若 `tool_takeover.active_provider_id` 仍指向被删 id，用 `set_mode` 复位为 `proxy`/`None`，避免悬空 direct 引用。
+
+## MCP 管理（`~/.claude.json`，独立于切换）
+
+Claude Code 的 MCP 服务器配置在 **`~/.claude.json`**——这是 `~/.claude/` 目录的**兄弟文件**，与切换接管的 `~/.claude/settings.json` 是两个不同文件。MCP 管理（`services/mcp/` + `http/api/mcp.rs` + `mcp_servers` 表）是**独立全局清单**，与 `tool_takeover` 完全解耦：**不**挂在 `perform_switch` 上，CRUD 后即时同步。
+
+- **全量投影**：`mcpServers` 字段整体由 DB 里 `enabled_claude=1` 的集合决定（`sync_enabled_to_claude`）。读整个 `~/.claude.json` → 只替换 `mcpServers` 键 → 原子写，保留其它顶层键（`hasCompletedOnboarding` 等用户数据）。用户手加进 live 但不在 DB 的 server 会被抹掉，靠显式「从 live 导入」（`import_from_claude`）缓解。
+- **未安装跳过**：`~/.claude.json` 与其兄弟 `~/.claude/` 目录均不存在时，同步为 no-op，不凭空建文件。判断兄弟目录用 **path 自身的 parent** 推导（`path.parent().join(".claude")`），不查真实 home——生产语义正确（两者同在 home 下），测试用临时目录时天然隔离。
+- **Windows `cmd /c` 包装**：stdio 类型且 command ∈ {npx,npm,yarn,pnpm,node,bun,deno} 时改写为 `cmd /c <command> <args>`（`#[cfg(windows)]`）；目标路径为 WSL（`\\wsl$\` / `\\wsl.localhost\`）时跳过。
+- **不加密**：MCP 规范本就明文写进 `~/.claude.json` 供 Claude Code 读，DB 存明文与 live 一致，不走 crypto。这与 endpoints/accounts 的 direct 凭证加密边界互不重叠。
