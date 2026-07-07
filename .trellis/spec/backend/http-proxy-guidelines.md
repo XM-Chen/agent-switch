@@ -41,11 +41,13 @@
 
 1. 查目标 provider，不存在 → 404。
 2. 解析 `app_type` → `Tool`，`supports_takeover()` 为假（如 opencode）→ 400。
-3. 记录切换前的 current（用于回滚）。
-4. **先** `set_current`（DB），**再**按 `mode` 接管：`proxy`→`enable`，`direct`→`enable_direct(.., crypto)`。
+3. 记录切换前的 current **完整行**（不只是 id）：既用于失败回滚，也作为 `prev` 传给接管闭包供 Claude Code backfill 用。若 prev 就是目标自身（重复切换同一个）则不作为独立 `prev` 传入。
+4. **先** `set_current`（DB），**再**按 `Tool` 分流接管：
+   - **Claude Code**：走 `switch_claude(db, data_dir, prev, target, crypto)` 快照编排（回填保护 + Common Config 三层，见数据库规范「Claude Code 快照层」）。内部顺序：解析连接层（direct 先解密，失败早退无副作用）→ backfill `prev`（或首切时 backfill target 自身）→ `backup_before_write` → 写快照层整文件覆盖 → `apply`/`apply_direct` 注入连接层 → `upsert_state`。
+   - **Codex 等**：沿用「仅连接层」接管（`proxy`→`enable`，`direct`→`enable_direct`），逐字节保持现状，不引入快照模型。
 5. **接管失败必须回滚 `is_current`**：恢复到切换前的 current，若原本无 current 则 `clear_current`。回滚本身再失败时，把两个错误一并返回 500。
 6. `direct` 模式 crypto 不可用 → 503，**不静默降级**为 proxy。
 
-因为接管服务把 `tool_takeover` 状态的 `upsert_state` 放在最后一步，接管失败时该状态保持不变，与回滚后的 `is_current` 自然一致。
+因为接管服务把 `tool_takeover` 状态的 `upsert_state` 放在最后一步，接管失败时该状态保持不变，与回滚后的 `is_current` 自然一致。Claude Code 快照编排在写任何文件前先解析（并解密）连接层，解析失败即早退，同样不留副作用。
 
 删除 current provider：先 `clear_current`，若 `tool_takeover.active_provider_id` 仍指向被删 id，用 `set_mode` 复位为 `proxy`/`None`，避免悬空 direct 引用。

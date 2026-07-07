@@ -37,6 +37,14 @@
 
 > 切换（`POST /api/providers/{id}/switch`）如何联动 `is_current` 与 `tool_takeover`、失败回滚与删除 current 复位，见 http-proxy 规范的「Provider 切换的原子性」。
 
+### `meta` 已约定的子键（Claude Code 快照层）
+
+`meta` 是「不写入 live 的元数据」JSON。Claude Code 的 ccs 式回填保护 + Common Config 三层（A1-hybrid）复用它承载 per-provider 状态，**不新增列、不改 `settings_config` 语义**：
+
+- `meta.snapshot`：per-provider 的 `settings.json`「非连接键」全文快照（hooks/permissions/statusLine/env 内非连接键等）。**永不含连接层**（`env.ANTHROPIC_BASE_URL` / `env.ANTHROPIC_AUTH_TOKEN`）——切走前 backfill 用 `strip_connection_env` 剥离后再存回，因此明文 token 天然不落库，无需占位符/脱敏逻辑。连接层每次切换由 mode+endpoint 经 `apply`/`apply_direct` 重新注入 live。缺省无此键 = 空快照（老行为）。
+- `meta.common_config_enabled`：Common Config 三态开关（`Some(true)`=叠加 / `Some(false)`=不叠加 / 缺省=跟随全局默认，当前默认叠加）。全局 common config 片段本身存 `app_metadata` 键 `common_config_claude-code`（默认 `{"includeCoAuthoredBy":false}`），写 live 时 deep-merge 覆盖在 `meta.snapshot` 之上。
+- **决策依据**：曾计划把 `settings_config` 从「端点引用」重定义为「全文快照」，重读调用图后放弃——`settings_config` 被 `resolve_direct_config`（Claude+Codex 共用）/tools-toggle/`reapply`/ccs 导入器同时消费为端点引用，重定义 blast radius 过大且违背本规范「providers 表按原样存 JSON」。改用 `meta` 子键 → 零 schema 迁移、Codex 路径零改动、既有测试零风险。`json_merge` / `claude_snapshot` 两个模块承载 deep_merge/deep_remove/strip/snapshot 读写算法。
+
 ## 启动期数据回填（区别于 schema 迁移）
 
 schema 迁移（`MIGRATIONS`）只做 DDL；跨表的**数据**回填（如升级时把存量 `tool_takeover.enabled=1` 桥接成默认 `providers` 行）不放进迁移 SQL，而是独立的 DAO 函数在 `run_migrations` 之后、`AppState` 构造之前调用。
