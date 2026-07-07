@@ -9,6 +9,7 @@ import { RoutesPage } from './pages/RoutesPage';
 import { LogsPage } from './pages/LogsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ProvidersPage } from './pages/ProvidersPage';
+import { McpPage } from './pages/McpPage';
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
         <Route path="/models" element={<ModelsPage />} />
         <Route path="/tools" element={<ToolsPage />} />
         <Route path="/providers" element={<ProvidersPage />} />
+        <Route path="/mcp" element={<McpPage />} />
         <Route path="/routes" element={<RoutesPage />} />
         <Route path="/logs" element={<LogsPage />} />
         <Route path="/settings" element={<SettingsPage />} />

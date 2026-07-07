@@ -4,6 +4,8 @@ pub mod crypto;
 #[allow(dead_code)]
 pub mod importers;
 pub mod keychain;
+/// Claude Code MCP 服务器全局清单管理（cc-mcp）：写 `~/.claude.json` 的 mcpServers 字段。
+pub mod mcp;
 pub mod model_alias;
 pub mod model_sync;
 /// 配置导入导出服务（本机加密完整备份 / 可迁移脱敏配置导出）。

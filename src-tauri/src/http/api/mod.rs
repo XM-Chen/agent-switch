@@ -4,6 +4,7 @@ pub mod auth;
 pub mod common_config;
 pub mod endpoints;
 pub mod logs;
+pub mod mcp;
 pub mod models;
 pub mod providers;
 pub mod routes;

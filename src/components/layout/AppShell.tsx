@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { path: '/models', label: '模型', icon: '🧠' },
   { path: '/tools', label: '工具', icon: '🛠️' },
   { path: '/providers', label: '切换器', icon: '🔄' },
+  { path: '/mcp', label: 'MCP', icon: '🧩' },
   { path: '/routes', label: '路由', icon: '🔀' },
   { path: '/logs', label: '日志', icon: '📋' },
   { path: '/settings', label: '设置', icon: '⚙️' },

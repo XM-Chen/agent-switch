@@ -217,6 +217,25 @@ const MIGRATIONS: &[Migration] = &[
         sql: "ALTER TABLE tool_takeover ADD COLUMN mode TEXT NOT NULL DEFAULT 'proxy';
         ALTER TABLE tool_takeover ADD COLUMN active_provider_id TEXT;",
     },
+    Migration {
+        version: 9,
+        name: "create_mcp_servers",
+        // MCP 服务器全局清单（cc-mcp）。server_config 存纯 MCP 规范（写 live 原样投影）；
+        // description/homepage/docs/tags 仅供 UI 展示，不写 live。enabled_claude 保留
+        // `_claude` 后缀为将来多应用（codex/gemini/...）留扩展位。
+        sql: "CREATE TABLE IF NOT EXISTS mcp_servers (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            server_config TEXT NOT NULL,
+            description TEXT,
+            homepage TEXT,
+            docs TEXT,
+            tags TEXT NOT NULL DEFAULT '[]',
+            enabled_claude INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );",
+    },
 ];
 
 /// Ensure the migration tracking table exists, then run pending migrations.

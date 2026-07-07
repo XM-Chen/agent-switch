@@ -239,6 +239,72 @@ export const ccsImportApi = {
     }),
 };
 
+// ── MCP 服务器管理（cc-mcp，仅 Claude Code）─────────────────
+
+/** MCP 服务器，对齐后端 `McpServerResponse`。 */
+export interface McpServer {
+  id: string;
+  name: string;
+  /** 裸 MCP 规范（command/args/env 或 type/url/headers）。 */
+  server_config: unknown;
+  description: string | null;
+  homepage: string | null;
+  docs: string | null;
+  /** JSON 数组。 */
+  tags: unknown;
+  enabled_claude: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 创建 MCP 服务器请求，对齐后端 `CreateMcpRequest`。 */
+export interface CreateMcpBody {
+  name: string;
+  server_config: unknown;
+  description?: string | null;
+  homepage?: string | null;
+  docs?: string | null;
+  tags?: unknown;
+  enabled_claude?: boolean;
+}
+
+/** 更新 MCP 服务器请求，对齐后端 `UpdateMcpRequest`（部分字段）。 */
+export interface UpdateMcpBody {
+  name?: string;
+  server_config?: unknown;
+  description?: string | null;
+  homepage?: string | null;
+  docs?: string | null;
+  tags?: unknown;
+  enabled_claude?: boolean;
+}
+
+/** 反向导入结果，对齐后端 `ImportReport`。 */
+export interface McpImportReport {
+  imported: number;
+  skipped: { id: string; reason: string }[];
+}
+
+/** live `~/.claude.json` MCP 状态，对齐后端 `McpStatus`。 */
+export interface McpStatus {
+  config_path: string;
+  config_exists: boolean;
+  live_server_count: number;
+}
+
+export const mcpApi = {
+  list: () => request<McpServer[]>('/mcp'),
+  get: (id: string) => request<McpServer>(`/mcp/${id}`),
+  create: (body: CreateMcpBody) =>
+    request<McpServer>('/mcp', { method: 'POST', body: JSON.stringify(body) }),
+  update: (id: string, body: UpdateMcpBody) =>
+    request<void>(`/mcp/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  remove: (id: string) => request<void>(`/mcp/${id}`, { method: 'DELETE' }),
+  sync: () => request<void>('/mcp/sync', { method: 'POST' }),
+  import: () => request<McpImportReport>('/mcp/import', { method: 'POST' }),
+  status: () => request<McpStatus>('/mcp/status'),
+};
+
 export interface ModelItem {
   id: string;
   endpoint_id: string;
