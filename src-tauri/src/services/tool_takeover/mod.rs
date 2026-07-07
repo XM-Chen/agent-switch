@@ -1,5 +1,7 @@
 pub mod claude_code;
+pub mod claude_snapshot;
 pub mod codex;
+pub mod json_merge;
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -23,6 +25,11 @@ pub const CODEX_SUFFIX: &str = "/codex";
 pub const PLACEHOLDER_TOKEN: &str = "agent-switch-managed";
 /// Codex model_provider 表名兼 display name。
 pub const CODEX_PROVIDER_ID: &str = "agent-switch";
+
+/// Claude Code common config 默认值（对齐 ccs：提交时不追加 Co-Authored-By）。
+pub const COMMON_CONFIG_CLAUDE_DEFAULT: &str = r#"{"includeCoAuthoredBy":false}"#;
+/// common config 三态开关未显式设置时的默认行为（默认启用，对齐 ccs）。
+const COMMON_CONFIG_DEFAULT_ENABLED: bool = true;
 
 // ── Tool enum ───────────────────────────────────────────────────────────────
 
@@ -302,6 +309,177 @@ fn resolve_direct_config(
         wire_api: settings.wire_api,
         requires_openai_auth: settings.requires_openai_auth,
     })
+}
+
+// ── Common config（跨 provider 全局层）─────────────────────────────────────────
+
+/// 读取 Claude Code 的 common config 片段（`app_metadata` 键 `common_config_claude-code`）。
+///
+/// 未设置 → 返回 `None`（不叠加）。存储值为空串或非法 JSON → 视为未设置。
+pub fn read_common_config(
+    db: &Mutex<rusqlite::Connection>,
+    tool: Tool,
+) -> Result<Option<serde_json::Value>, String> {
+    let key = common_config_key(tool);
+    let raw = crate::db::dao::app_metadata::get(db, &key)?;
+    Ok(raw
+        .filter(|s| !s.trim().is_empty())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .filter(|v| v.is_object()))
+}
+
+/// 写入 Claude Code 的 common config 片段（裸 JSON，须为对象）。
+pub fn write_common_config(
+    db: &Mutex<rusqlite::Connection>,
+    tool: Tool,
+    value: &serde_json::Value,
+) -> Result<(), String> {
+    if !value.is_object() {
+        return Err("common config 必须是 JSON 对象".to_string());
+    }
+    let key = common_config_key(tool);
+    let text =
+        serde_json::to_string(value).map_err(|e| format!("序列化 common config 失败: {}", e))?;
+    crate::db::dao::app_metadata::set(db, &key, &text)
+}
+
+/// common config 在 `app_metadata` 中的键名。
+fn common_config_key(tool: Tool) -> String {
+    format!("common_config_{}", tool.as_str())
+}
+
+// ── Claude Code 快照切换编排（A1-hybrid）──────────────────────────────────────
+
+/// 切走当前 Claude provider 前，把 live 的用户手改回填进该 provider 的 `meta.snapshot`。
+///
+/// 流程：read_live → strip_connection_env（剥离 token/base_url，明文永不落库）→
+/// strip_common（剥离 common 贡献键）→ 存回 `prev_provider.meta.snapshot`。
+///
+/// 仅处理 Claude Code；`prev` 为空（首次切换）时是 no-op。
+fn backfill_claude_snapshot(
+    db: &Mutex<rusqlite::Connection>,
+    config_dir: &Path,
+    prev: &ProviderRow,
+) -> Result<(), String> {
+    let mut live = claude_snapshot::read_live(config_dir);
+    claude_snapshot::strip_connection_env(&mut live);
+    let common = read_common_config(db, Tool::ClaudeCode)?;
+    claude_snapshot::strip_common(&mut live, common.as_ref());
+
+    let new_meta = claude_snapshot::snapshot_into_meta(&prev.meta, &live)?;
+    crate::db::dao::providers::update(
+        db,
+        &prev.id,
+        crate::db::dao::providers::ProviderUpdate {
+            meta: Some(new_meta),
+            ..Default::default()
+        },
+    )
+}
+
+/// 把目标 Claude provider 的非连接层快照（叠加 common）整文件覆盖写入 live。
+///
+/// 连接层（base_url / token）不在此写入——由调用方随后的 `apply`/`apply_direct` 注入。
+fn write_claude_snapshot_layer(
+    db: &Mutex<rusqlite::Connection>,
+    config_dir: &Path,
+    target: &ProviderRow,
+) -> Result<(), String> {
+    let snapshot = claude_snapshot::snapshot_from_meta(&target.meta);
+    let common = read_common_config(db, Tool::ClaudeCode)?;
+    let enabled =
+        claude_snapshot::resolve_common_enabled(&target.meta, COMMON_CONFIG_DEFAULT_ENABLED);
+    let effective = claude_snapshot::build_effective(&snapshot, common.as_ref(), enabled);
+    claude_snapshot::write_live_snapshot(config_dir, &effective)
+}
+
+/// Claude Code 快照切换编排（A1-hybrid）。
+///
+/// 相比 `enable`/`enable_direct` 的「仅连接层」语义，本函数补齐 ccs 式的
+/// 回填保护 + Common Config 三层：切走前把 live 手改回填进上一个 provider 的快照，
+/// 再把目标 provider 的快照层（叠加 common）整文件覆盖写 live，最后注入连接层。
+///
+/// `prev` 为切换前的 current provider（用于回填）；首次切换（`prev=None`）时把 live
+/// 现状回填进 `target` 自身，避免用户既有 hooks/permissions 在首切时被覆盖丢失。
+pub fn switch_claude(
+    db: &Mutex<rusqlite::Connection>,
+    data_dir: &Path,
+    prev: Option<&ProviderRow>,
+    target: &ProviderRow,
+    crypto: Option<&CryptoService>,
+) -> Result<Vec<String>, String> {
+    let config_dir = resolve_config_dir(Tool::ClaudeCode)?;
+    switch_claude_at(db, &config_dir, data_dir, prev, target, crypto)
+}
+
+/// `switch_claude` 的核心（接收显式 config_dir，便于用临时目录测试）。
+fn switch_claude_at(
+    db: &Mutex<rusqlite::Connection>,
+    config_dir: &Path,
+    data_dir: &Path,
+    prev: Option<&ProviderRow>,
+    target: &ProviderRow,
+    crypto: Option<&CryptoService>,
+) -> Result<Vec<String>, String> {
+    if target.app_type != Tool::ClaudeCode.as_str() {
+        return Err(format!(
+            "provider '{}' 的 app_type '{}' 不是 claude-code",
+            target.id, target.app_type
+        ));
+    }
+
+    // 1. 先解析连接层（direct 需解密）。失败早退——尚未写任何文件、未回填，无副作用。
+    let direct_cfg = if target.mode == "direct" {
+        Some(resolve_direct_config(db, target, crypto)?)
+    } else {
+        None
+    };
+
+    // 2. 回填：把 live 手改捕获进「切走前 provider」的快照。
+    //    首次切换无 prev → 回填进 target 自身，保护用户既有配置不被首切覆盖。
+    let sink = prev.or(Some(target));
+    if let Some(s) = sink {
+        backfill_claude_snapshot(db, config_dir, s)?;
+    }
+
+    // 3. 备份原 live（仅首次接管，R3.4 会跳过已接管态）。
+    backup_before_write(db, Tool::ClaudeCode, config_dir, data_dir)?;
+
+    // 4. 重读 target 取最新 meta（prev==target 或首切回填 target 时 meta 已更新）。
+    let fresh = crate::db::dao::providers::get(db, &target.id)?
+        .ok_or_else(|| format!("provider '{}' 不存在", target.id))?;
+
+    // 5. 写快照层（非连接键，整文件覆盖）。
+    write_claude_snapshot_layer(db, config_dir, &fresh)?;
+
+    // 6. 注入连接层（复用既有 apply/apply_direct，读-改-写叠加在快照之上）。
+    match &direct_cfg {
+        Some(cfg) => claude_code::apply_direct(config_dir, cfg)?,
+        None => claude_code::apply(config_dir)?,
+    }
+
+    // 7. 持久化状态。
+    let now = now_iso()?;
+    let (mode, active, target_url) = match &direct_cfg {
+        Some(cfg) => ("direct", Some(target.id.as_str()), cfg.base_url.clone()),
+        None => (
+            "proxy",
+            None,
+            format!("{}{}", LOCAL_BASE, CLAUDE_CODE_SUFFIX),
+        ),
+    };
+    dao::upsert_state(
+        db,
+        Tool::ClaudeCode.as_str(),
+        true,
+        mode,
+        active,
+        Some(&now),
+        Some(&target_url),
+        None,
+    )?;
+
+    Ok(Vec::new())
 }
 
 /// 关闭接管的语义随当前模式而定：
@@ -620,6 +798,36 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    /// 插入一条 proxy 模式 provider（settings_config 空，meta 可定制三态开关等）。
+    fn insert_proxy_provider(
+        db: &Mutex<Connection>,
+        id: &str,
+        app_type: &str,
+        meta: &str,
+    ) -> providers::ProviderRow {
+        providers::create(
+            db,
+            NewProvider {
+                id: id.to_string(),
+                app_type: app_type.to_string(),
+                name: format!("prov-{}", id),
+                mode: "proxy".to_string(),
+                settings_config: "{}".to_string(),
+                category: Some("custom".to_string()),
+                sort_index: None,
+                notes: None,
+                meta: meta.to_string(),
+            },
+        )
+        .unwrap()
+    }
+
+    /// 读取临时目录下 live settings.json 为 JSON。
+    fn read_settings(dir: &Path) -> Value {
+        let content = std::fs::read_to_string(dir.join("settings.json")).unwrap();
+        serde_json::from_str(&content).unwrap()
     }
 
     /// 插入一条 direct 模式 provider（settings_config 引用 endpoint_id）。
@@ -959,5 +1167,265 @@ mod tests {
         let err = enable_direct_at(&db, Tool::ClaudeCode, &dir, &dir, &provider, Some(&crypto))
             .unwrap_err();
         assert!(err.contains("不匹配"), "app_type 不匹配应报错: {}", err);
+    }
+
+    // ── common config 读写 ─────────────────────────────────────────────────
+
+    #[test]
+    fn common_config_read_write_roundtrip() {
+        let db = setup_db();
+        // 未设置 → None。
+        assert!(read_common_config(&db, Tool::ClaudeCode).unwrap().is_none());
+
+        write_common_config(
+            &db,
+            Tool::ClaudeCode,
+            &json!({ "includeCoAuthoredBy": false }),
+        )
+        .unwrap();
+        let back = read_common_config(&db, Tool::ClaudeCode).unwrap().unwrap();
+        assert_eq!(back, json!({ "includeCoAuthoredBy": false }));
+    }
+
+    #[test]
+    fn write_common_config_rejects_non_object() {
+        let db = setup_db();
+        let err = write_common_config(&db, Tool::ClaudeCode, &json!([1, 2])).unwrap_err();
+        assert!(err.contains("对象"), "非对象应报错: {}", err);
+    }
+
+    #[test]
+    fn read_common_config_ignores_blank_and_non_object() {
+        let db = setup_db();
+        // 空串 → 视为未设置。
+        crate::db::dao::app_metadata::set(&db, "common_config_claude-code", "  ").unwrap();
+        assert!(read_common_config(&db, Tool::ClaudeCode).unwrap().is_none());
+        // 非对象 JSON → 视为未设置。
+        crate::db::dao::app_metadata::set(&db, "common_config_claude-code", "42").unwrap();
+        assert!(read_common_config(&db, Tool::ClaudeCode).unwrap().is_none());
+    }
+
+    // ── switch_claude（A1-hybrid 三层编排）──────────────────────────────────
+
+    /// 用 snapshot 构造一个含 `meta.snapshot` 的 proxy provider。
+    fn insert_proxy_provider_with_snapshot(
+        db: &Mutex<Connection>,
+        id: &str,
+        snapshot: Value,
+    ) -> providers::ProviderRow {
+        let meta = claude_snapshot::snapshot_into_meta("{}", &snapshot).unwrap();
+        insert_proxy_provider(db, id, "claude-code", &meta)
+    }
+
+    /// AC3 + AC7(proxy)：切到 proxy provider 后，live == 快照 ⊕ common ⊕ 连接层，
+    /// 且连接层为本地代理 URL + 占位 token（不降级加密）。
+    #[test]
+    fn switch_claude_proxy_writes_snapshot_and_connection() {
+        let db = setup_db();
+        let dir = unique_dir("switch-proxy");
+        let a = insert_proxy_provider(&db, "a", "claude-code", "{}");
+        let b = insert_proxy_provider_with_snapshot(
+            &db,
+            "b",
+            json!({ "permissions": { "allow": ["Bash"] } }),
+        );
+
+        // 首切到 A（prev=None → 回填 A 捕获空 live），再切到 B（prev=A → 写 B 预置快照）。
+        switch_claude_at(&db, &dir, &dir, None, &a, None).unwrap();
+        switch_claude_at(&db, &dir, &dir, Some(&a), &b, None).unwrap();
+
+        let live = read_settings(&dir);
+        // 快照层
+        assert_eq!(live["permissions"]["allow"], json!(["Bash"]));
+        // 连接层：本地代理 URL + 占位 token
+        assert_eq!(
+            live["env"]["ANTHROPIC_BASE_URL"].as_str().unwrap(),
+            format!("{}{}", LOCAL_BASE, CLAUDE_CODE_SUFFIX)
+        );
+        assert_eq!(
+            live["env"]["ANTHROPIC_AUTH_TOKEN"].as_str().unwrap(),
+            PLACEHOLDER_TOKEN
+        );
+        let state = dao::get_state(&db, "claude-code").unwrap().unwrap();
+        assert_eq!(state.mode, "proxy");
+    }
+
+    /// AC7(direct)：切到 direct provider 后 live 为真实 base_url + 解密明文 token，
+    /// 且 provider 的 `meta.snapshot` 绝无明文 token（安全断言）。
+    #[test]
+    fn switch_claude_direct_writes_real_credentials_without_leaking() {
+        let db = setup_db();
+        let crypto = test_crypto();
+        let dir = unique_dir("switch-direct");
+        insert_endpoint(
+            &db,
+            &crypto,
+            "ep1",
+            "https://real.example.com",
+            "anthropic",
+            "sk-real-secret",
+        );
+        let seed = insert_proxy_provider(&db, "seed", "claude-code", "{}");
+        let target = insert_direct_provider(
+            &db,
+            "p1",
+            "claude-code",
+            json!({ "endpoint_id": "ep1", "model": "claude-sonnet-4-6" }),
+        );
+
+        switch_claude_at(&db, &dir, &dir, None, &seed, None).unwrap();
+        switch_claude_at(&db, &dir, &dir, Some(&seed), &target, Some(&crypto)).unwrap();
+
+        let live = read_settings(&dir);
+        assert_eq!(
+            live["env"]["ANTHROPIC_BASE_URL"].as_str().unwrap(),
+            "https://real.example.com"
+        );
+        assert_eq!(
+            live["env"]["ANTHROPIC_AUTH_TOKEN"].as_str().unwrap(),
+            "sk-real-secret"
+        );
+        let state = dao::get_state(&db, "claude-code").unwrap().unwrap();
+        assert_eq!(state.mode, "direct");
+        assert_eq!(state.active_provider_id.as_deref(), Some("p1"));
+
+        // 切走 direct provider → 回填其快照，明文 token 绝不落库。
+        switch_claude_at(&db, &dir, &dir, Some(&target), &seed, None).unwrap();
+        let p1 = providers::get(&db, "p1").unwrap().unwrap();
+        assert!(
+            !p1.meta.contains("sk-real-secret"),
+            "backfill 后 meta 不应含明文 token: {}",
+            p1.meta
+        );
+    }
+
+    /// AC4：provider A live 手加 hooks → 切到 B → 切回 A，A 的 hooks 如实恢复，
+    /// 且 A 的 `meta.snapshot` 无连接层占位/明文 token。
+    #[test]
+    fn switch_backfill_roundtrip_restores_per_provider_hooks() {
+        let db = setup_db();
+        let dir = unique_dir("switch-backfill");
+        let a = insert_proxy_provider(&db, "a", "claude-code", "{}");
+        let b = insert_proxy_provider(&db, "b", "claude-code", "{}");
+
+        // 切到 A，用户在 live 手加 hooks。
+        switch_claude_at(&db, &dir, &dir, None, &a, None).unwrap();
+        let mut live = read_settings(&dir);
+        live.as_object_mut()
+            .unwrap()
+            .insert("hooks".to_string(), json!({ "PreToolUse": "echo hi" }));
+        std::fs::write(
+            dir.join("settings.json"),
+            serde_json::to_string_pretty(&live).unwrap(),
+        )
+        .unwrap();
+
+        // 切到 B（prev=A → 回填 A 捕获 hooks）。
+        switch_claude_at(&db, &dir, &dir, Some(&a), &b, None).unwrap();
+
+        let a_row = providers::get(&db, "a").unwrap().unwrap();
+        let snap = claude_snapshot::snapshot_from_meta(&a_row.meta);
+        assert_eq!(snap["hooks"]["PreToolUse"], json!("echo hi"));
+        assert!(
+            !a_row.meta.contains(PLACEHOLDER_TOKEN),
+            "快照不应含连接层占位 token: {}",
+            a_row.meta
+        );
+        // 切到 B 后 live 不含 A 的 hooks（per-provider 隔离）。
+        assert!(read_settings(&dir).get("hooks").is_none());
+
+        // 切回 A（prev=B）→ hooks 如实恢复。
+        let a_fresh = providers::get(&db, "a").unwrap().unwrap();
+        switch_claude_at(&db, &dir, &dir, Some(&b), &a_fresh, None).unwrap();
+        let live_back = read_settings(&dir);
+        assert_eq!(live_back["hooks"]["PreToolUse"], json!("echo hi"));
+    }
+
+    /// AC5：启用 common 的 provider 切换后 live 含 common 键；三态显式 false 的
+    /// provider 切换后 live 不含该键。
+    #[test]
+    fn switch_common_config_tristate_applies_and_skips() {
+        let db = setup_db();
+        let dir = unique_dir("switch-common");
+        write_common_config(
+            &db,
+            Tool::ClaudeCode,
+            &json!({ "includeCoAuthoredBy": false }),
+        )
+        .unwrap();
+
+        let seed = insert_proxy_provider(&db, "seed", "claude-code", "{}");
+        let enabled = insert_proxy_provider(&db, "on", "claude-code", "{}");
+        let disabled = insert_proxy_provider(
+            &db,
+            "off",
+            "claude-code",
+            r#"{"common_config_enabled":false}"#,
+        );
+
+        switch_claude_at(&db, &dir, &dir, None, &seed, None).unwrap();
+
+        // 默认（缺省=启用）→ live 含 common 键。
+        switch_claude_at(&db, &dir, &dir, Some(&seed), &enabled, None).unwrap();
+        assert_eq!(read_settings(&dir)["includeCoAuthoredBy"], json!(false));
+
+        // 显式 false → live 不含 common 键。
+        switch_claude_at(&db, &dir, &dir, Some(&enabled), &disabled, None).unwrap();
+        assert!(read_settings(&dir).get("includeCoAuthoredBy").is_none());
+    }
+
+    /// AC6：common config 含键 X、provider 快照不含 X → 切走 backfill 后该 provider
+    /// 的 `meta.snapshot` 不含 X（未被误吸收）。
+    #[test]
+    fn switch_backfill_strips_common_keys_from_snapshot() {
+        let db = setup_db();
+        let dir = unique_dir("switch-strip");
+        write_common_config(
+            &db,
+            Tool::ClaudeCode,
+            &json!({ "includeCoAuthoredBy": false }),
+        )
+        .unwrap();
+
+        let seed = insert_proxy_provider(&db, "seed", "claude-code", "{}");
+        let a = insert_proxy_provider_with_snapshot(&db, "a", json!({ "hooks": { "x": 1 } }));
+
+        // 切到 A（prev=seed 保留 A 预置快照）→ live 由 common 叠加出 includeCoAuthoredBy。
+        switch_claude_at(&db, &dir, &dir, None, &seed, None).unwrap();
+        switch_claude_at(&db, &dir, &dir, Some(&seed), &a, None).unwrap();
+        assert_eq!(read_settings(&dir)["includeCoAuthoredBy"], json!(false));
+
+        // 切走 A（prev=A）→ backfill 应 strip 掉 common 贡献的键。
+        switch_claude_at(&db, &dir, &dir, Some(&a), &seed, None).unwrap();
+        let a_row = providers::get(&db, "a").unwrap().unwrap();
+        let snap = claude_snapshot::snapshot_from_meta(&a_row.meta);
+        assert!(
+            snap.get("includeCoAuthoredBy").is_none(),
+            "common 贡献的键不应被吸收进 provider 快照: {}",
+            a_row.meta
+        );
+        // 用户自有键仍保留。
+        assert_eq!(snap["hooks"]["x"], json!(1));
+    }
+
+    /// AC3(备份)：切换前若存在用户既有 settings.json，应生成 `.bak` 备份。
+    #[test]
+    fn switch_creates_backup_of_existing_user_settings() {
+        let db = setup_db();
+        let dir = unique_dir("switch-backup");
+        // 预置用户既有（非接管态）settings.json。
+        std::fs::write(dir.join("settings.json"), r#"{"hooks":{"user":"keep"}}"#).unwrap();
+        let a = insert_proxy_provider(&db, "a", "claude-code", "{}");
+
+        switch_claude_at(&db, &dir, &dir, None, &a, None).unwrap();
+
+        let backup_root = dir.join("backups").join("tools");
+        let has_bak = std::fs::read_dir(&backup_root)
+            .map(|rd| {
+                rd.filter_map(|e| e.ok())
+                    .any(|e| e.file_name().to_string_lossy().ends_with(".bak"))
+            })
+            .unwrap_or(false);
+        assert!(has_bak, "切换前应生成 .bak 备份");
     }
 }

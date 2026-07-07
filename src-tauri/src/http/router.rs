@@ -35,6 +35,7 @@ pub fn build(state: Arc<AppState>) -> Router {
         .nest("/api/settings", api::settings::routes())
         .nest("/api/tools", api::tools::routes())
         .nest("/api/providers", api::providers::routes())
+        .nest("/api/common-config", api::common_config::routes())
         .nest("/api/routes", api::routes::routes())
         .nest("/api/logs", api::logs::routes())
         .route("/api/tests", post(api::tests::run_test))

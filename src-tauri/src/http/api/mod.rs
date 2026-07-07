@@ -1,6 +1,7 @@
 pub mod accounts;
 pub mod aliases;
 pub mod auth;
+pub mod common_config;
 pub mod endpoints;
 pub mod logs;
 pub mod models;

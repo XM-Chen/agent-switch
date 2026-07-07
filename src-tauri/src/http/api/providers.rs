@@ -78,6 +78,11 @@ pub struct UpdateProviderRequest {
     pub settings_config: Option<Value>,
     pub category: Option<Option<String>>,
     pub notes: Option<Option<String>>,
+    /// Claude Code common config 三态开关（`meta.common_config_enabled`）。
+    ///
+    /// 嵌套 `Option`：外层 `Some` 表示「更新该开关」，内层 `Some(bool)` 为显式启用/禁用、
+    /// `None` 为清除（回落默认）。仅对 claude-code provider 有意义。
+    pub common_config_enabled: Option<Option<bool>>,
 }
 
 /// 切换响应：warnings 承载非致命提示。
@@ -171,6 +176,20 @@ async fn update(
     Path(id): Path<String>,
     Json(req): Json<UpdateProviderRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    // common config 三态开关写入 meta：需以现有 meta 为基底，保留其它键（如 snapshot）。
+    let meta = match req.common_config_enabled {
+        Some(enabled) => {
+            let existing = providers::get(&state.db, &id)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+                .ok_or_else(|| (StatusCode::NOT_FOUND, "provider 不存在".to_string()))?;
+            let new_meta =
+                tool_takeover::claude_snapshot::common_enabled_into_meta(&existing.meta, enabled)
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            Some(new_meta)
+        }
+        None => None,
+    };
+
     let upd = ProviderUpdate {
         name: req.name,
         mode: req.mode,
@@ -178,7 +197,7 @@ async fn update(
         category: req.category,
         sort_index: None,
         notes: req.notes,
-        meta: None,
+        meta,
     };
     providers::update(&state.db, &id, upd).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(StatusCode::NO_CONTENT)
@@ -254,19 +273,29 @@ async fn switch(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<SwitchResponse>, (StatusCode, String)> {
-    let resp = perform_switch(&state.db, &id, |provider, tool| {
-        match provider.mode.as_str() {
-            "direct" => tool_takeover::enable_direct(
+    let resp = perform_switch(&state.db, &id, |provider, prev, tool| {
+        match tool {
+            // Claude Code：快照切换编排（回填保护 + Common Config 三层）。
+            Tool::ClaudeCode => tool_takeover::switch_claude(
                 &state.db,
-                tool,
                 &state.data_dir,
+                prev,
                 provider,
                 state.crypto.as_deref(),
             ),
-            // proxy（及未知 mode 兜底为 proxy 接管）。
-            _ => tool_takeover::enable(&state.db, tool, &state.data_dir),
+            // Codex 等：沿用「仅连接层」接管（保持现状，不引入快照模型）。
+            _ => match provider.mode.as_str() {
+                "direct" => tool_takeover::enable_direct(
+                    &state.db,
+                    tool,
+                    &state.data_dir,
+                    provider,
+                    state.crypto.as_deref(),
+                ),
+                _ => tool_takeover::enable(&state.db, tool, &state.data_dir),
+            }
+            .map(|()| Vec::new()),
         }
-        .map(|()| Vec::new())
     })?;
     Ok(Json(resp))
 }
@@ -281,7 +310,7 @@ fn perform_switch<F>(
     takeover: F,
 ) -> Result<SwitchResponse, (StatusCode, String)>
 where
-    F: FnOnce(&ProviderRow, Tool) -> Result<Vec<String>, String>,
+    F: FnOnce(&ProviderRow, Option<&ProviderRow>, Tool) -> Result<Vec<String>, String>,
 {
     // 1. 查目标 provider。
     let provider = providers::get(db, id)
@@ -296,21 +325,23 @@ where
             format!("app_type '{}' 不支持接管切换", provider.app_type),
         ))?;
 
-    // 3. 记录切换前的 current（用于回滚）。
+    // 3. 记录切换前的 current（完整行：既用于回填快照，也用于失败回滚）。
     let prev_current = providers::get_current(db, &provider.app_type)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
-        .map(|p| p.id);
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    // 切走前 provider 若就是目标自身（重复切换同一个），回填 sink 用 target 更新态即可，
+    // 无需把 target 当作独立的 prev。
+    let prev_for_backfill = prev_current.as_ref().filter(|p| p.id != provider.id);
 
     // 4. 先设 is_current（DB partial unique index 保证互斥）。
     providers::set_current(db, id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     // 5. 按 mode 接管。
-    match takeover(&provider, tool) {
+    match takeover(&provider, prev_for_backfill, tool) {
         Ok(warnings) => Ok(SwitchResponse { warnings }),
         Err(e) => {
             // 6. 接管失败 → 回滚 is_current 到切换前状态。
             let rollback = match &prev_current {
-                Some(prev) => providers::set_current(db, prev),
+                Some(prev) => providers::set_current(db, &prev.id),
                 None => providers::clear_current(db, &provider.app_type),
             };
             if let Err(re) = rollback {
@@ -367,7 +398,7 @@ mod tests {
         providers::set_current(&db, "a").unwrap();
 
         // 接管成功（注入返回 Ok）→ current 切到 b。
-        let resp = perform_switch(&db, "b", |_p, _t| Ok(Vec::new())).unwrap();
+        let resp = perform_switch(&db, "b", |_p, _prev, _t| Ok(Vec::new())).unwrap();
         assert!(resp.warnings.is_empty());
         assert_eq!(
             providers::get_current(&db, "claude-code")
@@ -386,7 +417,7 @@ mod tests {
         providers::set_current(&db, "a").unwrap();
 
         // 接管失败 → is_current 必须回滚到 a。
-        let err = perform_switch(&db, "b", |_p, _t| Err("boom".to_string())).unwrap_err();
+        let err = perform_switch(&db, "b", |_p, _prev, _t| Err("boom".to_string())).unwrap_err();
         assert_eq!(err.0, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(
             providers::get_current(&db, "claude-code")
@@ -404,7 +435,7 @@ mod tests {
         let db = setup();
         providers::create(&db, new_provider("b", "claude-code", "proxy")).unwrap();
         // 切换前无 current，接管失败后应清空（无悬挂 current）。
-        let _ = perform_switch(&db, "b", |_p, _t| Err("boom".to_string())).unwrap_err();
+        let _ = perform_switch(&db, "b", |_p, _prev, _t| Err("boom".to_string())).unwrap_err();
         assert!(providers::get_current(&db, "claude-code")
             .unwrap()
             .is_none());
@@ -413,7 +444,7 @@ mod tests {
     #[test]
     fn switch_missing_provider_returns_404() {
         let db = setup();
-        let err = perform_switch(&db, "ghost", |_p, _t| Ok(Vec::new())).unwrap_err();
+        let err = perform_switch(&db, "ghost", |_p, _prev, _t| Ok(Vec::new())).unwrap_err();
         assert_eq!(err.0, StatusCode::NOT_FOUND);
     }
 
@@ -421,7 +452,7 @@ mod tests {
     fn switch_unsupported_app_type_returns_400() {
         let db = setup();
         providers::create(&db, new_provider("o", "opencode", "proxy")).unwrap();
-        let err = perform_switch(&db, "o", |_p, _t| Ok(Vec::new())).unwrap_err();
+        let err = perform_switch(&db, "o", |_p, _prev, _t| Ok(Vec::new())).unwrap_err();
         assert_eq!(err.0, StatusCode::BAD_REQUEST);
     }
 
@@ -432,7 +463,7 @@ mod tests {
         providers::create(&db, new_provider("b", "claude-code", "direct")).unwrap();
         providers::set_current(&db, "a").unwrap();
 
-        let err = perform_switch(&db, "b", |_p, _t| {
+        let err = perform_switch(&db, "b", |_p, _prev, _t| {
             Err("加密服务不可用，无法解密 direct 凭据".to_string())
         })
         .unwrap_err();
@@ -471,7 +502,7 @@ mod tests {
         providers::set_current(&db, "a").unwrap();
 
         let data_dir = std::env::temp_dir();
-        let err = perform_switch(&db, "b", |provider, tool| {
+        let err = perform_switch(&db, "b", |provider, _prev, tool| {
             tool_takeover::enable_direct(&db, tool, &data_dir, provider, None).map(|()| Vec::new())
         })
         .unwrap_err();

@@ -131,6 +131,12 @@ export interface UpdateProviderBody {
   settings_config?: unknown;
   category?: string | null;
   notes?: string | null;
+  /**
+   * Claude Code common config 三态开关（`meta.common_config_enabled`）。
+   * 嵌套：外层字段存在表示「更新该开关」，值 `true`/`false` 为显式启用/禁用、
+   * `null` 为清除（回落默认）。仅对 claude-code provider 有意义。
+   */
+  common_config_enabled?: boolean | null;
 }
 
 /** 切换响应：warnings 承载非致命提示。 */
@@ -156,6 +162,25 @@ export const providersApi = {
     request<SwitchResult>(`/providers/${id}/switch`, { method: 'POST' }),
   reorder: (items: ReorderItem[]) =>
     request<void>('/providers/reorder', { method: 'POST', body: JSON.stringify({ items }) }),
+};
+
+// ── Common Config Snippet（跨 provider 全局层）────────────
+
+/**
+ * Claude Code common config 读写，对齐后端 `/api/common-config/{tool}`。
+ * common config 在切换写 live 时 deep-merge 覆盖在 provider 快照之上（source 赢），
+ * 是裸 JSON 对象（可手写 hooks/permissions/statusLine 等任意键）。
+ */
+export const commonConfigApi = {
+  /** 读取全局 common config；未设置时后端返回默认 `{ includeCoAuthoredBy: false }`。 */
+  get: (tool: string) =>
+    request<Record<string, unknown>>(`/common-config/${encodeURIComponent(tool)}`),
+  /** 写入全局 common config（裸 JSON 对象）。 */
+  put: (tool: string, value: Record<string, unknown>) =>
+    request<void>(`/common-config/${encodeURIComponent(tool)}`, {
+      method: 'PUT',
+      body: JSON.stringify(value),
+    }),
 };
 
 // ── 从本地 ccs 一键导入 Claude 渠道 ───────────────────────
