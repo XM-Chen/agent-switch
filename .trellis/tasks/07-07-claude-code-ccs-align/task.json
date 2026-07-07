@@ -1,0 +1,28 @@
+{
+  "id": "claude-code-ccs-align",
+  "name": "claude-code-ccs-align",
+  "title": "Claude Code 功能对齐 ccs（吸收全部缺失项）",
+  "description": "父任务：把 cc-switch 中 Claude Code 部分的全部缺失功能吸收到 agent-switch。覆盖 8 个子任务：切换语义增强(地基)/Prompts/MCP/env开关/permissions·hooks/Skills/会话/DeepLink。分批推进：地基→P0→P1。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "xm-chen",
+  "assignee": "xm-chen",
+  "createdAt": "2026-07-07",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-07-cc-switch-semantics"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
