@@ -83,6 +83,12 @@ pub struct UpdateProviderRequest {
     /// 嵌套 `Option`：外层 `Some` 表示「更新该开关」，内层 `Some(bool)` 为显式启用/禁用、
     /// `None` 为清除（回落默认）。仅对 claude-code provider 有意义。
     pub common_config_enabled: Option<Option<bool>>,
+    /// provider.meta 完整 JSON（透传）。
+    ///
+    /// 写入 env 行为开关时用：前端解析 `meta.snapshot.env` + 其它键，合并后回传。
+    /// 必须是对象，否则 400。与 `common_config_enabled` 同时存在时，以 `meta` 为基底
+    /// 再叠加 `common_config_enabled`（保留两者），避免互相覆盖。
+    pub meta: Option<Value>,
 }
 
 /// 切换响应：warnings 承载非致命提示。
@@ -176,9 +182,17 @@ async fn update(
     Path(id): Path<String>,
     Json(req): Json<UpdateProviderRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    // common config 三态开关写入 meta：需以现有 meta 为基底，保留其它键（如 snapshot）。
-    let meta = match req.common_config_enabled {
-        Some(enabled) => {
+    // meta 透传 + common config 三态开关：两者可同时存在，以 meta 为基底叠加 common_config_enabled。
+    let meta = match (req.meta, req.common_config_enabled) {
+        // 仅 meta 透传：校验必须是对象。
+        (Some(m), None) => {
+            if !m.is_object() {
+                return Err((StatusCode::BAD_REQUEST, "meta 必须是 JSON 对象".to_string()));
+            }
+            Some(m.to_string())
+        }
+        // 仅 common_config_enabled：以现有 meta 为基底。
+        (None, Some(enabled)) => {
             let existing = providers::get(&state.db, &id)
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
                 .ok_or_else(|| (StatusCode::NOT_FOUND, "provider 不存在".to_string()))?;
@@ -187,7 +201,18 @@ async fn update(
                     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
             Some(new_meta)
         }
-        None => None,
+        // 两者同时存在：以 req.meta 为基底，叠加 common_config_enabled（保留两者）。
+        (Some(m), Some(enabled)) => {
+            if !m.is_object() {
+                return Err((StatusCode::BAD_REQUEST, "meta 必须是 JSON 对象".to_string()));
+            }
+            let new_meta =
+                tool_takeover::claude_snapshot::common_enabled_into_meta(&m.to_string(), enabled)
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            Some(new_meta)
+        }
+        // 两者都无：不更新 meta。
+        (None, None) => None,
     };
 
     let upd = ProviderUpdate {

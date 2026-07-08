@@ -137,6 +137,11 @@ export interface UpdateProviderBody {
    * `null` 为清除（回落默认）。仅对 claude-code provider 有意义。
    */
   common_config_enabled?: boolean | null;
+  /**
+   * provider.meta 完整 JSON（透传）。
+   * 写入 env 行为开关时用：前端解析 meta.snapshot.env + 其它键，合并后回传。
+   */
+  meta?: unknown;
 }
 
 /** 切换响应：warnings 承载非致命提示。 */

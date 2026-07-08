@@ -236,6 +236,10 @@ export function ProvidersPage() {
           }}
           pending={upsertMutation.isPending}
           error={formError}
+          onApplyLive={() => {
+            if (formState.initial) switchMutation.mutate(formState.initial.id);
+          }}
+          applyLivePending={switchMutation.isPending}
         />
       )}
 
