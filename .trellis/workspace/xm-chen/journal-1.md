@@ -756,3 +756,39 @@ app-shell 收尾后梳理剩余任务时发现：`06-27-` 路径下有 4 个 pla
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: cc-prompts 与 cc-env-switches 完成
+
+**Date**: 2026-07-08
+**Task**: cc-prompts 与 cc-env-switches 完成
+**Branch**: `main`
+
+### Summary
+
+完成 Claude Code Prompts 管理与 env 行为开关：新增 CLAUDE.md 单激活/回填/导入链路，ProviderForm 支持 meta.snapshot.env 结构化编辑、预设和应用到 live，并沉淀 code-spec。验证 Rust/前端全量测试通过。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `205c10a9d` | (see git log) |
+| `b648e61c7` | (see git log) |
+| `54aa02145` | (see git log) |
+| `f703e45ed` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
