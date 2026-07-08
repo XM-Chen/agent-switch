@@ -33,3 +33,25 @@ API 路径构造逻辑应提取为可测试函数，例如 `buildLogsPath`。
 
 - `switch(id)` → `POST /providers/{id}/switch`，返回 `{ warnings: string[] }`。`warnings` 非空表示切换成功但有非致命提示（如"备份跳过"），前端用 warning banner 展示；非 2xx 抛错走 error banner。**不要**把 warnings 当错误。
 - `reorder(items)` → `POST /providers/reorder`，body `{ items: { id, sort_index }[] }`，`sort_index` 为 0 起连续重新编号后的新位置。前端用 `moveItem` 计算新顺序后整体提交，**不做乐观更新**（排序频次低，invalidate 列表即可）。
+- `update(id, body)` 支持 `body.meta`，用于保存 Claude Code `meta.snapshot.env` 等 provider 元数据。`update` 只持久化 DB，不写 live；当前激活 provider 的 env 改动要另调 `switch(id)` 作为「应用到 live」。
+
+### Claude Code env 写入示例
+
+```ts
+await providersApi.update(id, { meta: serializeClaudeEnv(oldMeta, switches) });
+if (provider.is_current) await providersApi.switch(id);
+```
+
+## promptsApi 契约（仅保留页面真实调用）
+
+Prompts 页面当前只需要列表、创建、更新、删除、启用/禁用、导入和 status：
+
+- `list()` -> `GET /prompts`
+- `create(body)` -> `POST /prompts`
+- `update(id, body)` -> `PUT /prompts/{id}`
+- `remove(id)` -> `DELETE /prompts/{id}`
+- `enable(id)` / `disable(id)` -> 显式激活态操作，会触发 live `CLAUDE.md` 投影/清空
+- `import()` -> `POST /prompts/import`
+- `status()` -> `GET /prompts/status`
+
+即使后端提供 `GET /api/prompts/{id}`，前端也不要预置 `promptsApi.get`，除非同 PR 内有真实页面/测试调用点；这条沿用上方“API 方法保留原则”。
