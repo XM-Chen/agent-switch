@@ -10,6 +10,7 @@ import { LogsPage } from './pages/LogsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ProvidersPage } from './pages/ProvidersPage';
 import { McpPage } from './pages/McpPage';
+import { PromptsPage } from './pages/PromptsPage';
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="/tools" element={<ToolsPage />} />
         <Route path="/providers" element={<ProvidersPage />} />
         <Route path="/mcp" element={<McpPage />} />
+        <Route path="/prompts" element={<PromptsPage />} />
         <Route path="/routes" element={<RoutesPage />} />
         <Route path="/logs" element={<LogsPage />} />
         <Route path="/settings" element={<SettingsPage />} />

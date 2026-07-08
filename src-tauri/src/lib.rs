@@ -66,6 +66,17 @@ pub fn run() {
                 "升级回填完成"
             );
 
+            // 首次启动自动导入 CLAUDE.md（cc-prompts，幂等：DB 非空跳过）。
+            // 失败仅告警不阻断启动（与 model_sync 启动刷新错误风格一致）。
+            match services::prompts::claude::import_on_first_launch(db.as_ref()) {
+                Ok(n) => {
+                    if n > 0 {
+                        tracing::info!("首次启动已自动导入 CLAUDE.md（{} 项）", n);
+                    }
+                }
+                Err(e) => tracing::warn!("首次自动导入 CLAUDE.md 失败: {}", e),
+            }
+
             // 初始化凭据加密服务。
             // Keychain 不可用时为 None，应用仍可启动，但凭据相关功能进入降级模式。
             let crypto = match services::keychain::ensure_master_key() {

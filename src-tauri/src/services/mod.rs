@@ -10,6 +10,8 @@ pub mod model_alias;
 pub mod model_sync;
 /// 配置导入导出服务（本机加密完整备份 / 可迁移脱敏配置导出）。
 pub mod portability;
+/// Claude Code Prompts 管理（cc-prompts）：写 `~/.claude/CLAUDE.md` 单激活清单。
+pub mod prompts;
 /// Provider 领域层：ccs 式统一切换单元（与 accounts+endpoints 并存）。
 /// 供 HTTP API 与工具接管消费；`AppType` 的部分方法预留扩展位，暂未被生产引用。
 #[allow(dead_code)]

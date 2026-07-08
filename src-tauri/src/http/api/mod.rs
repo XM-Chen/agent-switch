@@ -6,6 +6,7 @@ pub mod endpoints;
 pub mod logs;
 pub mod mcp;
 pub mod models;
+pub mod prompts;
 pub mod providers;
 pub mod routes;
 pub mod settings;

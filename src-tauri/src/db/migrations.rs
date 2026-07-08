@@ -236,6 +236,22 @@ const MIGRATIONS: &[Migration] = &[
             updated_at TEXT NOT NULL
         );",
     },
+    Migration {
+        version: 10,
+        name: "create_prompts",
+        // Prompts 管理（cc-prompts）：Claude Code CLAUDE.md 单激活清单。content 存明文
+        // 提示词（写 live 原样投影）；description 仅供 UI 展示。enabled_claude 保留
+        // `_claude` 后缀为将来多应用留扩展位（与 mcp_servers 对齐）。
+        sql: "CREATE TABLE IF NOT EXISTS prompts (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            content TEXT NOT NULL,
+            description TEXT,
+            enabled_claude INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );",
+    },
 ];
 
 /// Ensure the migration tracking table exists, then run pending migrations.

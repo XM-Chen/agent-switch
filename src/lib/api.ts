@@ -305,6 +305,59 @@ export const mcpApi = {
   status: () => request<McpStatus>('/mcp/status'),
 };
 
+// ── Prompts 管理（cc-prompts，仅 Claude Code）──────────────────
+
+/** Prompt，对齐后端 `PromptResponse`。 */
+export interface Prompt {
+  id: string;
+  name: string;
+  /** 明文提示词内容（写 live 原样投影到 ~/.claude/CLAUDE.md）。 */
+  content: string;
+  description: string | null;
+  enabled_claude: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 创建 Prompt 请求，对齐后端 `CreatePromptRequest`。 */
+export interface CreatePromptBody {
+  name: string;
+  content: string;
+  description?: string | null;
+}
+
+/** 更新 Prompt 请求，对齐后端 `UpdatePromptRequest`（部分字段）。 */
+export interface UpdatePromptBody {
+  name?: string;
+  content?: string;
+  description?: string | null;
+}
+
+/** 反向导入结果，对齐后端 `ImportReport`。 */
+export interface PromptImportReport {
+  imported: number;
+}
+
+/** live `~/.claude/CLAUDE.md` Prompts 状态，对齐后端 `PromptStatus`。 */
+export interface PromptStatus {
+  config_path: string;
+  config_exists: boolean;
+  active_prompt_id: string | null;
+}
+
+export const promptsApi = {
+  list: () => request<Prompt[]>('/prompts'),
+  create: (body: CreatePromptBody) =>
+    request<Prompt>('/prompts', { method: 'POST', body: JSON.stringify(body) }),
+  update: (id: string, body: UpdatePromptBody) =>
+    request<void>(`/prompts/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  remove: (id: string) => request<void>(`/prompts/${id}`, { method: 'DELETE' }),
+  enable: (id: string) => request<void>(`/prompts/${id}/enable`, { method: 'POST' }),
+  disable: (id: string) => request<void>(`/prompts/${id}/disable`, { method: 'POST' }),
+  import: () => request<PromptImportReport>('/prompts/import', { method: 'POST' }),
+  status: () => request<PromptStatus>('/prompts/status'),
+};
+
 export interface ModelItem {
   id: string;
   endpoint_id: string;
