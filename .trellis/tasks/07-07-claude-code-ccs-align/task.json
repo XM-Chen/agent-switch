@@ -20,7 +20,9 @@
   "subtasks": [],
   "children": [
     "07-07-cc-switch-semantics",
-    "07-07-cc-mcp"
+    "07-07-cc-mcp",
+    "07-07-cc-prompts",
+    "07-07-cc-env-switches"
   ],
   "parent": null,
   "relatedFiles": [],

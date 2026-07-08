@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "确认 provider.meta 按原样存 JSON、meta.snapshot 语义与凭证加密边界；本任务复用 meta.snapshot.env 承载 env 开关，不新增迁移，需符合既有约定"}
+{"file": ".trellis/spec/backend/http-proxy-guidelines.md", "reason": "env 开关经地基快照层落 live，需确认与 switch_claude 切换原子性、连接层注入边界不冲突；proxy is_bedrock_provider/别名对 env 键的既有消费不能回归"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "ProviderForm 新增结构化 env 编辑器 + 预设选择需符合既有表单/组件规范"}
+{"file": ".trellis/spec/frontend/api-client-guidelines.md", "reason": "前端经 provider update API 读写 meta.snapshot.env，需对齐既有 request 封装与 meta 透传契约"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "结构化 env 字段与裸 JSON 逃生舱的表单状态同步（参考 ccs useModelState 双向同步）需符合既有状态管理约定"}
