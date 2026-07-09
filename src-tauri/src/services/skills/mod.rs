@@ -1,7 +1,14 @@
-//! Skills 管理（cc-skills）本地安全地基。
+//! Skills 管理（cc-skills）。
 //!
-//! 本阶段实现：app data SSOT、本地目录导入、copy 投影、多 app 启用/禁用、状态与冲突报告。
-//! 网络发现、zip、更新、备份恢复先由 API 明确返回未实现，避免半套下载/覆盖逻辑绕过路径安全。
+//! 覆盖：app data SSOT、本地目录/zip 导入、GitHub 安装、copy 投影、多 app 启用/禁用、
+//! 状态与冲突报告、卸载/备份恢复、更新检查与批量更新、未托管扫描、skills.sh/GitHub 发现。
+//! 所有网络访问仅在用户显式触发时发生；下载走临时区安全解包后再进入 SSOT。
+
+mod backup;
+mod discovery;
+pub mod download;
+mod install;
+mod update;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -13,8 +20,16 @@ use sha2::{Digest, Sha256};
 
 use crate::db::dao::skills::{self, NewSkill, SkillRow};
 
-const ENTRY_FILE: &str = "SKILL.md";
-const MARKER_FILE: &str = ".agent-switch-skill.json";
+pub(crate) const ENTRY_FILE: &str = "SKILL.md";
+pub(crate) const MARKER_FILE: &str = ".agent-switch-skill.json";
+
+// 对外（HTTP API 层）暴露的阶段 C 能力。
+pub use self::backup::{
+    list_backups, restore, uninstall, BackupEntry, RestoreReport, UninstallReport,
+};
+pub use self::discovery::{scan_unmanaged, search, ScanUnmanagedReport, SearchReport};
+pub use self::install::{import_zip, install_repo, ImportZipInput, InstallRepoInput};
+pub use self::update::{check_updates, update, CheckUpdatesReport, UpdateReport};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkillApp {
@@ -46,7 +61,7 @@ impl SkillApp {
         }
     }
 
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Claude => "Claude Code",
             Self::Codex => "Codex",
@@ -66,7 +81,7 @@ impl SkillApp {
         }
     }
 
-    fn target_dirs(self) -> Result<(PathBuf, PathBuf), String> {
+    pub(crate) fn target_dirs(self) -> Result<(PathBuf, PathBuf), String> {
         let home = dirs::home_dir().ok_or_else(|| "无法获取用户主目录".to_string())?;
         let (config_root, target_root) = match self {
             Self::Claude => {
@@ -208,6 +223,66 @@ pub fn import_dir(
             .and_then(sanitize_directory)?,
     };
 
+    let name = input
+        .name
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| directory.clone());
+
+    land_skill(
+        db,
+        data_dir,
+        LandInput {
+            source: &source,
+            directory,
+            name,
+            description: input.description,
+            source_type: "local_dir".to_string(),
+            source_url: Some(source.to_string_lossy().to_string()),
+            repo_owner: None,
+            repo_name: None,
+            repo_branch: None,
+            repo_subdir: None,
+            readme_url: None,
+            enabled_claude: input.enabled_claude,
+            enabled_codex: input.enabled_codex,
+            enabled_gemini: input.enabled_gemini,
+            enabled_opencode: input.enabled_opencode,
+            enabled_hermes: input.enabled_hermes,
+        },
+    )
+}
+
+/// 落地一个已备好的 skill 源目录到 SSOT，写 DB 并按启用状态投影。
+///
+/// `source` 必须已通过 `validate_skill_dir`（含 `SKILL.md`、无符号链接）。
+/// 供 `import_dir` / `install::install_repo` / `install::import_zip` 复用。
+pub(crate) struct LandInput<'a> {
+    pub source: &'a Path,
+    pub directory: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub source_type: String,
+    pub source_url: Option<String>,
+    pub repo_owner: Option<String>,
+    pub repo_name: Option<String>,
+    pub repo_branch: Option<String>,
+    pub repo_subdir: Option<String>,
+    pub readme_url: Option<String>,
+    pub enabled_claude: bool,
+    pub enabled_codex: bool,
+    pub enabled_gemini: bool,
+    pub enabled_opencode: bool,
+    pub enabled_hermes: bool,
+}
+
+pub(crate) fn land_skill(
+    db: &Mutex<Connection>,
+    data_dir: &Path,
+    input: LandInput<'_>,
+) -> Result<ImportReport, String> {
+    validate_skill_dir(input.source)?;
+    let directory = sanitize_directory(&input.directory)?;
+
     if skills::get_by_directory(db, &directory)?.is_some() {
         return Err(format!("skill 目录 '{}' 已存在", directory));
     }
@@ -220,28 +295,24 @@ pub fn import_dir(
         return Err(format!("SSOT 目录已存在: {}", dest.display()));
     }
 
-    copy_dir_atomic(&source, &dest, &root, None)?;
+    copy_dir_atomic(input.source, &dest, &root, None)?;
     let content_hash = hash_directory(&dest)?;
     let id = uuid::Uuid::new_v4().to_string();
-    let name = input
-        .name
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| directory.clone());
 
     let create_result = skills::create(
         db,
         NewSkill {
             id: id.clone(),
-            name,
+            name: input.name,
             description: input.description,
             directory: directory.clone(),
-            source_type: "local_dir".to_string(),
-            source_url: Some(source.to_string_lossy().to_string()),
-            repo_owner: None,
-            repo_name: None,
-            repo_branch: None,
-            repo_subdir: None,
-            readme_url: None,
+            source_type: input.source_type,
+            source_url: input.source_url,
+            repo_owner: input.repo_owner,
+            repo_name: input.repo_name,
+            repo_branch: input.repo_branch,
+            repo_subdir: input.repo_subdir,
+            readme_url: input.readme_url,
             enabled_claude: input.enabled_claude,
             enabled_codex: input.enabled_codex,
             enabled_gemini: input.enabled_gemini,
@@ -453,7 +524,7 @@ fn conflict_for(app: SkillApp, row: &SkillRow) -> Result<Option<SkillConflict>, 
     Ok(None)
 }
 
-fn validate_skill_dir(path: &Path) -> Result<(), String> {
+pub(crate) fn validate_skill_dir(path: &Path) -> Result<(), String> {
     if !path.is_dir() {
         return Err("源路径不是目录".to_string());
     }
@@ -463,7 +534,7 @@ fn validate_skill_dir(path: &Path) -> Result<(), String> {
     reject_symlinks(path)
 }
 
-fn sanitize_directory(input: impl AsRef<str>) -> Result<String, String> {
+pub(crate)fn sanitize_directory(input: impl AsRef<str>) -> Result<String, String> {
     let name = input.as_ref().trim();
     if name.is_empty() || name == "." || name == ".." {
         return Err("skill 目录名不能为空或特殊路径".to_string());
@@ -491,7 +562,7 @@ fn reject_symlinks(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn hash_directory(path: &Path) -> Result<String, String> {
+pub(crate) fn hash_directory(path: &Path) -> Result<String, String> {
     let mut hasher = Sha256::new();
     hash_path(path, path, &mut hasher)?;
     Ok(format!("{:x}", hasher.finalize()))
@@ -522,7 +593,7 @@ fn hash_path(base: &Path, path: &Path, hasher: &mut Sha256) -> Result<(), String
     Ok(())
 }
 
-fn copy_dir_atomic(
+pub(crate) fn copy_dir_atomic(
     source: &Path,
     target: &Path,
     allowed_root: &Path,
@@ -573,6 +644,11 @@ fn copy_dir_atomic(
     Ok(())
 }
 
+/// 供 backup 子模块复用的目录递归复制（拒绝符号链接）。
+pub(crate) fn copy_dir_recursive_pub(source: &Path, target: &Path) -> Result<(), String> {
+    copy_dir_recursive(source, target)
+}
+
 fn copy_dir_recursive(source: &Path, target: &Path) -> Result<(), String> {
     let meta = std::fs::symlink_metadata(source)
         .map_err(|e| format!("读取源路径失败 {}: {}", source.display(), e))?;
@@ -597,7 +673,7 @@ fn copy_dir_recursive(source: &Path, target: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn is_managed_projection(path: &Path) -> bool {
+pub(crate) fn is_managed_projection(path: &Path) -> bool {
     path.join(MARKER_FILE).is_file()
 }
 
@@ -611,7 +687,7 @@ fn count_managed(root: &Path) -> usize {
         .count()
 }
 
-fn ensure_child_path(root: &Path, child: &Path) -> Result<(), String> {
+pub(crate)fn ensure_child_path(root: &Path, child: &Path) -> Result<(), String> {
     if child.starts_with(root) {
         Ok(())
     } else {
@@ -623,7 +699,7 @@ fn ensure_child_path(root: &Path, child: &Path) -> Result<(), String> {
     }
 }
 
-fn remove_dir_if_under(path: &Path, root: &Path) -> Result<(), String> {
+pub(crate)fn remove_dir_if_under(path: &Path, root: &Path) -> Result<(), String> {
     ensure_child_path(root, path)?;
     if path.exists() {
         std::fs::remove_dir_all(path)

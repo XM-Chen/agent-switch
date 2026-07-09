@@ -501,10 +501,136 @@ export interface SkillImportReport {
   sync: SkillSyncReport[];
 }
 
+/** GitHub 安装请求，对齐后端 `InstallRepoRequest`。 */
+export interface InstallRepoBody {
+  repo: string;
+  branch?: string | null;
+  subdir?: string | null;
+  directory?: string | null;
+  name?: string | null;
+  description?: string | null;
+  enabled_claude?: boolean;
+  enabled_codex?: boolean;
+  enabled_gemini?: boolean;
+  enabled_opencode?: boolean;
+  enabled_hermes?: boolean;
+}
+
+/** 本地 zip 导入请求，对齐后端 `ImportZipRequest`。 */
+export interface ImportZipBody {
+  zip_path: string;
+  subdir?: string | null;
+  directory?: string | null;
+  name?: string | null;
+  description?: string | null;
+  enabled_claude?: boolean;
+  enabled_codex?: boolean;
+  enabled_gemini?: boolean;
+  enabled_opencode?: boolean;
+  enabled_hermes?: boolean;
+}
+
+/** 备份条目，对齐后端 `BackupEntry`。 */
+export interface SkillBackupEntry {
+  directory: string;
+  timestamp: string;
+  path: string;
+  has_snapshot: boolean;
+}
+
+/** 卸载结果，对齐后端 `UninstallReport`。 */
+export interface SkillUninstallReport {
+  id: string;
+  directory: string;
+  backup: SkillBackupEntry;
+  sync: SkillSyncReport[];
+}
+
+/** 恢复结果，对齐后端 `RestoreReport`。 */
+export interface SkillRestoreReport {
+  directory: string;
+  restored_from: string;
+  sync: SkillSyncReport[];
+}
+
+/** GitHub 发现候选，对齐后端 `DiscoveredSkill`。 */
+export interface DiscoveredSkill {
+  repo: string;
+  owner: string;
+  name: string;
+  description: string | null;
+  stars: number;
+  default_branch: string | null;
+  html_url: string;
+  source: string;
+}
+
+export interface SkillSearchReport {
+  query: string;
+  results: DiscoveredSkill[];
+}
+
+/** 未托管 live skill，对齐后端 `UnmanagedSkill`。 */
+export interface UnmanagedSkill {
+  app: string;
+  label: string;
+  directory: string;
+  path: string;
+  has_entry_file: boolean;
+  known_directory: boolean;
+}
+
+export interface ScanUnmanagedReport {
+  items: UnmanagedSkill[];
+}
+
+/** 单个 skill 的更新检查结果，对齐后端 `UpdateCheckItem`。 */
+export interface SkillUpdateCheckItem {
+  skill_id: string;
+  directory: string;
+  repo: string | null;
+  branch: string | null;
+  subdir: string | null;
+  local_hash: string;
+  remote_hash: string | null;
+  status: string;
+  error: string | null;
+}
+
+export interface SkillCheckUpdatesReport {
+  checked: SkillUpdateCheckItem[];
+}
+
+/** 单个 skill 的更新执行结果，对齐后端 `UpdateItemReport`。 */
+export interface SkillUpdateItemReport {
+  skill_id: string;
+  directory: string;
+  updated: boolean;
+  old_hash: string;
+  new_hash: string | null;
+  backup: SkillBackupEntry | null;
+  sync: SkillSyncReport[];
+  error: string | null;
+}
+
+export interface SkillUpdateReport {
+  items: SkillUpdateItemReport[];
+}
+
 export const skillsApi = {
   list: () => request<Skill[]>('/skills'),
   importDir: (body: ImportSkillDirBody) =>
     request<SkillImportReport>('/skills/import-dir', { method: 'POST', body: JSON.stringify(body) }),
+  installRepo: (body: InstallRepoBody) =>
+    request<SkillImportReport>('/skills/install-repo', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  importZip: (body: ImportZipBody) =>
+    request<SkillImportReport>('/skills/import-zip', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   setEnabled: (id: string, app: SkillApp, enabled: boolean) =>
     request<SkillSyncReport>(`/skills/${id}/${app}`, {
       method: 'POST',
@@ -512,6 +638,31 @@ export const skillsApi = {
     }),
   sync: () => request<SkillSyncReport[]>('/skills/sync', { method: 'POST' }),
   status: () => request<SkillStatus>('/skills/status'),
+  uninstall: (id: string) =>
+    request<SkillUninstallReport>(`/skills/${id}`, { method: 'DELETE' }),
+  listBackups: (directory?: string) =>
+    request<SkillBackupEntry[]>(
+      `/skills/backups${directory ? `?directory=${encodeURIComponent(directory)}` : ''}`,
+    ),
+  restore: (directory: string, timestamp: string) =>
+    request<SkillRestoreReport>('/skills/restore', {
+      method: 'POST',
+      body: JSON.stringify({ directory, timestamp }),
+    }),
+  scanUnmanaged: () =>
+    request<ScanUnmanagedReport>('/skills/scan-unmanaged', { method: 'POST' }),
+  search: (query: string) =>
+    request<SkillSearchReport>('/skills/search', {
+      method: 'POST',
+      body: JSON.stringify({ query }),
+    }),
+  checkUpdates: () =>
+    request<SkillCheckUpdatesReport>('/skills/check-updates', { method: 'POST' }),
+  update: (ids?: string[]) =>
+    request<SkillUpdateReport>('/skills/update', {
+      method: 'POST',
+      body: JSON.stringify({ ids: ids ?? null }),
+    }),
 };
 
 export interface ModelItem {

@@ -3,7 +3,7 @@
   "name": "cc-skills",
   "title": "Skills 管理（完整 ccs 范围）",
   "description": "P1 子任务：补齐 ccs 式 Skills 管理，覆盖 SSOT、~/.claude/skills 投影、多应用复用、GitHub/skills.sh 发现与批量更新。",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "xm-chen",
   "assignee": "xm-chen",
   "createdAt": "2026-07-08",
-  "completedAt": null,
+  "completedAt": "2026-07-08",
   "branch": null,
   "base_branch": "main",
   "worktree_path": null,
@@ -21,6 +21,6 @@
   "children": [],
   "parent": "07-07-claude-code-ccs-align",
   "relatedFiles": [],
-  "notes": "已交付可验证子集：迁移 v11（skills + skill_repos 表）、DAO、services/skills（本地目录导入 import_dir、托管投影 copy_dir_atomic、启用/禁用 set_enabled、同步 sync_all/sync_one、状态 status）、HTTP 路由与前端 SkillsPage。安全：拒绝符号链接/路径越界，.agent-switch-skill.json 标记 + SKILL.md 入口，托管投影冲突保护。UNSUPPORTED/REMAINING（当前返回 501）：import-zip、install-repo（GitHub/skills.sh 发现）、scan-unmanaged、backups/restore、search、check-updates/update 批量更新。",
+  "notes": "阶段 C 全量交付：8 个 501 端点全部落地为真实实现。新增 services/skills/{download,install,backup,update,discovery} 子模块 + DAO update_repo_check/find_repo_for。能力：install-repo（GitHub tarball 下载 + tar-slip/符号链接防护解包 + SSOT 落地 + skill_repos 元数据）、import-zip（本地 zip 安全解包）、scan-unmanaged（只读扫描非托管 live 目录）、backups/restore/uninstall（SSOT+DB 行快照备份、卸载强制备份、恢复重投影）、check-updates（远端 hash 比对写回 skill_repos）、update（单/批量，更新前备份、失败从本次备份回滚、网络失败不删健康 skill）、search（GitHub Search API 发现）。GitHub token 可选（app_metadata key skills_github_token，匿名首版可用）。安全：所有网络显式触发、临时区用完即删、删除限定 SSOT/live/备份根、二次确认。前端 SkillsPage 全量覆盖：GitHub 安装/zip 导入/搜索发现/检查更新/批量更新/卸载/备份恢复/未托管扫描。质量门：cargo test 296 passed、npm test 72 passed、build clean、clippy -D warnings 0、fmt clean。阶段 A-C 完成，PRD AC1-AC11 全覆盖（AC12 跨平台路径回归留作后续）。",
   "meta": {}
 }

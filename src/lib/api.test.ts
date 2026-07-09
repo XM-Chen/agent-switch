@@ -4,6 +4,7 @@ import {
   buildSessionMessagesPath,
   buildSessionsPath,
   providersApi,
+  skillsApi,
   type CreateProviderBody,
   type Provider,
 } from './api';
@@ -199,6 +200,135 @@ describe('providersApi', () => {
     });
     try {
       await expect(providersApi.remove('p1')).resolves.toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe('skillsApi 阶段 C 端点', () => {
+  function makeJsonResponse(body: unknown, init?: { status?: number }): Response {
+    return new Response(JSON.stringify(body), {
+      status: init?.status ?? 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  function mockFetch(
+    handler: (url: string, init?: RequestInit) => Response | Promise<Response>,
+  ): () => void {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : String(input);
+      return handler(url, init);
+    }) as typeof fetch;
+    return () => {
+      globalThis.fetch = original;
+    };
+  }
+
+  it('installRepo() POST /skills/install-repo，body 透传 repo/subdir', async () => {
+    const restore = mockFetch((url, init) => {
+      expect(url).toMatch(/\/skills\/install-repo$/);
+      expect(init?.method).toBe('POST');
+      const parsed = JSON.parse(String(init?.body));
+      expect(parsed.repo).toBe('owner/name');
+      expect(parsed.subdir).toBe('skills/foo');
+      return makeJsonResponse({
+        skill: { id: 's1', name: 'foo', directory: 'foo', content_hash: 'h' },
+        sync: [],
+      });
+    });
+    try {
+      const r = await skillsApi.installRepo({ repo: 'owner/name', subdir: 'skills/foo' });
+      expect(r.skill.directory).toBe('foo');
+    } finally {
+      restore();
+    }
+  });
+
+  it('listBackups() 无 directory 时不带 query', async () => {
+    const restore = mockFetch((url) => {
+      expect(url).toMatch(/\/skills\/backups$/);
+      expect(url).not.toContain('?');
+      return makeJsonResponse([]);
+    });
+    try {
+      await skillsApi.listBackups();
+    } finally {
+      restore();
+    }
+  });
+
+  it('listBackups(dir) 对 directory 做 URL 编码', async () => {
+    const restore = mockFetch((url) => {
+      expect(url).toContain('/skills/backups?directory=my%20skill');
+      return makeJsonResponse([]);
+    });
+    try {
+      await skillsApi.listBackups('my skill');
+    } finally {
+      restore();
+    }
+  });
+
+  it('uninstall() 发 DELETE /skills/{id}', async () => {
+    const restore = mockFetch((url, init) => {
+      expect(url).toMatch(/\/skills\/s1$/);
+      expect(init?.method).toBe('DELETE');
+      return makeJsonResponse({
+        id: 's1',
+        directory: 'foo',
+        backup: { directory: 'foo', timestamp: '1', path: 'p', has_snapshot: true },
+        sync: [],
+      });
+    });
+    try {
+      const r = await skillsApi.uninstall('s1');
+      expect(r.backup.has_snapshot).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it('restore() POST body 含 directory 与 timestamp', async () => {
+    const restore = mockFetch((url, init) => {
+      expect(url).toMatch(/\/skills\/restore$/);
+      const parsed = JSON.parse(String(init?.body));
+      expect(parsed).toEqual({ directory: 'foo', timestamp: '123' });
+      return makeJsonResponse({ directory: 'foo', restored_from: 'p', sync: [] });
+    });
+    try {
+      await skillsApi.restore('foo', '123');
+    } finally {
+      restore();
+    }
+  });
+
+  it('update() 缺省 ids 时发送 { ids: null }', async () => {
+    const restore = mockFetch((url, init) => {
+      expect(url).toMatch(/\/skills\/update$/);
+      const parsed = JSON.parse(String(init?.body));
+      expect(parsed.ids).toBeNull();
+      return makeJsonResponse({ items: [] });
+    });
+    try {
+      await skillsApi.update();
+    } finally {
+      restore();
+    }
+  });
+
+  it('search() POST body 含 query', async () => {
+    const restore = mockFetch((url, init) => {
+      expect(url).toMatch(/\/skills\/search$/);
+      const parsed = JSON.parse(String(init?.body));
+      expect(parsed.query).toBe('pdf');
+      return makeJsonResponse({ query: 'pdf', results: [] });
+    });
+    try {
+      const r = await skillsApi.search('pdf');
+      expect(r.query).toBe('pdf');
     } finally {
       restore();
     }

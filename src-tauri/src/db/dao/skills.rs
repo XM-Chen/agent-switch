@@ -378,6 +378,57 @@ pub fn get_repo(db: &Mutex<Connection>, id: &str) -> Result<Option<SkillRepoRow>
     }
 }
 
+/// 更新 skill_repo 的检查结果字段：last_checked_at 置为当前时间，
+/// last_known_hash / update_status 按传入值更新（None 表示不改）。
+pub fn update_repo_check(
+    db: &Mutex<Connection>,
+    id: &str,
+    last_known_hash: Option<&str>,
+    update_status: Option<&str>,
+) -> Result<(), String> {
+    let now = now_iso()?;
+    let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
+    db.execute(
+        "UPDATE skill_repos
+         SET last_checked_at = ?1,
+             last_known_hash = COALESCE(?2, last_known_hash),
+             update_status = COALESCE(?3, update_status),
+             updated_at = ?1
+         WHERE id = ?4",
+        params![now, last_known_hash, update_status, id],
+    )
+    .map_err(|e| format!("更新 skill_repo 失败: {}", e))?;
+    Ok(())
+}
+
+/// 查询指定 repo_owner/repo_name(+subdir) 的 skill_repo 记录。
+pub fn find_repo_for(
+    db: &Mutex<Connection>,
+    repo_owner: &str,
+    repo_name: &str,
+    subdir: Option<&str>,
+) -> Result<Option<SkillRepoRow>, String> {
+    let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
+    let mut stmt = db
+        .prepare(
+            "SELECT * FROM skill_repos
+             WHERE repo_owner = ?1 AND repo_name = ?2
+               AND ((?3 IS NULL AND subdir IS NULL) OR subdir = ?3)
+             ORDER BY created_at DESC",
+        )
+        .map_err(|e| format!("查询 skill_repos 失败: {}", e))?;
+    let mut rows = stmt
+        .query_map(params![repo_owner, repo_name, subdir], row_to_repo)
+        .map_err(|e| format!("读取 skill_repos 失败: {}", e))?;
+    if let Some(r) = rows.next() {
+        Ok(Some(
+            r.map_err(|e| format!("skill_repos 行解析失败: {}", e))?,
+        ))
+    } else {
+        Ok(None)
+    }
+}
+
 pub fn list_repos(db: &Mutex<Connection>) -> Result<Vec<SkillRepoRow>, String> {
     let db = db.lock().map_err(|e| format!("无法锁定数据库: {}", e))?;
     let mut stmt = db

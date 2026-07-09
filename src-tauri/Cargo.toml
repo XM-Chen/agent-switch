@@ -53,6 +53,10 @@ toml_edit = "0.22"
 argon2 = "0.5"
 flate2 = "1"
 
+# Skills 网络安装：GitHub tarball 解包与本地 zip 导入
+tar = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
 # 代理转发
 futures = "0.3"
 bytes = "1"

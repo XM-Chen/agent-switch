@@ -39,6 +39,7 @@ async fn import(
         &state.data_dir,
         &req.url,
     )
+    .await
     .map_err(map_import_error)?;
     Ok(Json(result))
 }

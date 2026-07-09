@@ -132,6 +132,7 @@ struct SkillImport {
     repo: String,
     directory: Option<String>,
     branch: Option<String>,
+    subdir: Option<String>,
 }
 
 pub fn parse(raw: &str) -> Result<ParsedDeepLink, String> {
@@ -188,7 +189,7 @@ pub fn preview(raw: &str) -> Result<DeepLinkPreview, String> {
     }
 }
 
-pub fn import(
+pub async fn import(
     db: &Mutex<Connection>,
     crypto: Option<&CryptoService>,
     data_dir: &Path,
@@ -199,7 +200,7 @@ pub fn import(
         DeepLinkResource::Provider => import_provider(db, crypto, data_dir, parsed),
         DeepLinkResource::Prompt => import_prompt(db, parsed),
         DeepLinkResource::Mcp => import_mcp(db, parsed),
-        DeepLinkResource::Skill => import_skill(parsed),
+        DeepLinkResource::Skill => import_skill(db, data_dir, parsed).await,
     }
 }
 
@@ -350,18 +351,27 @@ fn preview_mcp(parsed: ParsedDeepLink) -> Result<DeepLinkPreview, String> {
 fn preview_skill(parsed: ParsedDeepLink) -> Result<DeepLinkPreview, String> {
     let mut fields = Vec::new();
     let mut warnings = Vec::new();
+    let mut blocked = false;
+    let mut actions = vec!["从 GitHub 下载并安装到 Skills 库".to_string()];
     match prepare_skill(&parsed) {
         Ok(skill) => {
             fields.push(item("GitHub repo", &skill.repo, false));
             if let Some(directory) = skill.directory {
                 fields.push(item("目录", &directory, false));
             }
+            if let Some(subdir) = skill.subdir {
+                fields.push(item("子目录", &subdir, false));
+            }
             if let Some(branch) = skill.branch {
                 fields.push(item("分支", &branch, false));
             }
-            warnings.push("Skills 后端安装能力尚未接入，本版本暂不联网安装".to_string());
+            warnings.push("安装会从 GitHub 联网下载仓库内容，请确认来源可信".to_string());
         }
-        Err(e) => warnings.push(e),
+        Err(e) => {
+            blocked = true;
+            actions = vec!["修正链接参数后重试".to_string()];
+            warnings.push(e);
+        }
     }
 
     Ok(DeepLinkPreview {
@@ -370,10 +380,10 @@ fn preview_skill(parsed: ParsedDeepLink) -> Result<DeepLinkPreview, String> {
         app: None,
         name: param(&parsed, "repo"),
         enabled: bool_param(&parsed, "enabled"),
-        blocked: true,
+        blocked,
         redacted_url: parsed.redacted_url,
         fields,
-        actions: vec!["等待 Skills service 后再安装".to_string()],
+        actions,
         warnings,
     })
 }
@@ -623,20 +633,51 @@ fn import_mcp(
     })
 }
 
-fn import_skill(parsed: ParsedDeepLink) -> Result<DeepLinkImportResult, String> {
+async fn import_skill(
+    db: &Mutex<Connection>,
+    data_dir: &Path,
+    parsed: ParsedDeepLink,
+) -> Result<DeepLinkImportResult, String> {
     let skill = prepare_skill(&parsed)?;
-    Ok(DeepLinkImportResult {
-        resource: DeepLinkResource::Skill,
-        created: Vec::new(),
-        skipped: vec![ImportResultItem {
-            kind: "skill".to_string(),
-            id: None,
-            name: skill.repo,
-            message: Some("Skills service 尚未接入，未执行网络安装".to_string()),
-        }],
-        warnings: vec!["Skills Deep Link 已解析，但当前后端暂不支持安装".to_string()],
-        errors: Vec::new(),
-    })
+    let repo = skill.repo.clone();
+
+    // Deep Link 安装默认不启用任何 app 投影，交由用户在 Skills 页面显式启用。
+    // GitHub token 由 Skills 服务端从 app_metadata 读取；此处不透传敏感参数。
+    let input = crate::services::skills::InstallRepoInput {
+        repo: skill.repo,
+        branch: skill.branch,
+        subdir: skill.subdir,
+        directory: skill.directory,
+        name: None,
+        description: None,
+        enabled_claude: false,
+        enabled_codex: false,
+        enabled_gemini: false,
+        enabled_opencode: false,
+        enabled_hermes: false,
+    };
+
+    match crate::services::skills::install_repo(db, data_dir, None, input).await {
+        Ok(report) => Ok(DeepLinkImportResult {
+            resource: DeepLinkResource::Skill,
+            created: vec![ImportResultItem {
+                kind: "skill".to_string(),
+                id: Some(report.skill.id),
+                name: report.skill.directory,
+                message: Some("已从 GitHub 安装到 SSOT；请在 Skills 页面按需启用各应用投影".to_string()),
+            }],
+            skipped: Vec::new(),
+            warnings: Vec::new(),
+            errors: Vec::new(),
+        }),
+        Err(e) => Ok(DeepLinkImportResult {
+            resource: DeepLinkResource::Skill,
+            created: Vec::new(),
+            skipped: Vec::new(),
+            warnings: Vec::new(),
+            errors: vec![format!("安装 skill {} 失败: {}", repo, e)],
+        }),
+    }
 }
 
 fn prepare_provider(
@@ -801,6 +842,7 @@ fn prepare_skill(parsed: &ParsedDeepLink) -> Result<SkillImport, String> {
         repo,
         directory: param(parsed, "directory"),
         branch: param(parsed, "branch"),
+        subdir: param(parsed, "subdir"),
     })
 }
 
@@ -1012,12 +1054,14 @@ mod tests {
             .any(|f| f.label == "内容摘要" && f.value.contains("# Hello")));
     }
 
-    #[test]
-    fn provider_import_encrypts_key_and_keeps_settings_config_clean() {
+    #[tokio::test]
+    async fn provider_import_encrypts_key_and_keeps_settings_config_clean() {
         let db = setup_db();
         let crypto = crypto();
         let raw = "ccswitch://v1/import?resource=provider&app=claude&name=DL&endpoint=https%3A%2F%2Fapi.example.com&apiKey=sk-secret&model=claude-x";
-        let result = import(&db, Some(&crypto), std::env::temp_dir().as_path(), raw).unwrap();
+        let result = import(&db, Some(&crypto), std::env::temp_dir().as_path(), raw)
+            .await
+            .unwrap();
         assert!(result.errors.is_empty());
 
         let providers = providers::list_by_app(&db, "claude-code").unwrap();
@@ -1040,8 +1084,8 @@ mod tests {
         assert_eq!(json["api_key"], "sk-secret");
     }
 
-    #[test]
-    fn mcp_existing_different_config_is_not_overwritten() {
+    #[tokio::test]
+    async fn mcp_existing_different_config_is_not_overwritten() {
         let db = setup_db();
         mcp_servers::create(
             &db,
@@ -1063,7 +1107,9 @@ mod tests {
             "ccswitch://v1/import?resource=mcp&apps=claude&enabled=true&config={}",
             config
         );
-        let result = import(&db, None, std::env::temp_dir().as_path(), &raw).unwrap();
+        let result = import(&db, None, std::env::temp_dir().as_path(), &raw)
+            .await
+            .unwrap();
         assert_eq!(result.skipped.len(), 1);
         let row = mcp_servers::get(&db, "srv").unwrap().unwrap();
         assert_eq!(row.server_config, json!({ "command": "old" }).to_string());
@@ -1071,11 +1117,24 @@ mod tests {
     }
 
     #[test]
-    fn skill_is_parsed_but_import_is_unsupported() {
-        let raw = "ccswitch://v1/import?resource=skill&repo=owner%2Fname&branch=main";
+    fn skill_preview_parses_repo_and_is_not_blocked() {
+        // 阶段 C：Skills 后端安装已接入，skill Deep Link 不再 blocked。
+        // 实际安装走网络（install_repo），单测只覆盖解析/预览，不触网。
+        let raw =
+            "ccswitch://v1/import?resource=skill&repo=owner%2Fname&branch=main&subdir=skills%2Ffoo";
         let preview = preview(raw).unwrap();
-        assert!(preview.blocked);
-        let result = import(&setup_db(), None, std::env::temp_dir().as_path(), raw).unwrap();
-        assert_eq!(result.skipped.len(), 1);
+        assert_eq!(preview.resource, DeepLinkResource::Skill);
+        assert!(!preview.blocked);
+        // repo + 分支 + 子目录三个字段。
+        assert_eq!(preview.fields.len(), 3);
+        assert!(preview.fields.iter().any(|f| f.value == "owner/name"));
+    }
+
+    #[test]
+    fn skill_preview_reports_missing_repo() {
+        let raw = "ccswitch://v1/import?resource=skill";
+        let preview = preview(raw).unwrap();
+        assert_eq!(preview.resource, DeepLinkResource::Skill);
+        assert!(!preview.warnings.is_empty());
     }
 }
