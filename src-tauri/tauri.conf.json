@@ -46,6 +46,11 @@
       "endpoints": [
         "https://github.com/XM-Chen/agent-switch/releases/latest/download/latest.json"
       ]
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["ccswitch"]
+      }
     }
   }
 }

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  commonConfigApi,
   providersApi,
   type CreateProviderBody,
   type Provider,
@@ -9,6 +10,7 @@ import {
 import { AppTypeSection } from '../components/providers/AppTypeSection';
 import { ImportCcsDialog } from '../components/providers/ImportCcsDialog';
 import { ProviderForm } from '../components/providers/ProviderForm';
+import { parseJsonObjectText } from '../components/providers/commonConfigHelpers';
 import {
   APP_TYPES,
   groupByAppType,
@@ -202,6 +204,8 @@ export function ProvidersPage() {
 
       {banner && <BannerView banner={banner} onDismiss={() => setBanner(null)} />}
 
+      <CommonConfigCard onSaved={(text) => showBanner('success', text)} />
+
       {isLoading && <p className="text-gray-500">加载中...</p>}
       {error && <p className="text-red-500">加载失败: {error.message}</p>}
 
@@ -252,6 +256,88 @@ export function ProvidersPage() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+function CommonConfigCard({ onSaved }: { onSaved: (text: string) => void }) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: ['common-config', 'claude-code'],
+    queryFn: () => commonConfigApi.get('claude-code'),
+  });
+  const [text, setText] = useState('');
+  const [jsonError, setJsonError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (query.data) {
+      setText(JSON.stringify(query.data, null, 2));
+      setJsonError(null);
+    }
+  }, [query.data]);
+
+  const save = useMutation({
+    mutationFn: (value: Record<string, unknown>) => commonConfigApi.put('claude-code', value),
+    onSuccess: () => {
+      setJsonError(null);
+      onSaved('Common Config 已保存；下次切换或显式应用后生效');
+      void queryClient.invalidateQueries({ queryKey: ['common-config', 'claude-code'] });
+    },
+    onError: (e: Error) => {
+      setJsonError(`保存失败: ${e.message}`);
+    },
+  });
+
+  function handleSave() {
+    const parsed = parseJsonObjectText(text, 'Common Config');
+    if (parsed.error || parsed.value === null) {
+      setJsonError(parsed.error ?? 'Common Config 必须是 JSON 对象');
+      return;
+    }
+    setJsonError(null);
+    save.mutate(parsed.value);
+  }
+
+  return (
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-5 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-semibold">Claude Code Common Config</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            全局 JSON object 片段，可写 permissions、hooks、statusLine、outputStyle、env 等顶层键。
+            保存只更新 DB，下次切换 provider 或显式应用到 live 后生效。
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={query.isLoading || !!query.error || save.isPending}
+          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
+        >
+          {save.isPending ? '保存中...' : '保存'}
+        </button>
+      </div>
+
+      {query.isLoading && <p className="text-sm text-gray-500">加载 Common Config 中...</p>}
+      {query.error && <p className="text-sm text-red-500">加载失败: {query.error.message}</p>}
+
+      {!query.isLoading && !query.error && (
+        <textarea
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            setJsonError(null);
+          }}
+          rows={8}
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-xs bg-transparent font-mono"
+          placeholder='{"includeCoAuthoredBy": false}'
+        />
+      )}
+
+      {jsonError && <p className="text-xs text-red-500">{jsonError}</p>}
+      <p className="text-xs text-gray-500">
+        非 object JSON（数组、字符串、数字、null）不会保存；连接层 base_url/token 仍由端点体系注入。
+      </p>
     </div>
   );
 }

@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"检查前端测试、构建和 UI 状态覆盖。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查后端 API/切换语义测试与 cargo test 质量门。"}
+{"file":".trellis/tasks/archive/2026-07/07-07-cc-switch-semantics/prd.md","reason":"验收需回归地基 token 不落 DB、common strip、direct/proxy 切换无回归。"}
+{"file":".trellis/tasks/archive/2026-07/07-07-cc-env-switches/prd.md","reason":"验收需确认 Common Config UI 不破坏 env 行为开关。"}

@@ -6,7 +6,8 @@ mod http;
 mod services;
 
 use std::sync::Arc;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::sync::oneshot;
 
 /// Tauri application setup and entry point.
@@ -27,8 +28,15 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             let handle = app.handle().clone();
+            let deep_link_handle = handle.clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    let _ = deep_link_handle.emit("deeplink-import-url", url.to_string());
+                }
+            });
 
             // Resolve data directory
             let data_dir = handle

@@ -252,6 +252,49 @@ const MIGRATIONS: &[Migration] = &[
             updated_at TEXT NOT NULL
         );",
     },
+    Migration {
+        version: 11,
+        name: "create_skills",
+        // Skills 管理（cc-skills）：SSOT 下的已安装 skill 清单，多 app 启用开关
+        // 只记录 DB 状态；文件导入/投影/扫描等数据回填不放进迁移。
+        sql: "CREATE TABLE IF NOT EXISTS skills (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            directory TEXT NOT NULL UNIQUE,
+            source_type TEXT NOT NULL,
+            source_url TEXT,
+            repo_owner TEXT,
+            repo_name TEXT,
+            repo_branch TEXT,
+            repo_subdir TEXT,
+            readme_url TEXT,
+            enabled_claude INTEGER NOT NULL DEFAULT 0,
+            enabled_codex INTEGER NOT NULL DEFAULT 0,
+            enabled_gemini INTEGER NOT NULL DEFAULT 0,
+            enabled_opencode INTEGER NOT NULL DEFAULT 0,
+            enabled_hermes INTEGER NOT NULL DEFAULT 0,
+            installed_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_skills_directory ON skills(directory);
+        CREATE TABLE IF NOT EXISTS skill_repos (
+            id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            repo_owner TEXT,
+            repo_name TEXT,
+            repo_url TEXT,
+            branch TEXT,
+            subdir TEXT,
+            last_checked_at TEXT,
+            last_known_hash TEXT,
+            update_status TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );",
+    },
 ];
 
 /// Ensure the migration tracking table exists, then run pending migrations.

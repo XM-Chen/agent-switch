@@ -13,6 +13,7 @@ pub mod prompts;
 pub mod providers;
 pub mod request_logs;
 pub mod route_settings;
+pub mod skills;
 pub mod tool_takeover;
 
 /// 共享 ISO8601 时间戳生成器（UTC）。供各 DAO 与 service 复用，避免重复定义。

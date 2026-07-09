@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"新增 skills / skill_repos 迁移与 DAO 必须遵守 SQLite/JSON/迁移约定。"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"新增 services/skills、http/api/skills.rs、db/dao/skills.rs 需遵守后端分层。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"路径安全、DAO、sync engine、网络发现都需要后端测试质量门。"}
+{"file":".trellis/spec/frontend/api-client-guidelines.md","reason":"/skills 页面必须通过 src/lib/api.ts 访问 REST API。"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Skills 页面涉及中文 UI、确认弹窗、loading/error/empty/conflict 状态。"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"安装、同步、更新、批量操作需要正确的 TanStack Query 状态与缓存刷新。"}
+{"file":".trellis/tasks/archive/2026-07/07-07-cc-mcp/design.md","reason":"MCP 已建立外围管理独立 service + CRUD 后即时投影范式，Skills 需对齐。"}
+{"file":".trellis/tasks/archive/2026-07/07-07-cc-prompts/design.md","reason":"Prompts 已建立文件投影、未安装 no-op、独立 service 范式，Skills 需对齐。"}

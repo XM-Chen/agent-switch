@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildLogsPath,
+  buildSessionMessagesPath,
+  buildSessionsPath,
   providersApi,
   type CreateProviderBody,
   type Provider,
@@ -55,6 +57,27 @@ describe('buildLogsPath / log_type filtering', () => {
   it('returns bare /logs when no params are provided', () => {
     expect(buildLogsPath()).toBe('/logs');
     expect(buildLogsPath({})).toBe('/logs');
+  });
+});
+
+describe('buildSessionsPath', () => {
+  it('defaults to claude-code app_type', () => {
+    expect(buildSessionsPath()).toBe('/sessions?app_type=claude-code');
+  });
+
+  it('includes search, limit and offset parameters', () => {
+    const path = buildSessionsPath({ search: 'hello world', limit: 20, offset: 40 });
+    expect(path).toContain('app_type=claude-code');
+    expect(path).toContain('search=hello+world');
+    expect(path).toContain('limit=20');
+    expect(path).toContain('offset=40');
+  });
+
+  it('builds messages path with encoded source_path', () => {
+    const path = buildSessionMessagesPath('C:\\Users\\me\\.claude\\projects\\a.jsonl');
+    expect(path).toContain('/sessions/messages?');
+    expect(path).toContain('app_type=claude-code');
+    expect(path).toContain('source_path=C%3A%5CUsers%5Cme%5C.claude%5Cprojects%5Ca.jsonl');
   });
 });
 

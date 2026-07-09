@@ -18,6 +18,13 @@ import {
   validateApiTimeoutMs,
   type ClaudeEnvSwitches,
 } from './claudeEnvHelpers';
+import {
+  applyCommonConfigStateToMeta,
+  commonConfigStateFromMeta,
+  commonConfigStateToPayload,
+  parseJsonObjectText,
+  type CommonConfigState,
+} from './commonConfigHelpers';
 
 interface ProviderFormProps {
   /** 传入则进入编辑模式，否则为创建模式。 */
@@ -104,6 +111,9 @@ export function ProviderForm({
   const [apiTimeoutError, setApiTimeoutError] = useState<string | null>(null);
   // 用户正在编辑裸 JSON 时，跳过一次结构化字段→裸 JSON 的同步覆盖。
   const isUserEditingRawRef = useRef(false);
+  const [commonConfigState, setCommonConfigState] = useState<CommonConfigState>(() =>
+    initial?.app_type === 'claude-code' ? commonConfigStateFromMeta(initial?.meta) : 'default',
+  );
 
   function handleSubmit() {
     if (!name.trim()) {
@@ -129,6 +139,12 @@ export function ProviderForm({
       };
       // Claude Code：合并结构化字段 + 裸 JSON 逃生舱 → meta.snapshot.env
       if (appType === 'claude-code') {
+        const rawEnv = parseJsonObjectText(envRawText, 'env');
+        if (rawEnv.error) {
+          setEnvRawError(rawEnv.error);
+          return;
+        }
+        setEnvRawError(null);
         // API_TIMEOUT_MS：空串 = 删键（放行），非空须为正整数（Claude Code 行为依赖）
         const timeoutError = validateApiTimeoutMs(envSwitches.apiTimeout);
         if (timeoutError) {
@@ -136,7 +152,11 @@ export function ProviderForm({
           return;
         }
         setApiTimeoutError(null);
-        body.meta = mergeEnvIntoMeta(initial?.meta, envSwitches, envRawText);
+        body.meta = applyCommonConfigStateToMeta(
+          mergeEnvIntoMeta(initial?.meta, envSwitches, envRawText),
+          commonConfigState,
+        );
+        body.common_config_enabled = commonConfigStateToPayload(commonConfigState);
       }
       onSubmit(body, true);
     } else {
@@ -306,9 +326,12 @@ export function ProviderForm({
             envRawText={envRawText}
             envRawError={envRawError}
             apiTimeoutError={apiTimeoutError}
+            commonConfigState={commonConfigState}
+            commonConfigEditable={isEdit}
             onUpdateSwitches={updateSwitches}
             onUpdateEnvRaw={updateEnvRawText}
             onPresetSelect={handlePresetSelect}
+            onCommonConfigStateChange={setCommonConfigState}
           />
         )}
 
@@ -361,9 +384,12 @@ interface ClaudeEnvSwitchesSectionProps {
   envRawText: string;
   envRawError: string | null;
   apiTimeoutError: string | null;
+  commonConfigState: CommonConfigState;
+  commonConfigEditable: boolean;
   onUpdateSwitches: (patch: Partial<ClaudeEnvSwitches>) => void;
   onUpdateEnvRaw: (text: string) => void;
   onPresetSelect: (preset: ClaudeProviderPreset) => void;
+  onCommonConfigStateChange: (state: CommonConfigState) => void;
 }
 
 function ClaudeEnvSwitchesSection({
@@ -371,9 +397,12 @@ function ClaudeEnvSwitchesSection({
   envRawText,
   envRawError,
   apiTimeoutError,
+  commonConfigState,
+  commonConfigEditable,
   onUpdateSwitches,
   onUpdateEnvRaw,
   onPresetSelect,
+  onCommonConfigStateChange,
 }: ClaudeEnvSwitchesSectionProps) {
   return (
     <div className="border border-gray-200 dark:border-gray-800 rounded-md p-3 space-y-3">
@@ -403,6 +432,24 @@ function ClaudeEnvSwitchesSection({
         <code className="mx-1">ANTHROPIC_BASE_URL</code>/
         <code className="mx-1">ANTHROPIC_AUTH_TOKEN</code> 由端点体系注入，不在此编辑。
       </p>
+
+      <div className="border-t border-gray-200 dark:border-gray-800 pt-3 space-y-1">
+        <label className="block text-xs text-gray-500 mb-1">Common Config 叠加策略</label>
+        <select
+          value={commonConfigState}
+          onChange={(e) => onCommonConfigStateChange(e.target.value as CommonConfigState)}
+          disabled={!commonConfigEditable}
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-sm bg-transparent disabled:opacity-60"
+        >
+          <option value="default">跟随默认（当前默认叠加）</option>
+          <option value="enabled">强制启用</option>
+          <option value="disabled">强制禁用</option>
+        </select>
+        <p className="text-xs text-gray-500">
+          控制切换该 provider 时是否叠加全局 Common Config；保存后下次切换或点「应用到 live」生效。
+          {!commonConfigEditable && ' 新建 provider 暂不写入该开关，创建后可编辑。'}
+        </p>
+      </div>
 
       {/* 模型三档（+ 显示名 + 1M 勾选） */}
       <ModelRoleRow
@@ -638,10 +685,8 @@ function mergeEnvIntoMeta(
   const rawEnv = parseRawEnvSafe(envRawText);
 
   // 2. 把裸 JSON 作为 snapshot.env 写入 meta 基底
-  let root = asObject(baseMeta);
-  if (!root) root = {};
-  let snapshot = asObject(root.snapshot);
-  if (!snapshot) snapshot = {};
+  const root = { ...(asObject(baseMeta) ?? {}) };
+  const snapshot = { ...(asObject(root.snapshot) ?? {}) };
   snapshot.env = rawEnv;
   root.snapshot = snapshot;
 

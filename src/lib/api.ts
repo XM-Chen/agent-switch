@@ -188,6 +188,57 @@ export const commonConfigApi = {
     }),
 };
 
+// ── Deep Link 一键导入（ccswitch://v1/import）──────────────
+
+export type DeepLinkResource = 'provider' | 'prompt' | 'mcp' | 'skill';
+
+export interface DeepLinkPreviewItem {
+  label: string;
+  value: string;
+  sensitive: boolean;
+}
+
+export interface DeepLinkPreview {
+  resource: DeepLinkResource;
+  resource_label: string;
+  app: string | null;
+  name: string | null;
+  enabled: boolean;
+  blocked: boolean;
+  redacted_url: string;
+  fields: DeepLinkPreviewItem[];
+  actions: string[];
+  warnings: string[];
+}
+
+export interface DeepLinkResultItem {
+  kind: string;
+  id: string | null;
+  name: string;
+  message: string | null;
+}
+
+export interface DeepLinkImportResult {
+  resource: DeepLinkResource;
+  created: DeepLinkResultItem[];
+  skipped: DeepLinkResultItem[];
+  warnings: string[];
+  errors: string[];
+}
+
+export const deepLinkApi = {
+  preview: (url: string) =>
+    request<DeepLinkPreview>('/deeplink/preview', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    }),
+  import: (url: string) =>
+    request<DeepLinkImportResult>('/deeplink/import', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    }),
+};
+
 // ── 从本地 ccs 一键导入 Claude 渠道 ───────────────────────
 
 /** ccs provider 探测单项，对齐后端 `DetectItem`。 */
@@ -361,6 +412,106 @@ export const promptsApi = {
   disable: (id: string) => request<void>(`/prompts/${id}/disable`, { method: 'POST' }),
   import: () => request<PromptImportReport>('/prompts/import', { method: 'POST' }),
   status: () => request<PromptStatus>('/prompts/status'),
+};
+
+// ── Skills 管理（cc-skills 本地地基）──────────────────
+
+export type SkillApp = 'claude' | 'codex' | 'gemini' | 'opencode' | 'hermes';
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string | null;
+  directory: string;
+  source_type: string;
+  source_url: string | null;
+  repo_owner: string | null;
+  repo_name: string | null;
+  repo_branch: string | null;
+  repo_subdir: string | null;
+  readme_url: string | null;
+  enabled_claude: boolean;
+  enabled_codex: boolean;
+  enabled_gemini: boolean;
+  enabled_opencode: boolean;
+  enabled_hermes: boolean;
+  installed_at: string;
+  updated_at: string;
+  content_hash: string;
+  created_at: string;
+}
+
+export interface SkillConflict {
+  app: string;
+  skill_id: string;
+  directory: string;
+  target_path: string;
+  reason: string;
+}
+
+export interface SkillSyncReport {
+  app: string;
+  label: string;
+  target_root: string;
+  target_root_exists: boolean;
+  projected: number;
+  removed: number;
+  skipped_missing_root: number;
+  conflicts: SkillConflict[];
+  warnings: string[];
+}
+
+export interface SkillAppStatus {
+  app: string;
+  label: string;
+  config_root: string;
+  target_root: string;
+  config_root_exists: boolean;
+  target_root_exists: boolean;
+  enabled_count: number;
+  managed_count: number;
+  conflicts: SkillConflict[];
+}
+
+export interface SkillStatus {
+  ssot_path: string;
+  ssot_exists: boolean;
+  apps: SkillAppStatus[];
+}
+
+export interface ImportSkillDirBody {
+  source_path: string;
+  directory?: string | null;
+  name?: string | null;
+  description?: string | null;
+  enabled_claude?: boolean;
+  enabled_codex?: boolean;
+  enabled_gemini?: boolean;
+  enabled_opencode?: boolean;
+  enabled_hermes?: boolean;
+}
+
+export interface SkillImportReport {
+  skill: {
+    id: string;
+    name: string;
+    directory: string;
+    content_hash: string;
+  };
+  sync: SkillSyncReport[];
+}
+
+export const skillsApi = {
+  list: () => request<Skill[]>('/skills'),
+  importDir: (body: ImportSkillDirBody) =>
+    request<SkillImportReport>('/skills/import-dir', { method: 'POST', body: JSON.stringify(body) }),
+  setEnabled: (id: string, app: SkillApp, enabled: boolean) =>
+    request<SkillSyncReport>(`/skills/${id}/${app}`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }),
+  sync: () => request<SkillSyncReport[]>('/skills/sync', { method: 'POST' }),
+  status: () => request<SkillStatus>('/skills/status'),
 };
 
 export interface ModelItem {
@@ -589,6 +740,72 @@ export const routesApi = {
   list: () => request<RouteSettings[]>('/routes'),
   update: (id: string, data: UpdateRouteRequest) =>
     request<void>(`/routes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+};
+
+// ── Claude Code 会话只读浏览 ───────────────────────────────
+
+export interface SessionMeta {
+  app_type: string;
+  session_id: string;
+  title: string;
+  summary: string | null;
+  project_dir: string | null;
+  created_at_ms: number | null;
+  last_active_at_ms: number | null;
+  source_path: string;
+  resume_command: string | null;
+  warnings: string[];
+}
+
+export interface SessionListResponse {
+  items: SessionMeta[];
+  total: number;
+  limit: number;
+  offset: number;
+  scan_root: string;
+  warnings: string[];
+}
+
+export interface SessionMessage {
+  role: string;
+  content: string;
+  timestamp_ms: number | null;
+  raw_kind: string | null;
+}
+
+export interface SessionMessagesResponse {
+  source_path: string;
+  messages: SessionMessage[];
+  warnings: string[];
+}
+
+export interface SessionListParams {
+  app_type?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export function buildSessionsPath(params?: SessionListParams): string {
+  const qs = new URLSearchParams();
+  qs.set('app_type', params?.app_type ?? 'claude-code');
+  if (params?.search) qs.set('search', params.search);
+  if (params?.limit) qs.set('limit', String(params.limit));
+  if (params?.offset) qs.set('offset', String(params.offset));
+  return `/sessions?${qs.toString()}`;
+}
+
+export function buildSessionMessagesPath(sourcePath: string, appType = 'claude-code'): string {
+  const qs = new URLSearchParams();
+  qs.set('app_type', appType);
+  qs.set('source_path', sourcePath);
+  return `/sessions/messages?${qs.toString()}`;
+}
+
+export const sessionsApi = {
+  list: (params?: SessionListParams) => request<SessionListResponse>(buildSessionsPath(params)),
+  messages: (sourcePath: string) =>
+    request<SessionMessagesResponse>(buildSessionMessagesPath(sourcePath)),
 };
 
 // ── 请求日志 ──────────────────────────────────────────────

@@ -1,0 +1,9 @@
+{"file":".trellis/spec/backend/directory-structure.md","reason":"新增 deeplink parser/service/API 需遵守后端分层。"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"provider 导入会创建 endpoint/provider，必须遵守凭证加密与 JSON 存储约定。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"协议 parser、Base64 解码、导入结果和敏感日志脱敏需要测试。"}
+{"file":".trellis/spec/frontend/api-client-guidelines.md","reason":"DeepLink 确认对话框需通过 src/lib/api.ts 或统一 Tauri bridge 调用，不散落请求逻辑。"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"确认对话框需中文 UI、loading/error/result 状态和敏感字段展示约定。"}
+{"file":".trellis/tasks/archive/2026-07/07-07-cc-mcp/design.md","reason":"MCP DeepLink 导入必须复用 MCP service 的校验与即时投影语义。"}
+{"file":".trellis/tasks/archive/2026-07/07-07-cc-prompts/design.md","reason":"Prompt DeepLink 导入必须复用 Prompts 单激活与回填保护。"}
+{"file":".trellis/tasks/archive/2026-07/07-07-cc-env-switches/design.md","reason":"Claude provider DeepLink 的模型/env 参数应落 meta.snapshot.env。"}
+{"file":".trellis/tasks/07-08-cc-skills/design.md","reason":"Skill DeepLink 导入依赖 Skills service 的 repo 安装与路径安全。"}

@@ -1,5 +1,6 @@
 pub mod codex_oauth;
 pub mod crypto;
+pub mod deeplink;
 /// 从外部配置（ccs 等）批量导入 provider。
 #[allow(dead_code)]
 pub mod importers;
@@ -16,6 +17,10 @@ pub mod prompts;
 /// 供 HTTP API 与工具接管消费；`AppType` 的部分方法预留扩展位，暂未被生产引用。
 #[allow(dead_code)]
 pub mod provider;
+/// Claude Code 会话 JSONL 只读浏览。
+pub mod sessions;
+/// Skills 管理（cc-skills）：SSOT 本地导入、多 app 投影与冲突保护。
+pub mod skills;
 pub mod tool_takeover;
 /// 本模块供 proxy 层消费。proxy 层尚未实现时标记该模块为 unused 是错误的。
 /// 将在 proxy 模块接入后移除该属性。
