@@ -3,7 +3,7 @@
   "name": "claude-code-ccs-align",
   "title": "Claude Code 功能对齐 ccs（吸收全部缺失项）",
   "description": "父任务：把 cc-switch 中 Claude Code 部分的全部缺失功能吸收到 agent-switch。覆盖 8 个子任务：切换语义增强(地基)/Prompts/MCP/env开关/permissions·hooks/Skills/会话/DeepLink。分批推进：地基→P0→P1。",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "xm-chen",
   "assignee": "xm-chen",
   "createdAt": "2026-07-07",
-  "completedAt": null,
+  "completedAt": "2026-07-09",
   "branch": null,
   "base_branch": "main",
   "worktree_path": null,
@@ -30,6 +30,6 @@
   ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
+  "notes": "8 子任务全部完成并归档：切换语义增强(地基)/Prompts/MCP/env开关/Common Config(permissions·hooks·statusLine·outputStyle)/Skills/会话/DeepLink。跨子任务集成验收：cargo test 296 passed、npm test 72 passed、build/clippy -D warnings/fmt 全 clean；切换供应商与外围管理（MCP/Prompts/Skills/会话/DeepLink）联调无冲突，配置文件读写经既有 switch/sync 路径无死锁/覆盖。Spec 契约已沉淀（database/http-proxy/api-client/component-guidelines）。PRD 跨子任务 AC 全部满足。",
   "meta": {}
 }
