@@ -77,3 +77,10 @@ Correct:
 const meta = serializeClaudeEnv(initial.meta, switches);
 onSubmit({ ...body, meta }, true);
 ```
+
+## Skills / Sessions / DeepLink 页面模式
+
+- **SkillsPage**：外围管理页面，分卡片承载多种导入来源（本地目录 / zip / GitHub 安装 / 搜索发现）+ 顶部全局操作（检查更新 / 全部更新 / 同步全部）。每条 skill 卡片含各 app 启用开关 + 更新/卸载 + 折叠的备份恢复行。所有 hard-to-reverse 操作（卸载、覆盖、批量更新、外部安装、restore）必须 `window.confirm` 二次确认；联网操作按钮文案带 pending 态（"安装中..."）。loading/error/empty/conflict 分状态展示；`summarizeReports` 把 sync 报告压缩成 banner 文案。
+- **SessionsPage**：只读浏览，分页 + 搜索；消息详情按需拉取不缓存。不提供任何写入/删除入口。
+- **DeepLinkImportDialog**：preview 展示 `redacted_url`（不渲染原始含凭据 URL）+ 字段清单 + blocked 标记；skill 资源 blocked=false 但仍需用户显式确认才调 import。import 结果按 created/skipped/warnings/errors 分类展示。
+- **通用**：外围管理页面（Skills/MCP/Prompts/Sessions/DeepLink）都不挂 provider 切换，CRUD 后 `invalidateQueries` 刷新自身列表，不触碰 providers 状态。

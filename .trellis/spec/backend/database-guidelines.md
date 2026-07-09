@@ -141,6 +141,25 @@ Correct:
 prompts::claude::enable_prompt(&db, &id)?;
 ```
 
+## Skills 管理数据模型（SSOT + 多 app 投影，独立于切换）
+
+`skills` + `skill_repos` 表（迁移 v11 `create_skills`）是 Claude Code/Codex/Gemini/OpenCode/Hermes 的可管理 Skill 清单。SSOT 位于 `app_data_dir()/skills/<directory>`，按各 app 启用态 copy 投影到 `~/.claude/skills`、`~/.codex/skills` 等。它是**全局外围管理**，不挂在 provider 切换上；CRUD/toggle/sync 后即时投影。
+
+- Trigger：新增/维护 Skills 导入（本地目录/zip/GitHub）、多 app 启用、同步、卸载/备份/恢复、更新检查与批量更新、未托管扫描时，属于 DB schema + DAO + 文件系统副作用合约。
+- DB：`skills` 行含 `directory`(UNIQUE)、`source_type`(`local_dir`/`zip`/`github`)、`repo_owner/name/branch/subdir`、`content_hash`、各 app `enabled_*`；`skill_repos` 记录 GitHub 来源元数据与 `last_checked_at`/`last_known_hash`/`update_status`。
+- 安全：导入/解包拒绝符号链接与路径穿越（`..`/绝对路径）；目录名经 `sanitize_directory`；删除只删 SSOT/live skills/备份根下的托管项；非托管同名目录返回 conflict 不覆盖（`.agent-switch-skill.json` 标记）。
+- 网络：`install_repo`/`search`/`check_updates`/`update` 仅用户显式触发；下载走临时区 `skills_tmp/<uuid>` 用完即删；GitHub token 可选（`app_metadata` key `skills_github_token`，匿名首版可用）。
+- 更新回滚：`update` 分三阶段——网络/hash 失败（未改 SSOT）绝不删健康 skill；改写 SSOT 前强制备份，失败明确从**本次备份**恢复，不误用其它备份。
+- `land_skill` 是 `import_dir`/`install_repo`/`import_zip` 共用落地路径：校验 → SSOT copy → hash → `skills::create` → 按 enabled sync。新增导入来源必须复用它，禁止另写一条绕过路径安全/冲突保护的落地逻辑。
+
+## 会话管理数据模型（Claude Code JSONL 只读浏览）
+
+会话浏览**只读**扫描 `~/.claude/projects/**/*.jsonl`（跳过 `agent-*.jsonl`），无独立 DB 表。`GET /api/sessions` 返回分页/搜索列表，`GET /api/sessions/messages` 返回消息详情。`source_path` 经 `canonicalize` 限定在 sessions 根目录且仅 `.jsonl`；仅支持 `app_type=claude-code`（其它 400）。不写任何 live 文件，不触碰 `settings.json`/`projects/` 之外的路径。
+
+## Deep Link 导入数据流（`ccswitch://v1/import`，四类资源）
+
+Deep Link 对外只解析/预览（`POST /api/deeplink/preview`）；只有显式 `POST /api/deeplink/import` 才写 DB 或触发投影。`import` 为 async（skill 资源需联网安装）。四类资源：provider（创建加密 endpoint + direct provider，`settings_config` 仅存 `endpoint_id` 不含密钥）、prompt（写 prompts 表）、mcp（非覆盖写入 mcp_servers）、skill（接入 `services::skills::install_repo` 落地 SSOT，默认不启用 app 投影）。安全：`redact_url` 对 `SENSITIVE_KEYS`（apiKey/token/config 等）脱敏；GitHub token 不经 Deep Link 透传，由 Skills 服务端从 `app_metadata` 读取。
+
 ## 启动期数据回填（区别于 schema 迁移）
 
 schema 迁移（`MIGRATIONS`）只做 DDL；跨表的**数据**回填（如升级时把存量 `tool_takeover.enabled=1` 桥接成默认 `providers` 行）不放进迁移 SQL，而是独立的 DAO 函数在 `run_migrations` 之后、`AppState` 构造之前调用。

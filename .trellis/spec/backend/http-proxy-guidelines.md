@@ -153,3 +153,28 @@ Claude Code 的 MCP 服务器配置在 **`~/.claude.json`**——这是 `~/.clau
 - **未安装跳过**：`~/.claude.json` 与其兄弟 `~/.claude/` 目录均不存在时，同步为 no-op，不凭空建文件。判断兄弟目录用 **path 自身的 parent** 推导（`path.parent().join(".claude")`），不查真实 home——生产语义正确（两者同在 home 下），测试用临时目录时天然隔离。
 - **Windows `cmd /c` 包装**：stdio 类型且 command ∈ {npx,npm,yarn,pnpm,node,bun,deno} 时改写为 `cmd /c <command> <args>`（`#[cfg(windows)]`）；目标路径为 WSL（`\\wsl$\` / `\\wsl.localhost\`）时跳过。
 - **不加密**：MCP 规范本就明文写进 `~/.claude.json` 供 Claude Code 读，DB 存明文与 live 一致，不走 crypto。这与 endpoints/accounts 的 direct 凭证加密边界互不重叠。
+
+## Skills 管理 API（`/api/skills`，独立于切换）
+
+Skills 是外围管理独立 service，CRUD/toggle/sync 后即时投影，不挂 provider switch。路由前缀 `/api/skills`。
+
+- **本地导入**：`POST /import-dir`（本地目录）需含 `SKILL.md`；`POST /import-zip`（本地 zip）安全解包后落地。两者复用 `land_skill`，校验入口文件 + 拒绝符号链接 + `sanitize_directory`。
+- **GitHub 安装**：`POST /install-repo` 异步下载 tarball → 临时区安全解包（tar-slip/符号链接防护）→ `land_skill` 落地 + 写 `skill_repos` 元数据。GitHub token 从 `app_metadata` 读取，不经请求体透传。
+- **多 app 启用**：`POST /{id}/{app}` 切换 `enabled_*` 并即时 sync；目标非托管同名目录返回 conflict 不覆盖。
+- **同步/状态**：`POST /sync` 全量重建（只删托管项）；`GET /status` 各 app 投影计数与冲突。
+- **卸载/备份/恢复**：`DELETE /{id}` 卸载前强制备份（SSOT 副本 + DB 行快照）；`GET /backups?directory=` 列备份；`POST /restore` 从备份恢复 SSOT/DB 并重投影。
+- **更新**：`POST /check-updates` 比对远端 hash 写回 `skill_repos`；`POST /update`（body `{ids?: string[]}`，缺省=全部 GitHub 来源）下载新版→备份旧→替换→重算 hash→重新 sync，失败从本次备份回滚。
+- **发现/扫描**：`POST /search`（body `{query}`）走 GitHub Search API；`POST /scan-unmanaged` 只读扫描各 app live 目录非托管项。
+- **网络边界**：所有联网端点仅用户显式触发，不在启动时自动拉取；`map_error` 把 GitHub 限速/受限归 503，参数/路径/冲突归 400。
+
+## 会话管理 API（`/api/sessions`，只读）
+
+- `GET /api/sessions`：分页 + 搜索扫描 `~/.claude/projects/**/*.jsonl`（跳过 `agent-*.jsonl`）；`app_type=claude-code` 必填，其它 400。
+- `GET /api/sessions/messages`：`source_path` 经 `canonicalize` 限定在 sessions 根目录且仅 `.jsonl`。
+- 只读：不写 live 文件，不触碰 `settings.json`。
+
+## Deep Link API（`/api/deeplink`，解析/预览 + 确认导入）
+
+- `POST /api/deeplink/preview`：只解析 `ccswitch://v1/import`，不写 DB/不投影。`redact_url` 对 `SENSITIVE_KEYS`（apiKey/authToken/token/config 等）脱敏。
+- `POST /api/deeplink/import`：async（skill 资源需联网）。四类资源：provider（加密 endpoint + direct provider，`settings_config` 仅存 `endpoint_id`）、prompt、mcp（非覆盖）、skill（接入 `install_repo`，默认不启用 app 投影，token 不透传）。
+- 安全：preview 与 import 分离；import 必须用户显式确认后调用；不记录请求正文/headers/凭据。
