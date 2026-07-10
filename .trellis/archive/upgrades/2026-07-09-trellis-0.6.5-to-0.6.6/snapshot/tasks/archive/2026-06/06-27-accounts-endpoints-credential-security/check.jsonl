@@ -1,0 +1,5 @@
+{"file":".trellis/spec/guides/project-conventions.md","reason":"检查实现是否遵守中文文档、参考项目标注、技术栈决策处理和需求质疑规则。"}
+{"file":".trellis/spec/guides/app-stack-conventions.md","reason":"检查 Rust 后端分层、DAO 不做加密、HTTP handler 不直接拼 SQL 等约定是否被遵守。"}
+{"file":".trellis/tasks/06-27-accounts-endpoints-credential-security/prd.md","reason":"检查实现是否满足账号/端点两层模型、凭据加密、Codex OAuth、脱敏和中文 UI 验收标准。"}
+{"file":".trellis/tasks/06-27-accounts-endpoints-credential-security/design.md","reason":"检查实现是否符合数据模型、加密流程、OAuth 流程、API 契约和降级策略设计。"}
+{"file":".trellis/tasks/06-27-accounts-endpoints-credential-security/implement.md","reason":"检查实现是否按迁移、DAO、加密、OAuth、API、前端顺序完成并运行验证命令。"}

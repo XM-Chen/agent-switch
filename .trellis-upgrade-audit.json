@@ -1,0 +1,4720 @@
+{
+  "generated_at": "2026-07-09T12:45:09.973565+00:00",
+  "project": "E:\\SynologyDrive\\git_files\\agent-switch",
+  "sources": {
+    "npm_package": "@mindfoldhq/trellis",
+    "github_repo": "mindfold-ai/Trellis"
+  },
+  "package_manager": "npm",
+  "package_manager_details": {
+    "selected": "npm",
+    "markers": [
+      {
+        "file": "package-lock.json",
+        "manager": "npm"
+      }
+    ],
+    "conflict": false,
+    "conflicting_managers": []
+  },
+  "project_dependency": null,
+  "current_versions": {
+    "global_cli": {
+      "command": [
+        "trellis",
+        "--version"
+      ],
+      "ok": false,
+      "error": "not found: trellis"
+    },
+    "local_cli": null,
+    "local_installed_package": null
+  },
+  "npm_global": {
+    "npm_available": true,
+    "trellis_path": "C:\\Users\\chen_\\AppData\\Roaming\\npm\\trellis.CMD",
+    "prefix": {
+      "command": [
+        "npm",
+        "prefix",
+        "-g"
+      ],
+      "ok": false,
+      "error": "not found: npm"
+    },
+    "root": {
+      "command": [
+        "npm",
+        "root",
+        "-g"
+      ],
+      "ok": false,
+      "error": "not found: npm"
+    }
+  },
+  "lockfile_versions": {
+    "package-lock.json": {
+      "path": "E:\\SynologyDrive\\git_files\\agent-switch\\package-lock.json",
+      "ok": true,
+      "versions": []
+    }
+  },
+  "latest": {
+    "npm": {
+      "command": [
+        "npm",
+        "view",
+        "@mindfoldhq/trellis",
+        "dist-tags.latest",
+        "--json"
+      ],
+      "ok": false,
+      "error": "not found: npm"
+    },
+    "github_tags": {
+      "command": [
+        "git",
+        "ls-remote",
+        "--tags",
+        "--refs",
+        "https://github.com/mindfold-ai/Trellis.git"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "stderr": "",
+      "tags_count": 133,
+      "latest_semver_tag": "v0.6.6",
+      "sample_recent_tags": [
+        "v0.6.0-beta.7",
+        "v0.6.0-beta.8",
+        "v0.6.0-beta.9",
+        "v0.6.0-rc.0",
+        "v0.6.1",
+        "v0.6.2",
+        "v0.6.3",
+        "v0.6.4",
+        "v0.6.5",
+        "v0.6.6"
+      ]
+    },
+    "github_release": {
+      "ok": false,
+      "url": "https://api.github.com/repos/mindfold-ai/Trellis/releases/latest",
+      "error": "HTTP 404: Not Found"
+    },
+    "github_docs": {
+      "ok": true,
+      "docs": {
+        "v0.6.6:CHANGELOG.md": {
+          "ok": false,
+          "url": "https://raw.githubusercontent.com/mindfold-ai/Trellis/v0.6.6/CHANGELOG.md",
+          "error": "HTTP 404: Not Found"
+        },
+        "v0.6.6:CHANGELOG": {
+          "ok": false,
+          "url": "https://raw.githubusercontent.com/mindfold-ai/Trellis/v0.6.6/CHANGELOG",
+          "error": "HTTP 404: Not Found"
+        },
+        "v0.6.6:changelog.md": {
+          "ok": false,
+          "url": "https://raw.githubusercontent.com/mindfold-ai/Trellis/v0.6.6/changelog.md",
+          "error": "HTTP 404: Not Found"
+        },
+        "v0.6.6:README.md": {
+          "ok": true,
+          "url": "https://raw.githubusercontent.com/mindfold-ai/Trellis/v0.6.6/README.md",
+          "versions": [],
+          "summary": "<p align=\"center\">\n<picture>\n<source srcset=\"assets/trellis.png\" media=\"(prefers-color-scheme: dark)\">\n<source srcset=\"assets/trellis.png\" media=\"(prefers-color-scheme: light)\">\n<img src=\"assets/trellis.png\" alt=\"Trellis Logo\" width=\"500\" style=\"image-rendering: -webkit-optimize-contrast; image-rendering: crisp-edges;\">\n</picture>\n</p>\n<p align=\"center\">\n<strong>An out-of-the-box engineering framework for AI coding.</strong><br/>\n<sub>AI writes code fast, but every session it starts from scratch — no memory of your project, your conventions, or your team's requirements. Trellis persists specs,",
+          "truncated": false
+        },
+        "main:CHANGELOG.md": {
+          "ok": false,
+          "url": "https://raw.githubusercontent.com/mindfold-ai/Trellis/main/CHANGELOG.md",
+          "error": "HTTP 404: Not Found"
+        },
+        "main:CHANGELOG": {
+          "ok": false,
+          "url": "https://raw.githubusercontent.com/mindfold-ai/Trellis/main/CHANGELOG",
+          "error": "HTTP 404: Not Found"
+        },
+        "main:changelog.md": {
+          "ok": false,
+          "url": "https://raw.githubusercontent.com/mindfold-ai/Trellis/main/changelog.md",
+          "error": "HTTP 404: Not Found"
+        },
+        "main:README.md": {
+          "ok": true,
+          "url": "https://raw.githubusercontent.com/mindfold-ai/Trellis/main/README.md",
+          "versions": [],
+          "summary": "<p align=\"center\">\n<picture>\n<source srcset=\"assets/trellis.png\" media=\"(prefers-color-scheme: dark)\">\n<source srcset=\"assets/trellis.png\" media=\"(prefers-color-scheme: light)\">\n<img src=\"assets/trellis.png\" alt=\"Trellis Logo\" width=\"500\" style=\"image-rendering: -webkit-optimize-contrast; image-rendering: crisp-edges;\">\n</picture>\n</p>\n<p align=\"center\">\n<strong>An out-of-the-box engineering framework for AI coding.</strong><br/>\n<sub>AI writes code fast, but every session it starts from scratch — no memory of your project, your conventions, or your team's requirements. Trellis persists specs,",
+          "truncated": false
+        }
+      }
+    },
+    "source_version_check": {
+      "ok": true,
+      "mismatch": false,
+      "versions": {
+        "github_tag": "0.6.6"
+      },
+      "unique_versions": [
+        "0.6.6"
+      ],
+      "unavailable_sources": [
+        "npm",
+        "github_release"
+      ],
+      "readme_observed_versions": [],
+      "pause_required": false,
+      "note": "source versions agree"
+    }
+  },
+  "git_status": {
+    "command": [
+      "git",
+      "status",
+      "--short"
+    ],
+    "ok": true,
+    "returncode": 0,
+    "stderr": "",
+    "dirty": false,
+    "entries": [],
+    "truncated": false
+  },
+  "trellis_inventory": {
+    "exists": true,
+    "root": "E:\\SynologyDrive\\git_files\\agent-switch\\.trellis",
+    "days_window": 90,
+    "totals": {
+      "files": 395,
+      "bytes": 1982298,
+      "active_files": 395
+    },
+    "top_dirs": {
+      ".developer": {
+        "files": 1,
+        "bytes": 57
+      },
+      ".gitignore": {
+        "files": 1,
+        "bytes": 461
+      },
+      ".template-hashes.json": {
+        "files": 1,
+        "bytes": 53019
+      },
+      ".version": {
+        "files": 1,
+        "bytes": 5
+      },
+      "config.yaml": {
+        "files": 1,
+        "bytes": 4341
+      },
+      "workflow.md": {
+        "files": 1,
+        "bytes": 37294
+      },
+      ".runtime": {
+        "files": 3,
+        "bytes": 24
+      },
+      "agents": {
+        "files": 2,
+        "bytes": 4881
+      },
+      "scripts": {
+        "files": 75,
+        "bytes": 713314
+      },
+      "workspace": {
+        "files": 3,
+        "bytes": 33046
+      },
+      "tasks": {
+        "files": 277,
+        "bytes": 948425
+      },
+      "spec": {
+        "files": 29,
+        "bytes": 187431
+      }
+    },
+    "preserve_candidates": [
+      {
+        "path": ".developer",
+        "bytes": 57,
+        "modified": "2026-06-26T10:51:32.838765+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": ".gitignore",
+        "bytes": 461,
+        "modified": "2026-06-26T10:51:31.689485+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": ".runtime/update-check-claude_09dd99da-16b6-4a05-bc82-cf7cb4c05778.marker",
+        "bytes": 8,
+        "modified": "2026-06-29T04:20:21.687329+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": ".runtime/update-check-claude_5f2b8158-5b13-4ed1-b5dc-19c2c8d06ae6.marker",
+        "bytes": 8,
+        "modified": "2026-06-29T01:52:58.189670+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": ".runtime/update-check-claude_eb5a6ea9-1662-4941-bb42-45fc89a2d15d.marker",
+        "bytes": 8,
+        "modified": "2026-06-28T08:07:03.787760+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": ".template-hashes.json",
+        "bytes": 53019,
+        "modified": "2026-06-26T10:51:32.612136+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": ".version",
+        "bytes": 5,
+        "modified": "2026-06-26T10:51:31.713839+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "agents/check.md",
+        "bytes": 2537,
+        "modified": "2026-06-26T10:51:31.692486+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "agents/implement.md",
+        "bytes": 2344,
+        "modified": "2026-06-26T10:51:31.692486+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "config.yaml",
+        "bytes": 4341,
+        "modified": "2026-06-26T10:51:31.690486+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/__init__.py",
+        "bytes": 105,
+        "modified": "2026-06-26T10:51:31.687487+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/__pycache__/__init__.cpython-313.pyc",
+        "bytes": 240,
+        "modified": "2026-06-26T11:08:56.827203+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/__pycache__/add_session.cpython-313.pyc",
+        "bytes": 21484,
+        "modified": "2026-06-26T11:08:56.856841+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/__pycache__/get_context.cpython-313.pyc",
+        "bytes": 490,
+        "modified": "2026-06-26T11:08:56.943172+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/__pycache__/get_developer.cpython-313.pyc",
+        "bytes": 815,
+        "modified": "2026-06-26T11:08:56.949031+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/__pycache__/init_developer.cpython-313.pyc",
+        "bytes": 1804,
+        "modified": "2026-06-26T11:08:56.971159+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/__pycache__/task.cpython-313.pyc",
+        "bytes": 20779,
+        "modified": "2026-06-26T11:08:56.982265+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/add_session.py",
+        "bytes": 18544,
+        "modified": "2026-06-26T10:51:31.635878+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__init__.py",
+        "bytes": 2771,
+        "modified": "2026-06-26T10:51:31.675929+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/__init__.cpython-312.pyc",
+        "bytes": 2815,
+        "modified": "2026-06-28T08:02:43.139564+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/__init__.cpython-313.pyc",
+        "bytes": 2815,
+        "modified": "2026-06-26T10:51:32.723932+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/active_task.cpython-312.pyc",
+        "bytes": 25032,
+        "modified": "2026-06-28T08:02:43.230559+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/active_task.cpython-313.pyc",
+        "bytes": 25890,
+        "modified": "2026-06-26T10:51:32.787810+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/cli_adapter.cpython-313.pyc",
+        "bytes": 26430,
+        "modified": "2026-06-26T11:08:56.906402+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/config.cpython-312.pyc",
+        "bytes": 15670,
+        "modified": "2026-06-28T08:02:43.350307+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/config.cpython-313.pyc",
+        "bytes": 15726,
+        "modified": "2026-06-26T10:52:43.979756+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/developer.cpython-312.pyc",
+        "bytes": 6007,
+        "modified": "2026-06-28T08:24:07.087534+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/developer.cpython-313.pyc",
+        "bytes": 5966,
+        "modified": "2026-06-26T10:51:32.834764+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/git.cpython-312.pyc",
+        "bytes": 1333,
+        "modified": "2026-06-28T08:07:03.268033+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/git.cpython-313.pyc",
+        "bytes": 1319,
+        "modified": "2026-06-26T10:57:29.620770+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/git_context.cpython-312.pyc",
+        "bytes": 3635,
+        "modified": "2026-06-28T08:07:03.238012+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/git_context.cpython-313.pyc",
+        "bytes": 3665,
+        "modified": "2026-06-26T10:57:29.614772+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/io.cpython-312.pyc",
+        "bytes": 1530,
+        "modified": "2026-06-28T08:02:43.466555+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/io.cpython-313.pyc",
+        "bytes": 1504,
+        "modified": "2026-06-26T10:52:44.008468+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/log.cpython-312.pyc",
+        "bytes": 2265,
+        "modified": "2026-06-28T08:23:56.539762+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/log.cpython-313.pyc",
+        "bytes": 2329,
+        "modified": "2026-06-26T10:58:04.825085+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/packages_context.cpython-312.pyc",
+        "bytes": 8781,
+        "modified": "2026-06-28T08:07:03.345248+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/packages_context.cpython-313.pyc",
+        "bytes": 9124,
+        "modified": "2026-06-26T10:57:29.676296+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/paths.cpython-312.pyc",
+        "bytes": 12585,
+        "modified": "2026-06-28T08:02:43.174668+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/paths.cpython-313.pyc",
+        "bytes": 12563,
+        "modified": "2026-06-26T10:51:32.737934+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/safe_commit.cpython-312.pyc",
+        "bytes": 12209,
+        "modified": "2026-06-28T08:23:56.690508+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/safe_commit.cpython-313.pyc",
+        "bytes": 12089,
+        "modified": "2026-06-26T10:58:04.912662+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/session_context.cpython-312.pyc",
+        "bytes": 30808,
+        "modified": "2026-06-28T08:07:03.310940+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/session_context.cpython-313.pyc",
+        "bytes": 31343,
+        "modified": "2026-06-26T10:57:29.656770+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/task_context.cpython-312.pyc",
+        "bytes": 8666,
+        "modified": "2026-06-28T08:23:56.715575+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/task_context.cpython-313.pyc",
+        "bytes": 8873,
+        "modified": "2026-06-26T10:58:04.924677+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/task_queue.cpython-313.pyc",
+        "bytes": 5574,
+        "modified": "2026-06-26T11:08:56.936624+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/task_store.cpython-312.pyc",
+        "bytes": 26583,
+        "modified": "2026-06-28T08:23:56.639993+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/task_store.cpython-313.pyc",
+        "bytes": 26903,
+        "modified": "2026-06-26T10:58:04.888664+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/task_utils.cpython-312.pyc",
+        "bytes": 9022,
+        "modified": "2026-06-28T08:23:56.577771+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/task_utils.cpython-313.pyc",
+        "bytes": 9093,
+        "modified": "2026-06-26T10:58:04.839101+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/tasks.cpython-312.pyc",
+        "bytes": 4258,
+        "modified": "2026-06-28T08:02:43.439837+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/tasks.cpython-313.pyc",
+        "bytes": 4274,
+        "modified": "2026-06-26T10:52:43.995467+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/trellis_config.cpython-312.pyc",
+        "bytes": 5049,
+        "modified": "2026-06-28T08:02:50.879998+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/trellis_config.cpython-313.pyc",
+        "bytes": 5152,
+        "modified": "2026-06-26T10:53:28.802582+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/types.cpython-312.pyc",
+        "bytes": 3831,
+        "modified": "2026-06-28T08:02:43.488821+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/types.cpython-313.pyc",
+        "bytes": 3913,
+        "modified": "2026-06-26T10:52:44.022481+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/workflow_phase.cpython-312.pyc",
+        "bytes": 8068,
+        "modified": "2026-06-28T08:07:03.412172+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/__pycache__/workflow_phase.cpython-313.pyc",
+        "bytes": 8122,
+        "modified": "2026-06-26T10:57:29.699179+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/active_task.py",
+        "bytes": 20556,
+        "modified": "2026-06-26T10:51:31.639875+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/cli_adapter.py",
+        "bytes": 29734,
+        "modified": "2026-06-26T10:51:31.641876+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/config.py",
+        "bytes": 13913,
+        "modified": "2026-06-26T10:51:31.643878+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/developer.py",
+        "bytes": 5163,
+        "modified": "2026-06-26T10:51:31.644875+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/git.py",
+        "bytes": 893,
+        "modified": "2026-06-26T10:51:31.646875+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/git_context.py",
+        "bytes": 3074,
+        "modified": "2026-06-26T10:51:31.648875+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/io.py",
+        "bytes": 909,
+        "modified": "2026-06-26T10:51:31.650877+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/log.py",
+        "bytes": 1119,
+        "modified": "2026-06-26T10:51:31.652879+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/packages_context.py",
+        "bytes": 7868,
+        "modified": "2026-06-26T10:51:31.654889+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/paths.py",
+        "bytes": 12458,
+        "modified": "2026-06-26T10:51:31.656887+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/safe_commit.py",
+        "bytes": 11377,
+        "modified": "2026-06-26T10:51:31.658887+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/session_context.py",
+        "bytes": 26031,
+        "modified": "2026-06-26T10:51:31.660885+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/task_context.py",
+        "bytes": 7072,
+        "modified": "2026-06-26T10:51:31.663889+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/task_queue.py",
+        "bytes": 5009,
+        "modified": "2026-06-26T10:51:31.664890+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/task_store.py",
+        "bytes": 26522,
+        "modified": "2026-06-26T10:51:31.667884+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/task_utils.py",
+        "bytes": 8645,
+        "modified": "2026-06-26T10:51:31.669930+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/tasks.py",
+        "bytes": 3178,
+        "modified": "2026-06-26T10:51:31.661885+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/trellis_config.py",
+        "bytes": 3949,
+        "modified": "2026-06-26T10:51:31.670928+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/types.py",
+        "bytes": 2951,
+        "modified": "2026-06-26T10:51:31.672928+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/common/workflow_phase.py",
+        "bytes": 6694,
+        "modified": "2026-06-26T10:51:31.674932+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/get_context.py",
+        "bytes": 318,
+        "modified": "2026-06-26T10:51:31.677929+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/get_developer.py",
+        "bytes": 446,
+        "modified": "2026-06-26T10:51:31.678930+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/hooks/__pycache__/linear_sync.cpython-313.pyc",
+        "bytes": 10171,
+        "modified": "2026-06-26T11:08:56.967135+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/hooks/linear_sync.py",
+        "bytes": 7676,
+        "modified": "2026-06-26T10:51:31.682479+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/init_developer.py",
+        "bytes": 1054,
+        "modified": "2026-06-26T10:51:31.683486+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "scripts/task.py",
+        "bytes": 18688,
+        "modified": "2026-06-26T10:51:31.686486+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/backend/database-guidelines.md",
+        "bytes": 16325,
+        "modified": "2026-07-09T08:25:58.399807+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/backend/directory-structure.md",
+        "bytes": 2241,
+        "modified": "2026-07-06T01:46:06.519868+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/backend/http-proxy-guidelines.md",
+        "bytes": 12640,
+        "modified": "2026-07-09T08:27:23.573293+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/backend/index.md",
+        "bytes": 1913,
+        "modified": "2026-07-03T11:57:18.652274+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/backend/portability-guidelines.md",
+        "bytes": 1373,
+        "modified": "2026-07-03T11:57:53.635543+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/backend/quality-guidelines.md",
+        "bytes": 843,
+        "modified": "2026-07-03T11:57:53.827825+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/backend/translator-guidelines.md",
+        "bytes": 1532,
+        "modified": "2026-07-03T11:57:53.182062+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/frontend/api-client-guidelines.md",
+        "bytes": 4623,
+        "modified": "2026-07-09T08:27:48.567800+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/frontend/component-guidelines.md",
+        "bytes": 5336,
+        "modified": "2026-07-09T08:28:31.918358+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/frontend/directory-structure.md",
+        "bytes": 1288,
+        "modified": "2026-07-06T01:44:37.969671+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/frontend/index.md",
+        "bytes": 950,
+        "modified": "2026-07-06T01:45:09.722311+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/frontend/quality-guidelines.md",
+        "bytes": 461,
+        "modified": "2026-07-03T11:58:50.341869+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/frontend/state-management.md",
+        "bytes": 629,
+        "modified": "2026-07-03T11:58:22.463492+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/guides/app-stack-conventions.md",
+        "bytes": 53036,
+        "modified": "2026-07-06T07:57:48.589447+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/guides/code-reuse-thinking-guide.md",
+        "bytes": 7381,
+        "modified": "2026-06-26T10:51:31.698838+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/guides/cross-layer-thinking-guide.md",
+        "bytes": 14979,
+        "modified": "2026-06-26T10:51:31.698838+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/guides/index.md",
+        "bytes": 4468,
+        "modified": "2026-06-27T07:40:15.319261+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/guides/project-conventions.md",
+        "bytes": 5139,
+        "modified": "2026-06-27T04:53:52.748704+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/trellis-runtime/platform-component-guidelines.md",
+        "bytes": 4363,
+        "modified": "2026-06-26T11:07:18.695946+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/trellis-runtime/platform-directory-structure.md",
+        "bytes": 5313,
+        "modified": "2026-06-26T11:06:28.862417+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/trellis-runtime/platform-hook-guidelines.md",
+        "bytes": 4865,
+        "modified": "2026-06-26T11:07:19.186978+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/trellis-runtime/platform-quality-guidelines.md",
+        "bytes": 4013,
+        "modified": "2026-06-26T11:07:59.601888+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/trellis-runtime/platform-state-management.md",
+        "bytes": 4508,
+        "modified": "2026-06-26T11:07:19.377473+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/trellis-runtime/platform-type-safety.md",
+        "bytes": 4753,
+        "modified": "2026-06-26T11:07:59.291710+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/trellis-runtime/runtime-directory-structure.md",
+        "bytes": 5722,
+        "modified": "2026-06-26T11:05:17.099298+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/trellis-runtime/runtime-error-handling.md",
+        "bytes": 5125,
+        "modified": "2026-06-26T11:05:17.479189+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/trellis-runtime/runtime-logging.md",
+        "bytes": 4078,
+        "modified": "2026-06-26T11:06:28.284963+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/trellis-runtime/runtime-persistence.md",
+        "bytes": 5502,
+        "modified": "2026-06-26T11:05:17.313551+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "spec/trellis-runtime/runtime-quality.md",
+        "bytes": 4032,
+        "modified": "2026-06-26T11:06:28.381297+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/00-bootstrap-guidelines/prd.md",
+        "bytes": 5518,
+        "modified": "2026-06-26T11:07:59.787429+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/00-bootstrap-guidelines/task.json",
+        "bytes": 757,
+        "modified": "2026-06-30T00:51:45.848134+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/check.jsonl",
+        "bytes": 2092,
+        "modified": "2026-06-29T06:18:35+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/implement.jsonl",
+        "bytes": 1533,
+        "modified": "2026-06-29T06:18:36+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/prd.md",
+        "bytes": 19284,
+        "modified": "2026-06-27T04:21:35+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/credential-storage-comparison.md",
+        "bytes": 4105,
+        "modified": "2026-06-27T03:48:00+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/endpoint-testing-comparison.md",
+        "bytes": 7039,
+        "modified": "2026-06-26T16:46:09+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/failover-policy-comparison.md",
+        "bytes": 8693,
+        "modified": "2026-06-26T16:21:03+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/model-alias-mapping-comparison.md",
+        "bytes": 7732,
+        "modified": "2026-06-27T03:29:35+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/task.json",
+        "bytes": 914,
+        "modified": "2026-06-29T07:28:24+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/check.jsonl",
+        "bytes": 942,
+        "modified": "2026-06-27T08:06:24.550817+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/design.md",
+        "bytes": 10731,
+        "modified": "2026-06-27T07:58:49.525719+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/implement.jsonl",
+        "bytes": 820,
+        "modified": "2026-06-27T08:06:24.486849+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/implement.md",
+        "bytes": 6614,
+        "modified": "2026-06-27T08:02:36.712238+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/prd.md",
+        "bytes": 7327,
+        "modified": "2026-06-27T07:57:17.038310+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/research/accounts-endpoints-credentials-comparison.md",
+        "bytes": 8210,
+        "modified": "2026-06-27T07:55:24.472764+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/research/implementation-verification.md",
+        "bytes": 3713,
+        "modified": "2026-06-27T09:43:02.718239+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/task.json",
+        "bytes": 642,
+        "modified": "2026-06-27T14:30:44.926718+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/check.jsonl",
+        "bytes": 949,
+        "modified": "2026-06-29T02:09:49+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/design.md",
+        "bytes": 14232,
+        "modified": "2026-06-29T03:21:17+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/implement.jsonl",
+        "bytes": 1227,
+        "modified": "2026-06-29T02:09:49+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/implement.md",
+        "bytes": 7616,
+        "modified": "2026-06-29T03:23:36+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/prd.md",
+        "bytes": 4725,
+        "modified": "2026-06-27T04:46:03+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/task.json",
+        "bytes": 587,
+        "modified": "2026-06-29T03:36:23+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-app-shell-local-service/check.jsonl",
+        "bytes": 717,
+        "modified": "2026-06-27T05:03:03.308038+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-app-shell-local-service/design.md",
+        "bytes": 9915,
+        "modified": "2026-06-27T05:02:16.839617+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-app-shell-local-service/implement.jsonl",
+        "bytes": 633,
+        "modified": "2026-06-27T05:02:55.932918+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-app-shell-local-service/implement.md",
+        "bytes": 5972,
+        "modified": "2026-06-27T05:02:45.747566+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-app-shell-local-service/prd.md",
+        "bytes": 7239,
+        "modified": "2026-06-27T05:01:35.195925+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-app-shell-local-service/research/app-shell-tech-stack-decisions.md",
+        "bytes": 4157,
+        "modified": "2026-06-27T05:00:26.215295+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-app-shell-local-service/research/implementation-verification.md",
+        "bytes": 2654,
+        "modified": "2026-06-27T07:38:03.681574+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-app-shell-local-service/task.json",
+        "bytes": 612,
+        "modified": "2026-06-27T07:49:50.808991+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-06-27T04:21:19+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/design.md",
+        "bytes": 3304,
+        "modified": "2026-06-28T15:13:28+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-06-27T04:21:19+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/implement.md",
+        "bytes": 1477,
+        "modified": "2026-06-28T15:13:37+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/prd.md",
+        "bytes": 3199,
+        "modified": "2026-06-28T15:12:59+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/task.json",
+        "bytes": 588,
+        "modified": "2026-06-29T01:33:26.049049+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-06-27T04:21:19.403445+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/design.md",
+        "bytes": 3304,
+        "modified": "2026-06-28T15:13:28.573644+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-06-27T04:21:19.403445+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/implement.md",
+        "bytes": 1477,
+        "modified": "2026-06-28T15:13:37.098432+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/prd.md",
+        "bytes": 3199,
+        "modified": "2026-06-28T15:12:59.872298+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/task.json",
+        "bytes": 588,
+        "modified": "2026-06-28T15:30:57.374781+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-import-export-settings/check.jsonl",
+        "bytes": 1122,
+        "modified": "2026-06-29T04:15:35+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-import-export-settings/design.md",
+        "bytes": 9596,
+        "modified": "2026-06-29T04:18:07+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-import-export-settings/implement.jsonl",
+        "bytes": 1437,
+        "modified": "2026-06-29T04:15:34+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-import-export-settings/implement.md",
+        "bytes": 3070,
+        "modified": "2026-06-29T00:52:33+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-import-export-settings/prd.md",
+        "bytes": 9980,
+        "modified": "2026-06-29T04:17:47+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-import-export-settings/task.json",
+        "bytes": 579,
+        "modified": "2026-06-29T05:34:55+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/check.jsonl",
+        "bytes": 792,
+        "modified": "2026-06-27T14:36:52.430257+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/design.md",
+        "bytes": 8006,
+        "modified": "2026-06-27T14:35:46.877619+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/implement.jsonl",
+        "bytes": 613,
+        "modified": "2026-06-27T14:37:30.280641+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/implement.md",
+        "bytes": 2549,
+        "modified": "2026-06-27T14:36:18.125885+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/prd.md",
+        "bytes": 8091,
+        "modified": "2026-06-27T14:35:46.765958+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/research/model-management-comparison.md",
+        "bytes": 1387,
+        "modified": "2026-06-27T14:37:01.387238+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/task.json",
+        "bytes": 626,
+        "modified": "2026-06-28T06:15:29.127654+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-06-27T04:21:19.159670+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/design.md",
+        "bytes": 10728,
+        "modified": "2026-06-28T13:32:06.596323+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-06-27T04:21:19.158666+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/implement.md",
+        "bytes": 4581,
+        "modified": "2026-06-28T13:36:09.329927+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/prd.md",
+        "bytes": 6716,
+        "modified": "2026-06-28T13:20:55.209643+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/task.json",
+        "bytes": 604,
+        "modified": "2026-06-28T15:01:32.903831+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-routing-failover-core/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-06-27T04:21:18.950296+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-routing-failover-core/design.md",
+        "bytes": 19505,
+        "modified": "2026-06-28T09:11:52.829896+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-routing-failover-core/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-06-27T04:21:18.949289+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-routing-failover-core/implement.md",
+        "bytes": 10318,
+        "modified": "2026-06-28T11:36:18.139619+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-routing-failover-core/prd.md",
+        "bytes": 11987,
+        "modified": "2026-06-28T09:11:01.410925+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-routing-failover-core/task.json",
+        "bytes": 583,
+        "modified": "2026-06-28T11:36:52.000093+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-06-27T04:21:18.397892+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/design.md",
+        "bytes": 10658,
+        "modified": "2026-06-28T06:38:14.848677+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-06-27T04:21:18.397892+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/implement.md",
+        "bytes": 4876,
+        "modified": "2026-06-28T06:38:51.130321+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/prd.md",
+        "bytes": 6781,
+        "modified": "2026-06-28T06:37:04.438427+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/task.json",
+        "bytes": 610,
+        "modified": "2026-06-28T08:23:56.737373+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-29-dashboard-overview/check.jsonl",
+        "bytes": 681,
+        "modified": "2026-06-29T08:48:00.751267+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-29-dashboard-overview/implement.jsonl",
+        "bytes": 902,
+        "modified": "2026-06-29T08:48:00.545703+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-29-dashboard-overview/prd.md",
+        "bytes": 7065,
+        "modified": "2026-06-29T08:29:43.217527+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-29-dashboard-overview/task.json",
+        "bytes": 704,
+        "modified": "2026-06-29T09:50:25.086467+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-06-30T02:02:51.467024+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/design.md",
+        "bytes": 4762,
+        "modified": "2026-06-30T10:06:07.557256+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-06-30T02:02:51.455917+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/implement.md",
+        "bytes": 2565,
+        "modified": "2026-06-30T11:01:23.495859+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/prd.md",
+        "bytes": 5042,
+        "modified": "2026-06-30T10:04:30.476160+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/task.json",
+        "bytes": 589,
+        "modified": "2026-06-30T11:05:01.332924+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/check.jsonl",
+        "bytes": 530,
+        "modified": "2026-06-30T11:14:56.970293+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/design.md",
+        "bytes": 10113,
+        "modified": "2026-06-30T11:13:31.995853+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/implement.jsonl",
+        "bytes": 764,
+        "modified": "2026-06-30T11:14:56.894802+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/implement.md",
+        "bytes": 4158,
+        "modified": "2026-06-30T11:14:04.208992+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/prd.md",
+        "bytes": 7131,
+        "modified": "2026-06-30T11:12:02.457316+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/task.json",
+        "bytes": 591,
+        "modified": "2026-07-01T01:44:11.420356+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-codebase-audit/check.jsonl",
+        "bytes": 287,
+        "modified": "2026-07-03T01:58:56.607631+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-codebase-audit/design.md",
+        "bytes": 4263,
+        "modified": "2026-07-03T01:57:17.048469+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-codebase-audit/implement.jsonl",
+        "bytes": 341,
+        "modified": "2026-07-03T01:58:45.743625+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-codebase-audit/implement.md",
+        "bytes": 2831,
+        "modified": "2026-07-03T01:57:41.383093+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-codebase-audit/prd.md",
+        "bytes": 4031,
+        "modified": "2026-07-03T01:56:51.057811+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-codebase-audit/research/audit-report.md",
+        "bytes": 35989,
+        "modified": "2026-07-03T03:14:35.449629+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-codebase-audit/task.json",
+        "bytes": 560,
+        "modified": "2026-07-03T03:43:37.275960+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T03:47:56.743357+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/design.md",
+        "bytes": 4728,
+        "modified": "2026-07-03T03:52:02.735127+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T03:47:56.741754+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/implement.md",
+        "bytes": 2681,
+        "modified": "2026-07-03T03:52:43.469274+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/prd.md",
+        "bytes": 3275,
+        "modified": "2026-07-03T03:50:48.529852+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/task.json",
+        "bytes": 645,
+        "modified": "2026-07-03T05:29:59.254143+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-audit-p1-defects/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T03:47:47.667162+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-audit-p1-defects/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T03:47:47.666159+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-audit-p1-defects/prd.md",
+        "bytes": 3611,
+        "modified": "2026-07-03T03:48:35.341388+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-audit-p1-defects/task.json",
+        "bytes": 787,
+        "modified": "2026-07-03T05:33:09.548178+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/check.jsonl",
+        "bytes": 234,
+        "modified": "2026-07-03T11:48:59.879173+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/design.md",
+        "bytes": 3271,
+        "modified": "2026-07-03T11:48:59.901616+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/implement.jsonl",
+        "bytes": 247,
+        "modified": "2026-07-03T11:48:59.886077+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/implement.md",
+        "bytes": 3018,
+        "modified": "2026-07-03T11:48:59.906622+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/prd.md",
+        "bytes": 4888,
+        "modified": "2026-07-03T10:22:20.124251+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/task.json",
+        "bytes": 626,
+        "modified": "2026-07-03T14:13:32.467480+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T04:01:14.617142+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/design.md",
+        "bytes": 9076,
+        "modified": "2026-07-03T04:05:39.990736+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T04:01:14.615133+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/implement.md",
+        "bytes": 3951,
+        "modified": "2026-07-03T04:05:54.044441+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/prd.md",
+        "bytes": 5096,
+        "modified": "2026-07-03T04:04:50.065649+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/task.json",
+        "bytes": 634,
+        "modified": "2026-07-03T05:30:36.964457+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T04:01:16.402461+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/design.md",
+        "bytes": 9479,
+        "modified": "2026-07-03T04:05:35.112622+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T04:01:16.400181+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/implement.md",
+        "bytes": 6024,
+        "modified": "2026-07-03T04:05:51.561868+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/prd.md",
+        "bytes": 7679,
+        "modified": "2026-07-03T04:05:09.579130+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/task.json",
+        "bytes": 633,
+        "modified": "2026-07-03T05:31:58.675951+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-db-portability/check.jsonl",
+        "bytes": 237,
+        "modified": "2026-07-03T10:22:20.127795+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-db-portability/design.md",
+        "bytes": 3835,
+        "modified": "2026-07-03T10:22:20.132317+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-db-portability/implement.jsonl",
+        "bytes": 253,
+        "modified": "2026-07-03T10:22:20.133321+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-db-portability/implement.md",
+        "bytes": 1770,
+        "modified": "2026-07-03T10:22:20.135826+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-db-portability/prd.md",
+        "bytes": 5160,
+        "modified": "2026-07-03T10:22:20.140525+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-db-portability/task.json",
+        "bytes": 606,
+        "modified": "2026-07-03T14:13:23.097112+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/check.jsonl",
+        "bytes": 253,
+        "modified": "2026-07-03T10:22:20.145551+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/design.md",
+        "bytes": 7126,
+        "modified": "2026-07-03T10:22:20.148072+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/implement.jsonl",
+        "bytes": 253,
+        "modified": "2026-07-03T10:22:20.149073+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/implement.md",
+        "bytes": 6638,
+        "modified": "2026-07-03T10:22:20.153592+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/prd.md",
+        "bytes": 4753,
+        "modified": "2026-07-03T10:22:20.157104+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/task.json",
+        "bytes": 614,
+        "modified": "2026-07-03T14:12:25.643021+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/check.jsonl",
+        "bytes": 234,
+        "modified": "2026-07-03T10:22:20.161613+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/design.md",
+        "bytes": 2886,
+        "modified": "2026-07-03T10:22:20.166660+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/implement.jsonl",
+        "bytes": 234,
+        "modified": "2026-07-03T10:22:20.167655+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/implement.md",
+        "bytes": 1996,
+        "modified": "2026-07-03T10:22:20.171170+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/prd.md",
+        "bytes": 3752,
+        "modified": "2026-07-03T10:22:20.174691+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/task.json",
+        "bytes": 640,
+        "modified": "2026-07-03T14:13:41.628759+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T03:47:57.288772+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/design.md",
+        "bytes": 3729,
+        "modified": "2026-07-03T03:56:41.182622+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T03:47:57.287257+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/implement.md",
+        "bytes": 2084,
+        "modified": "2026-07-03T03:57:07.470738+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/prd.md",
+        "bytes": 3026,
+        "modified": "2026-07-03T03:55:14.775683+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/task.json",
+        "bytes": 638,
+        "modified": "2026-07-03T05:30:27.588831+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/check.jsonl",
+        "bytes": 228,
+        "modified": "2026-07-03T10:22:20.182692+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/design.md",
+        "bytes": 3376,
+        "modified": "2026-07-03T10:22:20.186459+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/implement.jsonl",
+        "bytes": 249,
+        "modified": "2026-07-03T10:22:20.187977+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/implement.md",
+        "bytes": 2061,
+        "modified": "2026-07-03T10:22:20.190976+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/prd.md",
+        "bytes": 4856,
+        "modified": "2026-07-03T10:22:20.194975+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/task.json",
+        "bytes": 623,
+        "modified": "2026-07-03T14:13:14.487567+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-remaining-defects/check.jsonl",
+        "bytes": 253,
+        "modified": "2026-07-03T10:22:20.199848+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-remaining-defects/implement.jsonl",
+        "bytes": 253,
+        "modified": "2026-07-03T10:22:20.201353+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-remaining-defects/prd.md",
+        "bytes": 4767,
+        "modified": "2026-07-03T10:22:20.204923+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-remaining-defects/task.json",
+        "bytes": 828,
+        "modified": "2026-07-03T14:13:50.694072+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T04:01:15.247963+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/design.md",
+        "bytes": 10388,
+        "modified": "2026-07-03T04:05:13.959774+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T04:01:15.245961+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/implement.md",
+        "bytes": 6171,
+        "modified": "2026-07-03T04:05:30.644026+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/prd.md",
+        "bytes": 8095,
+        "modified": "2026-07-03T04:04:47.993850+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/task.json",
+        "bytes": 625,
+        "modified": "2026-07-03T05:31:47.793495+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/check.jsonl",
+        "bytes": 233,
+        "modified": "2026-07-03T10:22:20.210438+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/design.md",
+        "bytes": 3491,
+        "modified": "2026-07-03T10:22:20.214439+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/implement.jsonl",
+        "bytes": 247,
+        "modified": "2026-07-03T10:22:20.215441+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/implement.md",
+        "bytes": 2671,
+        "modified": "2026-07-03T10:22:20.218948+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/prd.md",
+        "bytes": 5409,
+        "modified": "2026-07-03T10:22:20.221955+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/task.json",
+        "bytes": 642,
+        "modified": "2026-07-03T14:13:05.830926+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-dual-mode-switching-core/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T17:14:10.413892+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-dual-mode-switching-core/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T17:14:10.411894+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-dual-mode-switching-core/prd.md",
+        "bytes": 472,
+        "modified": "2026-07-03T17:14:10.409893+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-dual-mode-switching-core/task.json",
+        "bytes": 904,
+        "modified": "2026-07-06T02:36:33.085776+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-dual-mode-takeover/check.jsonl",
+        "bytes": 392,
+        "modified": "2026-07-04T02:20:02.659984+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-dual-mode-takeover/implement.jsonl",
+        "bytes": 392,
+        "modified": "2026-07-04T02:20:02.261590+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-dual-mode-takeover/prd.md",
+        "bytes": 6152,
+        "modified": "2026-07-04T02:17:50.074619+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-dual-mode-takeover/task.json",
+        "bytes": 1024,
+        "modified": "2026-07-05T06:35:49.860984+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/check.jsonl",
+        "bytes": 475,
+        "modified": "2026-07-05T07:51:02.143835+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/design.md",
+        "bytes": 5451,
+        "modified": "2026-07-05T07:50:43.124723+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/implement.jsonl",
+        "bytes": 634,
+        "modified": "2026-07-05T07:51:02.010884+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/implement.md",
+        "bytes": 3001,
+        "modified": "2026-07-05T07:50:43.269451+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/prd.md",
+        "bytes": 4935,
+        "modified": "2026-07-05T07:50:05.638072+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/task.json",
+        "bytes": 1006,
+        "modified": "2026-07-06T01:47:09.908197+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-provider-crud-switch-api/check.jsonl",
+        "bytes": 418,
+        "modified": "2026-07-04T05:04:44.400180+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-provider-crud-switch-api/implement.jsonl",
+        "bytes": 418,
+        "modified": "2026-07-04T05:04:44.240665+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-provider-crud-switch-api/prd.md",
+        "bytes": 4501,
+        "modified": "2026-07-04T05:01:28.906280+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-provider-crud-switch-api/task.json",
+        "bytes": 917,
+        "modified": "2026-07-04T06:20:47.088382+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-providers-schema-migration/check.jsonl",
+        "bytes": 436,
+        "modified": "2026-07-03T17:21:40.108766+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-providers-schema-migration/implement.jsonl",
+        "bytes": 436,
+        "modified": "2026-07-03T17:21:23.695432+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-providers-schema-migration/prd.md",
+        "bytes": 5143,
+        "modified": "2026-07-03T17:20:29.033485+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-providers-schema-migration/task.json",
+        "bytes": 980,
+        "modified": "2026-07-03T17:48:20.649089+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/check.jsonl",
+        "bytes": 340,
+        "modified": "2026-07-05T06:48:10.098128+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/design.md",
+        "bytes": 3926,
+        "modified": "2026-07-05T06:46:31.550765+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/implement.jsonl",
+        "bytes": 431,
+        "modified": "2026-07-05T06:47:36.934839+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/implement.md",
+        "bytes": 2652,
+        "modified": "2026-07-05T06:46:31.617247+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/prd.md",
+        "bytes": 3920,
+        "modified": "2026-07-05T06:43:36.998442+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/task.json",
+        "bytes": 1033,
+        "modified": "2026-07-05T07:24:19.545902+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-spec-gates-archive/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T17:15:49.029967+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-spec-gates-archive/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-03T17:15:49.028447+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-spec-gates-archive/prd.md",
+        "bytes": 1806,
+        "modified": "2026-07-06T01:58:31.328607+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-04-spec-gates-archive/task.json",
+        "bytes": 878,
+        "modified": "2026-07-06T02:36:22.743572+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-app-updater/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-06T04:20:41.811438+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-app-updater/design.md",
+        "bytes": 10137,
+        "modified": "2026-07-06T08:21:48.351943+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-app-updater/implement.jsonl",
+        "bytes": 712,
+        "modified": "2026-07-06T07:24:19.537731+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-app-updater/implement.md",
+        "bytes": 8494,
+        "modified": "2026-07-06T04:45:42.521343+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-app-updater/prd.md",
+        "bytes": 7222,
+        "modified": "2026-07-06T04:44:08.964882+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-app-updater/task.json",
+        "bytes": 572,
+        "modified": "2026-07-06T10:38:59.440478+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-fix-credential-decrypt/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-06T10:20:57.473783+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-fix-credential-decrypt/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-06T10:20:57.471783+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-fix-credential-decrypt/prd.md",
+        "bytes": 4443,
+        "modified": "2026-07-06T10:36:38.721049+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-fix-credential-decrypt/task.json",
+        "bytes": 627,
+        "modified": "2026-07-06T10:39:00.702078+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-import-from-ccs/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-06T04:20:41.519868+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-import-from-ccs/design.md",
+        "bytes": 10402,
+        "modified": "2026-07-06T05:11:36.801469+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-import-from-ccs/implement.jsonl",
+        "bytes": 1267,
+        "modified": "2026-07-06T04:48:56.560578+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-import-from-ccs/implement.md",
+        "bytes": 8809,
+        "modified": "2026-07-06T04:37:28.366257+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-import-from-ccs/prd.md",
+        "bytes": 10584,
+        "modified": "2026-07-06T05:11:02.193703+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-import-from-ccs/research/agent-switch-direct-provider-path.md",
+        "bytes": 10922,
+        "modified": "2026-07-06T04:30:16.637062+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-import-from-ccs/research/ccs-data-format.md",
+        "bytes": 15767,
+        "modified": "2026-07-06T04:31:46.294068+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-06-import-from-ccs/task.json",
+        "bytes": 584,
+        "modified": "2026-07-06T10:38:58.258565+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-env-switches/check.jsonl",
+        "bytes": 530,
+        "modified": "2026-07-07T12:11:05.054522+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-env-switches/design.md",
+        "bytes": 10030,
+        "modified": "2026-07-07T14:51:59.636834+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-env-switches/implement.jsonl",
+        "bytes": 1062,
+        "modified": "2026-07-07T12:11:04.978159+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-env-switches/implement.md",
+        "bytes": 4235,
+        "modified": "2026-07-07T14:53:36.320107+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-env-switches/prd.md",
+        "bytes": 11396,
+        "modified": "2026-07-07T14:54:31.992737+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-env-switches/task.json",
+        "bytes": 879,
+        "modified": "2026-07-08T06:51:58.327898+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-mcp/check.jsonl",
+        "bytes": 459,
+        "modified": "2026-07-07T08:30:31.188098+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-mcp/design.md",
+        "bytes": 7074,
+        "modified": "2026-07-07T08:19:24.028524+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-mcp/implement.jsonl",
+        "bytes": 954,
+        "modified": "2026-07-07T08:28:15.251682+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-mcp/implement.md",
+        "bytes": 3577,
+        "modified": "2026-07-07T10:32:29.750575+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-mcp/prd.md",
+        "bytes": 10538,
+        "modified": "2026-07-07T08:17:21.164481+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-mcp/task.json",
+        "bytes": 645,
+        "modified": "2026-07-07T11:23:28.100874+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-prompts/check.jsonl",
+        "bytes": 448,
+        "modified": "2026-07-07T12:08:32.581846+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-prompts/design.md",
+        "bytes": 7655,
+        "modified": "2026-07-07T12:06:56.460016+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-prompts/implement.jsonl",
+        "bytes": 1150,
+        "modified": "2026-07-07T12:08:32.346193+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-prompts/implement.md",
+        "bytes": 4015,
+        "modified": "2026-07-07T12:07:30.716387+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-prompts/prd.md",
+        "bytes": 9076,
+        "modified": "2026-07-07T11:52:41.578294+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-prompts/task.json",
+        "bytes": 797,
+        "modified": "2026-07-08T06:51:57.422060+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-07T02:03:31.340522+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/design.md",
+        "bytes": 8773,
+        "modified": "2026-07-07T04:07:15.989290+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-07T02:03:31.338522+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/implement.md",
+        "bytes": 6495,
+        "modified": "2026-07-07T06:30:31.973126+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/prd.md",
+        "bytes": 10726,
+        "modified": "2026-07-07T03:24:10.571936+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/research/agent-switch-current.md",
+        "bytes": 12305,
+        "modified": "2026-07-07T02:16:06.767051+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/research/ccs-switch-semantics.md",
+        "bytes": 16770,
+        "modified": "2026-07-07T02:15:13.461982+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/research/decision-evidence.md",
+        "bytes": 11633,
+        "modified": "2026-07-07T02:17:30.224315+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/task.json",
+        "bytes": 1019,
+        "modified": "2026-07-07T06:52:34.493697+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-claude-code-ccs-align/check.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-07T02:01:37.770691+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-claude-code-ccs-align/implement.jsonl",
+        "bytes": 254,
+        "modified": "2026-07-07T02:01:37.769691+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-claude-code-ccs-align/prd.md",
+        "bytes": 6448,
+        "modified": "2026-07-08T08:26:01.857196+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-07-claude-code-ccs-align/task.json",
+        "bytes": 1626,
+        "modified": "2026-07-09T10:45:36.318279+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/check.jsonl",
+        "bytes": 564,
+        "modified": "2026-07-08T08:14:42.711090+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/design.md",
+        "bytes": 2446,
+        "modified": "2026-07-08T08:14:42.531478+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/implement.jsonl",
+        "bytes": 1023,
+        "modified": "2026-07-08T08:14:42.654748+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/implement.md",
+        "bytes": 1271,
+        "modified": "2026-07-08T08:14:42.585846+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/prd.md",
+        "bytes": 6284,
+        "modified": "2026-07-08T08:13:56.854759+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/task.json",
+        "bytes": 1077,
+        "modified": "2026-07-09T10:43:57.925323+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-deeplink/check.jsonl",
+        "bytes": 582,
+        "modified": "2026-07-08T08:24:33.572359+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-deeplink/design.md",
+        "bytes": 3645,
+        "modified": "2026-07-08T08:24:33.408287+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-deeplink/implement.jsonl",
+        "bytes": 1371,
+        "modified": "2026-07-08T08:24:33.521913+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-deeplink/implement.md",
+        "bytes": 1873,
+        "modified": "2026-07-08T08:24:33.448637+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-deeplink/prd.md",
+        "bytes": 9527,
+        "modified": "2026-07-08T08:23:34.564054+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-deeplink/task.json",
+        "bytes": 1535,
+        "modified": "2026-07-09T10:44:07.170407+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-sessions/check.jsonl",
+        "bytes": 444,
+        "modified": "2026-07-08T08:22:04.983317+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-sessions/design.md",
+        "bytes": 2426,
+        "modified": "2026-07-08T08:22:04.780975+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-sessions/implement.jsonl",
+        "bytes": 826,
+        "modified": "2026-07-08T08:22:04.919018+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-sessions/implement.md",
+        "bytes": 1342,
+        "modified": "2026-07-08T08:22:04.827812+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-sessions/prd.md",
+        "bytes": 6985,
+        "modified": "2026-07-08T08:21:23.514219+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-sessions/task.json",
+        "bytes": 1021,
+        "modified": "2026-07-09T10:44:06.146345+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-skills/check.jsonl",
+        "bytes": 569,
+        "modified": "2026-07-08T08:18:31.076946+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-skills/design.md",
+        "bytes": 3259,
+        "modified": "2026-07-08T08:18:30.909474+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-skills/implement.jsonl",
+        "bytes": 1238,
+        "modified": "2026-07-08T08:18:31.017689+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-skills/implement.md",
+        "bytes": 4109,
+        "modified": "2026-07-09T04:33:05.506548+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-skills/prd.md",
+        "bytes": 8472,
+        "modified": "2026-07-08T08:15:47.117680+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "tasks/archive/2026-07/07-08-cc-skills/task.json",
+        "bytes": 1965,
+        "modified": "2026-07-09T10:44:05.280930+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "workflow.md",
+        "bytes": 37294,
+        "modified": "2026-06-26T10:51:31.689485+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "workspace/index.md",
+        "bytes": 2307,
+        "modified": "2026-06-26T10:51:31.694486+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "workspace/xm-chen/index.md",
+        "bytes": 2580,
+        "modified": "2026-07-08T06:52:19.294995+00:00",
+        "active_within_days": true
+      },
+      {
+        "path": "workspace/xm-chen/journal-1.md",
+        "bytes": 28159,
+        "modified": "2026-07-08T06:52:19.286159+00:00",
+        "active_within_days": true
+      }
+    ],
+    "preserve_candidates_truncated": false
+  },
+  "trellis_structure": {
+    "exists": true,
+    "category_counts": {
+      "tasks": 296,
+      "specs": 45,
+      "plans": 0,
+      "archive": 277,
+      "configs": 19,
+      "templates": 1,
+      "hooks": 3,
+      "decisions": 2
+    },
+    "structured_files": 50,
+    "indexes": [
+      "workspace/index.md",
+      "workspace/xm-chen/index.md",
+      "spec/backend/index.md",
+      "spec/frontend/index.md",
+      "spec/guides/index.md"
+    ],
+    "indexes_truncated": false
+  },
+  "structured_config_parse": {
+    "summary": {
+      "ok": 50,
+      "failed": 0,
+      "parser_unavailable": 0,
+      "checked": 50,
+      "truncated": false
+    },
+    "files": [
+      {
+        "path": ".trellis/.template-hashes.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/config.yaml",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-06/00-bootstrap-guidelines/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-06/06-27-app-shell-local-service/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-06/06-27-chain-testing-debugger/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-06/06-27-import-export-settings/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-06/06-27-model-management-refresh-alias/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-06/06-27-routing-failover-core/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-06/06-29-dashboard-overview/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-06/06-30-requirement-alignment-audit/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/06-30-routing-failover-core-fix/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-03-codebase-audit/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-03-fix-audit-p1-defects/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-03-fix-dashboard-error-state/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-03-fix-db-portability/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-03-fix-passthrough-multipart/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-03-fix-remaining-defects/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-03-fix-stream-test-json-parse/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-03-fix-translator-wire-format/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-04-dual-mode-switching-core/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-04-dual-mode-takeover/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-04-frontend-switcher-page/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-04-provider-crud-switch-api/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-04-providers-schema-migration/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-04-proxy-providers-bridge/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-04-spec-gates-archive/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-06-app-updater/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-06-fix-credential-decrypt/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-06-import-from-ccs/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-07-cc-env-switches/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-07-cc-mcp/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-07-cc-prompts/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-07-cc-switch-semantics/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-07-claude-code-ccs-align/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-08-cc-common-config-editor/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-08-cc-deeplink/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-08-cc-sessions/task.json",
+        "ok": true
+      },
+      {
+        "path": ".trellis/tasks/archive/2026-07/07-08-cc-skills/task.json",
+        "ok": true
+      }
+    ]
+  },
+  "hook_static_scan": {
+    "count": 1322,
+    "hooks": [
+      {
+        "source": "package.json:scripts.preview",
+        "command": "vite preview",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:4",
+        "command": "\".claude/agents/trellis-check.md\": \"9e48342243f311d55386f8fb42933945e87aba73d5ade547133aa98345a06128\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:5",
+        "command": "\".claude/agents/trellis-implement.md\": \"73b56b3047c0e852382c4630aa181fb847d1e5ea1f63459dac4bf728f43fd097\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:6",
+        "command": "\".claude/agents/trellis-research.md\": \"10aecdd3d0777746a516e23cd2a55c9e9c8a015dc98c63ffbac36be21b7a7bb0\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:12",
+        "command": "\".claude/commands/trellis/continue.md\": \"eade769e466179010d6a044b03fb57620b4f5eb142fa11a55afec781e2bfec05\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:13",
+        "command": "\".claude/commands/trellis/finish-work.md\": \"f11f661cff6d5d26dccb5e9574c3d2c7873a9dfaed7962d471ff5ea2fd48d691\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:14",
+        "command": "\".claude/skills/trellis-before-dev/SKILL.md\": \"8f897d8dd76c1eeb532cf15ba784360f45a93229f8dcd0acfc14282f014f92a0\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:15",
+        "command": "\".claude/skills/trellis-brainstorm/SKILL.md\": \"b3b33b61ec46c12293a021e7c6c746c9e4fba2844ee880e5e91370d35057ee6d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:16",
+        "command": "\".claude/skills/trellis-break-loop/SKILL.md\": \"f5a93699832f29dee443b53c135a7459519b371f689af191d15c29e8ee5c7bde\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:17",
+        "command": "\".claude/skills/trellis-check/SKILL.md\": \"2be18b6665b4da497c554acd5d76ef038cc960d25f3d4216f03e047202f2eadc\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:18",
+        "command": "\".claude/skills/trellis-update-spec/SKILL.md\": \"d975db7af166578488958751ae2c56edb827a68bddb569aa27acc3453f64e610\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:19",
+        "command": "\".claude/skills/trellis-channel/references/command-reference.md\": \"c4df3d940d89814310bfdaded20e84dd1d6b96786f6772688de7a123338d3c8e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:20",
+        "command": "\".claude/skills/trellis-channel/references/forum.md\": \"407db39e8ebde47cea8637e3069bdb3d76ba42b43ed1d08ba97a56f26dbcfcb4\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:21",
+        "command": "\".claude/skills/trellis-channel/references/progress-debugging.md\": \"fe59afd4c0a558cbefc49cc5ef8a7e0e3916d6718cb3255dc6da1b698c850ff7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:22",
+        "command": "\".claude/skills/trellis-channel/references/workers.md\": \"d4481b2858bca82050cb8d131916da8a2ccc3857f199cdb9ced8bb41d592e2a7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:23",
+        "command": "\".claude/skills/trellis-channel/references/workflows.md\": \"0782d602efde6e94a7d7d7950fd605eedc9a1f5a523908284e76b628fd618fd4\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:24",
+        "command": "\".claude/skills/trellis-channel/SKILL.md\": \"ff84801c511a736da018b4b1149348ebc9a16b7fc18d905ec10cfa7acbf269a3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:25",
+        "command": "\".claude/skills/trellis-meta/references/customize-local/add-project-local-conventions.md\": \"ef3380e71aa9f5103d37b467b1f725a8033ac516e4de31e4d790be02ec2c39e8\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:26",
+        "command": "\".claude/skills/trellis-meta/references/customize-local/change-agents.md\": \"3eef0d9b9cf875f121c1a38afb8eee6d3cd3894127db601ae5a7760fa5b61575\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:27",
+        "command": "\".claude/skills/trellis-meta/references/customize-local/change-context-loading.md\": \"e6aa7d938741c08b864f54e9bda8e4e68e04bc60cb46682f6acabaf37f9b2da2\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:28",
+        "command": "\".claude/skills/trellis-meta/references/customize-local/change-hooks.md\": \"b3b1ed51cfa436a98fad8dda3ec75d997bd8f8cabbad04f101fd9e3d0e1a9e35\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:29",
+        "command": "\".claude/skills/trellis-meta/references/customize-local/change-skills-or-commands.md\": \"a6994e2418cdf5bcad10b4236b02741179ae794bc4fdd811a64f443293b69268\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:30",
+        "command": "\".claude/skills/trellis-meta/references/customize-local/change-spec-structure.md\": \"1a712408217ee9cc6a916d874e3d6ed1ba7a3bdc1b9dc4bb1c64393f0df1eb98\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:31",
+        "command": "\".claude/skills/trellis-meta/references/customize-local/change-task-lifecycle.md\": \"148b7442ef8106de907afd06f9d1ca96f7ec074caedced3dd4175b3a26698ca2\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:32",
+        "command": "\".claude/skills/trellis-meta/references/customize-local/change-workflow.md\": \"43fa780a2ca580de121b10893d49b99f978873deebbf45008c466e5ac6651519\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:33",
+        "command": "\".claude/skills/trellis-meta/references/customize-local/overview.md\": \"a0e4cbc3fcc521c0c0f481ade796d31d19c2a5ba697d93856c890fbcc6171d71\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:34",
+        "command": "\".claude/skills/trellis-meta/references/local-architecture/bundled-skills.md\": \"bac739b042d7a12dae5d14d85cbc312e56ca03f571d2ba7a25b20641ddaefc3f\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:35",
+        "command": "\".claude/skills/trellis-meta/references/local-architecture/context-injection.md\": \"8497289bf333b3aa456f317039d1239b7ece79254aa0eb62cfc647714c866084\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:36",
+        "command": "\".claude/skills/trellis-meta/references/local-architecture/generated-files.md\": \"1128d45b2e8c011c247bcf3a3ca1184ca4951fb34a0802c50bf3fecbd7e4de55\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:37",
+        "command": "\".claude/skills/trellis-meta/references/local-architecture/multi-agent-channel.md\": \"56e5070474aeca872e2d70c46feea5aaafecd3d3ec052c3f7b1877358dca62e9\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:38",
+        "command": "\".claude/skills/trellis-meta/references/local-architecture/overview.md\": \"50638fd9eaaba2e0edf2f2a84d920578d5b2fb7934031b174e417d3dc510b2a6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:39",
+        "command": "\".claude/skills/trellis-meta/references/local-architecture/spec-system.md\": \"55f3c95033a3cbed6c06e225187071502d7dcf3f153f4becbec6aa79acc782f5\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:40",
+        "command": "\".claude/skills/trellis-meta/references/local-architecture/task-system.md\": \"25dbd2be6a2271591274b56616b853b16e6fd9f44f43073350688e89e87295a6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:41",
+        "command": "\".claude/skills/trellis-meta/references/local-architecture/workflow.md\": \"cfcdc6e4468a5d9c816e929fcca01640cd41cfdaaa4824118b40a8e460c927b6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:42",
+        "command": "\".claude/skills/trellis-meta/references/local-architecture/workspace-memory.md\": \"79786a1ca2980b1785a36aba8142f9d879459c47dc000c999f638e5c864d04d3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:43",
+        "command": "\".claude/skills/trellis-meta/references/platform-files/agents.md\": \"dedea76cd3ff3221a0abd121093ddd32ed8815bb08ca63d20c32feb29ca76aa7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:44",
+        "command": "\".claude/skills/trellis-meta/references/platform-files/hooks-and-settings.md\": \"acdeba5866ccbe0e68fffc847e77e726cf79f579898e61312f6a8d62b48380ff\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:45",
+        "command": "\".claude/skills/trellis-meta/references/platform-files/overview.md\": \"821a2718b38e17439c2bb487a6dd3a95c8138e83dbda60b142a00ff80178dc3c\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:46",
+        "command": "\".claude/skills/trellis-meta/references/platform-files/platform-map.md\": \"59e13cdaa2077149b5d82ad25fa5dd821195be30bdc43d853619c4702d334a6e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:47",
+        "command": "\".claude/skills/trellis-meta/references/platform-files/skills-and-commands.md\": \"5732bb0a7d384a91abd0c103372f3865e0b186e75185f35e0e91b00a6b6bf5a3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:48",
+        "command": "\".claude/skills/trellis-meta/SKILL.md\": \"a190ecbde70a658a5b5c3e2558783e99c9afc6f2e5cdecdac8f11c06dd42065e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:49",
+        "command": "\".claude/skills/trellis-session-insight/references/cli-quick-reference.md\": \"c520353fe3fc00b9702ed4f780647c8fbd6d342e66527a03647f533a9fe09779\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:50",
+        "command": "\".claude/skills/trellis-session-insight/references/triggering-patterns.md\": \"121ecd23be83d1567e8ce15c366a81073d7a2b1d3ad616fce235c07ca1f1cc20\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:51",
+        "command": "\".claude/skills/trellis-session-insight/SKILL.md\": \"f6ad80eaca21b8fa63d31ae26b612bb2bb69dd04469603828509a8c5a0463ff1\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:52",
+        "command": "\".claude/skills/trellis-spec-bootstrap/references/mcp-setup.md\": \"df542fc8f279edd38046d26a7c8151804b708f57b24d4aa2733cea587a88c65e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:53",
+        "command": "\".claude/skills/trellis-spec-bootstrap/references/repository-analysis.md\": \"0dae98d774f6e34559b9f3442888ac43e3a8af110c37cbefc49ce256986858b6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:54",
+        "command": "\".claude/skills/trellis-spec-bootstrap/references/spec-task-planning.md\": \"ef493d028c3b0807a8a534bb71fb92a68129f273db763ad27ceb464a522e799d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:55",
+        "command": "\".claude/skills/trellis-spec-bootstrap/references/spec-writing.md\": \"e9800fe9ed4a4cd87062ea1829cf2caa8d170ec15e141678a6a30e74c497f47d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:56",
+        "command": "\".claude/skills/trellis-spec-bootstrap/SKILL.md\": \"97bfa68c06cebb558eb4464bc1b81f7d2d56040d75baa8de1ee5ad90cca0196a\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:57",
+        "command": "\".cursor/commands/trellis-continue.md\": \"a5486b17636b440bbb7d630479eb7fdb064acc07e8effd10b69dd9a2c9a86371\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:58",
+        "command": "\".cursor/commands/trellis-finish-work.md\": \"16006238f2b8410a87fd8b857b4ed3f9f529b28cd85fe97cfeabe79f95406e41\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:59",
+        "command": "\".cursor/skills/trellis-before-dev/SKILL.md\": \"8f897d8dd76c1eeb532cf15ba784360f45a93229f8dcd0acfc14282f014f92a0\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:60",
+        "command": "\".cursor/skills/trellis-brainstorm/SKILL.md\": \"b3b33b61ec46c12293a021e7c6c746c9e4fba2844ee880e5e91370d35057ee6d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:61",
+        "command": "\".cursor/skills/trellis-break-loop/SKILL.md\": \"f5a93699832f29dee443b53c135a7459519b371f689af191d15c29e8ee5c7bde\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:62",
+        "command": "\".cursor/skills/trellis-check/SKILL.md\": \"2be18b6665b4da497c554acd5d76ef038cc960d25f3d4216f03e047202f2eadc\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:63",
+        "command": "\".cursor/skills/trellis-update-spec/SKILL.md\": \"cef32aec88db973a0a0272cf18b91d4585fe6ed6625e3de06851a5d3402f65d6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:64",
+        "command": "\".cursor/skills/trellis-channel/references/command-reference.md\": \"c4df3d940d89814310bfdaded20e84dd1d6b96786f6772688de7a123338d3c8e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:65",
+        "command": "\".cursor/skills/trellis-channel/references/forum.md\": \"407db39e8ebde47cea8637e3069bdb3d76ba42b43ed1d08ba97a56f26dbcfcb4\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:66",
+        "command": "\".cursor/skills/trellis-channel/references/progress-debugging.md\": \"fe59afd4c0a558cbefc49cc5ef8a7e0e3916d6718cb3255dc6da1b698c850ff7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:67",
+        "command": "\".cursor/skills/trellis-channel/references/workers.md\": \"d4481b2858bca82050cb8d131916da8a2ccc3857f199cdb9ced8bb41d592e2a7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:68",
+        "command": "\".cursor/skills/trellis-channel/references/workflows.md\": \"0782d602efde6e94a7d7d7950fd605eedc9a1f5a523908284e76b628fd618fd4\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:69",
+        "command": "\".cursor/skills/trellis-channel/SKILL.md\": \"ff84801c511a736da018b4b1149348ebc9a16b7fc18d905ec10cfa7acbf269a3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:70",
+        "command": "\".cursor/skills/trellis-meta/references/customize-local/add-project-local-conventions.md\": \"ef3380e71aa9f5103d37b467b1f725a8033ac516e4de31e4d790be02ec2c39e8\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:71",
+        "command": "\".cursor/skills/trellis-meta/references/customize-local/change-agents.md\": \"3eef0d9b9cf875f121c1a38afb8eee6d3cd3894127db601ae5a7760fa5b61575\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:72",
+        "command": "\".cursor/skills/trellis-meta/references/customize-local/change-context-loading.md\": \"e6aa7d938741c08b864f54e9bda8e4e68e04bc60cb46682f6acabaf37f9b2da2\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:73",
+        "command": "\".cursor/skills/trellis-meta/references/customize-local/change-hooks.md\": \"b3b1ed51cfa436a98fad8dda3ec75d997bd8f8cabbad04f101fd9e3d0e1a9e35\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:74",
+        "command": "\".cursor/skills/trellis-meta/references/customize-local/change-skills-or-commands.md\": \"a6994e2418cdf5bcad10b4236b02741179ae794bc4fdd811a64f443293b69268\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:75",
+        "command": "\".cursor/skills/trellis-meta/references/customize-local/change-spec-structure.md\": \"1a712408217ee9cc6a916d874e3d6ed1ba7a3bdc1b9dc4bb1c64393f0df1eb98\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:76",
+        "command": "\".cursor/skills/trellis-meta/references/customize-local/change-task-lifecycle.md\": \"148b7442ef8106de907afd06f9d1ca96f7ec074caedced3dd4175b3a26698ca2\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:77",
+        "command": "\".cursor/skills/trellis-meta/references/customize-local/change-workflow.md\": \"43fa780a2ca580de121b10893d49b99f978873deebbf45008c466e5ac6651519\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:78",
+        "command": "\".cursor/skills/trellis-meta/references/customize-local/overview.md\": \"a0e4cbc3fcc521c0c0f481ade796d31d19c2a5ba697d93856c890fbcc6171d71\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:79",
+        "command": "\".cursor/skills/trellis-meta/references/local-architecture/bundled-skills.md\": \"bac739b042d7a12dae5d14d85cbc312e56ca03f571d2ba7a25b20641ddaefc3f\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:80",
+        "command": "\".cursor/skills/trellis-meta/references/local-architecture/context-injection.md\": \"8497289bf333b3aa456f317039d1239b7ece79254aa0eb62cfc647714c866084\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:81",
+        "command": "\".cursor/skills/trellis-meta/references/local-architecture/generated-files.md\": \"1128d45b2e8c011c247bcf3a3ca1184ca4951fb34a0802c50bf3fecbd7e4de55\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:82",
+        "command": "\".cursor/skills/trellis-meta/references/local-architecture/multi-agent-channel.md\": \"56e5070474aeca872e2d70c46feea5aaafecd3d3ec052c3f7b1877358dca62e9\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:83",
+        "command": "\".cursor/skills/trellis-meta/references/local-architecture/overview.md\": \"50638fd9eaaba2e0edf2f2a84d920578d5b2fb7934031b174e417d3dc510b2a6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:84",
+        "command": "\".cursor/skills/trellis-meta/references/local-architecture/spec-system.md\": \"55f3c95033a3cbed6c06e225187071502d7dcf3f153f4becbec6aa79acc782f5\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:85",
+        "command": "\".cursor/skills/trellis-meta/references/local-architecture/task-system.md\": \"25dbd2be6a2271591274b56616b853b16e6fd9f44f43073350688e89e87295a6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:86",
+        "command": "\".cursor/skills/trellis-meta/references/local-architecture/workflow.md\": \"cfcdc6e4468a5d9c816e929fcca01640cd41cfdaaa4824118b40a8e460c927b6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:87",
+        "command": "\".cursor/skills/trellis-meta/references/local-architecture/workspace-memory.md\": \"79786a1ca2980b1785a36aba8142f9d879459c47dc000c999f638e5c864d04d3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:88",
+        "command": "\".cursor/skills/trellis-meta/references/platform-files/agents.md\": \"dedea76cd3ff3221a0abd121093ddd32ed8815bb08ca63d20c32feb29ca76aa7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:89",
+        "command": "\".cursor/skills/trellis-meta/references/platform-files/hooks-and-settings.md\": \"acdeba5866ccbe0e68fffc847e77e726cf79f579898e61312f6a8d62b48380ff\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:90",
+        "command": "\".cursor/skills/trellis-meta/references/platform-files/overview.md\": \"821a2718b38e17439c2bb487a6dd3a95c8138e83dbda60b142a00ff80178dc3c\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:91",
+        "command": "\".cursor/skills/trellis-meta/references/platform-files/platform-map.md\": \"59e13cdaa2077149b5d82ad25fa5dd821195be30bdc43d853619c4702d334a6e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:92",
+        "command": "\".cursor/skills/trellis-meta/references/platform-files/skills-and-commands.md\": \"5732bb0a7d384a91abd0c103372f3865e0b186e75185f35e0e91b00a6b6bf5a3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:93",
+        "command": "\".cursor/skills/trellis-meta/SKILL.md\": \"a190ecbde70a658a5b5c3e2558783e99c9afc6f2e5cdecdac8f11c06dd42065e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:94",
+        "command": "\".cursor/skills/trellis-session-insight/references/cli-quick-reference.md\": \"c520353fe3fc00b9702ed4f780647c8fbd6d342e66527a03647f533a9fe09779\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:95",
+        "command": "\".cursor/skills/trellis-session-insight/references/triggering-patterns.md\": \"121ecd23be83d1567e8ce15c366a81073d7a2b1d3ad616fce235c07ca1f1cc20\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:96",
+        "command": "\".cursor/skills/trellis-session-insight/SKILL.md\": \"f6ad80eaca21b8fa63d31ae26b612bb2bb69dd04469603828509a8c5a0463ff1\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:97",
+        "command": "\".cursor/skills/trellis-spec-bootstrap/references/mcp-setup.md\": \"df542fc8f279edd38046d26a7c8151804b708f57b24d4aa2733cea587a88c65e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:98",
+        "command": "\".cursor/skills/trellis-spec-bootstrap/references/repository-analysis.md\": \"0dae98d774f6e34559b9f3442888ac43e3a8af110c37cbefc49ce256986858b6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:99",
+        "command": "\".cursor/skills/trellis-spec-bootstrap/references/spec-task-planning.md\": \"ef493d028c3b0807a8a534bb71fb92a68129f273db763ad27ceb464a522e799d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:100",
+        "command": "\".cursor/skills/trellis-spec-bootstrap/references/spec-writing.md\": \"e9800fe9ed4a4cd87062ea1829cf2caa8d170ec15e141678a6a30e74c497f47d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:101",
+        "command": "\".cursor/skills/trellis-spec-bootstrap/SKILL.md\": \"97bfa68c06cebb558eb4464bc1b81f7d2d56040d75baa8de1ee5ad90cca0196a\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:102",
+        "command": "\".cursor/agents/trellis-check.md\": \"e54d3de996bab4abd7653eef4d64c171638fbc2859e9b1fe4aae2483df72de99\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:103",
+        "command": "\".cursor/agents/trellis-implement.md\": \"636d55ebb56d9d3ea6ef9ec615c53bcaeab2b1afb3dc7e30ad51091efe5ab5ea\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:104",
+        "command": "\".cursor/agents/trellis-research.md\": \"e39b18734b4947ada2d1d6b2432f82daf58d16b6d98aa5b8b78e4a5364559617\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:109",
+        "command": "\".opencode/agents/trellis-check.md\": \"406eaa47ee096bba549feee71240655d35e2213a4973a0b819c9dfbf210c5433\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:110",
+        "command": "\".opencode/agents/trellis-implement.md\": \"feab0628efbd49f44b0bf596147cad312c400cff57a1fb05354179001d28dae0\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:111",
+        "command": "\".opencode/agents/trellis-research.md\": \"6315e859f3a336708defcc7d82a3d549df2f9ea74e887c1c30f6a60d8d60f98b\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:113",
+        "command": "\".opencode/lib/trellis-context.js\": \"e102bc980dd1b119dc84d92ab4875e32e9b7a18af0540384a7dc4b3b9639ec1d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:118",
+        "command": "\".opencode/commands/trellis/continue.md\": \"7eda5ccbfd622dfed2db2799f1ce24c352dfa835063c4cd3f474478166616871\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:119",
+        "command": "\".opencode/commands/trellis/finish-work.md\": \"f11f661cff6d5d26dccb5e9574c3d2c7873a9dfaed7962d471ff5ea2fd48d691\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:120",
+        "command": "\".opencode/commands/trellis/start.md\": \"66548afcc6b04baaadc2cb831c5fc4f01b6c894ff70811d037a9ea677bc76568\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:121",
+        "command": "\".opencode/skills/trellis-before-dev/SKILL.md\": \"8f897d8dd76c1eeb532cf15ba784360f45a93229f8dcd0acfc14282f014f92a0\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:122",
+        "command": "\".opencode/skills/trellis-brainstorm/SKILL.md\": \"b3b33b61ec46c12293a021e7c6c746c9e4fba2844ee880e5e91370d35057ee6d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:123",
+        "command": "\".opencode/skills/trellis-break-loop/SKILL.md\": \"f5a93699832f29dee443b53c135a7459519b371f689af191d15c29e8ee5c7bde\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:124",
+        "command": "\".opencode/skills/trellis-check/SKILL.md\": \"2be18b6665b4da497c554acd5d76ef038cc960d25f3d4216f03e047202f2eadc\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:125",
+        "command": "\".opencode/skills/trellis-update-spec/SKILL.md\": \"d975db7af166578488958751ae2c56edb827a68bddb569aa27acc3453f64e610\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:126",
+        "command": "\".opencode/skills/trellis-channel/references/command-reference.md\": \"c4df3d940d89814310bfdaded20e84dd1d6b96786f6772688de7a123338d3c8e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:127",
+        "command": "\".opencode/skills/trellis-channel/references/forum.md\": \"407db39e8ebde47cea8637e3069bdb3d76ba42b43ed1d08ba97a56f26dbcfcb4\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:128",
+        "command": "\".opencode/skills/trellis-channel/references/progress-debugging.md\": \"fe59afd4c0a558cbefc49cc5ef8a7e0e3916d6718cb3255dc6da1b698c850ff7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:129",
+        "command": "\".opencode/skills/trellis-channel/references/workers.md\": \"d4481b2858bca82050cb8d131916da8a2ccc3857f199cdb9ced8bb41d592e2a7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:130",
+        "command": "\".opencode/skills/trellis-channel/references/workflows.md\": \"0782d602efde6e94a7d7d7950fd605eedc9a1f5a523908284e76b628fd618fd4\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:131",
+        "command": "\".opencode/skills/trellis-channel/SKILL.md\": \"ff84801c511a736da018b4b1149348ebc9a16b7fc18d905ec10cfa7acbf269a3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:132",
+        "command": "\".opencode/skills/trellis-meta/references/customize-local/add-project-local-conventions.md\": \"ef3380e71aa9f5103d37b467b1f725a8033ac516e4de31e4d790be02ec2c39e8\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:133",
+        "command": "\".opencode/skills/trellis-meta/references/customize-local/change-agents.md\": \"3eef0d9b9cf875f121c1a38afb8eee6d3cd3894127db601ae5a7760fa5b61575\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:134",
+        "command": "\".opencode/skills/trellis-meta/references/customize-local/change-context-loading.md\": \"e6aa7d938741c08b864f54e9bda8e4e68e04bc60cb46682f6acabaf37f9b2da2\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:135",
+        "command": "\".opencode/skills/trellis-meta/references/customize-local/change-hooks.md\": \"b3b1ed51cfa436a98fad8dda3ec75d997bd8f8cabbad04f101fd9e3d0e1a9e35\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:136",
+        "command": "\".opencode/skills/trellis-meta/references/customize-local/change-skills-or-commands.md\": \"a6994e2418cdf5bcad10b4236b02741179ae794bc4fdd811a64f443293b69268\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:137",
+        "command": "\".opencode/skills/trellis-meta/references/customize-local/change-spec-structure.md\": \"1a712408217ee9cc6a916d874e3d6ed1ba7a3bdc1b9dc4bb1c64393f0df1eb98\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:138",
+        "command": "\".opencode/skills/trellis-meta/references/customize-local/change-task-lifecycle.md\": \"148b7442ef8106de907afd06f9d1ca96f7ec074caedced3dd4175b3a26698ca2\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:139",
+        "command": "\".opencode/skills/trellis-meta/references/customize-local/change-workflow.md\": \"43fa780a2ca580de121b10893d49b99f978873deebbf45008c466e5ac6651519\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:140",
+        "command": "\".opencode/skills/trellis-meta/references/customize-local/overview.md\": \"a0e4cbc3fcc521c0c0f481ade796d31d19c2a5ba697d93856c890fbcc6171d71\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:141",
+        "command": "\".opencode/skills/trellis-meta/references/local-architecture/bundled-skills.md\": \"bac739b042d7a12dae5d14d85cbc312e56ca03f571d2ba7a25b20641ddaefc3f\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:142",
+        "command": "\".opencode/skills/trellis-meta/references/local-architecture/context-injection.md\": \"8497289bf333b3aa456f317039d1239b7ece79254aa0eb62cfc647714c866084\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:143",
+        "command": "\".opencode/skills/trellis-meta/references/local-architecture/generated-files.md\": \"1128d45b2e8c011c247bcf3a3ca1184ca4951fb34a0802c50bf3fecbd7e4de55\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:144",
+        "command": "\".opencode/skills/trellis-meta/references/local-architecture/multi-agent-channel.md\": \"56e5070474aeca872e2d70c46feea5aaafecd3d3ec052c3f7b1877358dca62e9\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:145",
+        "command": "\".opencode/skills/trellis-meta/references/local-architecture/overview.md\": \"50638fd9eaaba2e0edf2f2a84d920578d5b2fb7934031b174e417d3dc510b2a6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:146",
+        "command": "\".opencode/skills/trellis-meta/references/local-architecture/spec-system.md\": \"55f3c95033a3cbed6c06e225187071502d7dcf3f153f4becbec6aa79acc782f5\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:147",
+        "command": "\".opencode/skills/trellis-meta/references/local-architecture/task-system.md\": \"25dbd2be6a2271591274b56616b853b16e6fd9f44f43073350688e89e87295a6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:148",
+        "command": "\".opencode/skills/trellis-meta/references/local-architecture/workflow.md\": \"cfcdc6e4468a5d9c816e929fcca01640cd41cfdaaa4824118b40a8e460c927b6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:149",
+        "command": "\".opencode/skills/trellis-meta/references/local-architecture/workspace-memory.md\": \"79786a1ca2980b1785a36aba8142f9d879459c47dc000c999f638e5c864d04d3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:150",
+        "command": "\".opencode/skills/trellis-meta/references/platform-files/agents.md\": \"dedea76cd3ff3221a0abd121093ddd32ed8815bb08ca63d20c32feb29ca76aa7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:151",
+        "command": "\".opencode/skills/trellis-meta/references/platform-files/hooks-and-settings.md\": \"acdeba5866ccbe0e68fffc847e77e726cf79f579898e61312f6a8d62b48380ff\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:152",
+        "command": "\".opencode/skills/trellis-meta/references/platform-files/overview.md\": \"821a2718b38e17439c2bb487a6dd3a95c8138e83dbda60b142a00ff80178dc3c\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:153",
+        "command": "\".opencode/skills/trellis-meta/references/platform-files/platform-map.md\": \"59e13cdaa2077149b5d82ad25fa5dd821195be30bdc43d853619c4702d334a6e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:154",
+        "command": "\".opencode/skills/trellis-meta/references/platform-files/skills-and-commands.md\": \"5732bb0a7d384a91abd0c103372f3865e0b186e75185f35e0e91b00a6b6bf5a3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:155",
+        "command": "\".opencode/skills/trellis-meta/SKILL.md\": \"a190ecbde70a658a5b5c3e2558783e99c9afc6f2e5cdecdac8f11c06dd42065e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:156",
+        "command": "\".opencode/skills/trellis-session-insight/references/cli-quick-reference.md\": \"c520353fe3fc00b9702ed4f780647c8fbd6d342e66527a03647f533a9fe09779\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:157",
+        "command": "\".opencode/skills/trellis-session-insight/references/triggering-patterns.md\": \"121ecd23be83d1567e8ce15c366a81073d7a2b1d3ad616fce235c07ca1f1cc20\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:158",
+        "command": "\".opencode/skills/trellis-session-insight/SKILL.md\": \"f6ad80eaca21b8fa63d31ae26b612bb2bb69dd04469603828509a8c5a0463ff1\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:159",
+        "command": "\".opencode/skills/trellis-spec-bootstrap/references/mcp-setup.md\": \"df542fc8f279edd38046d26a7c8151804b708f57b24d4aa2733cea587a88c65e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:160",
+        "command": "\".opencode/skills/trellis-spec-bootstrap/references/repository-analysis.md\": \"0dae98d774f6e34559b9f3442888ac43e3a8af110c37cbefc49ce256986858b6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:161",
+        "command": "\".opencode/skills/trellis-spec-bootstrap/references/spec-task-planning.md\": \"ef493d028c3b0807a8a534bb71fb92a68129f273db763ad27ceb464a522e799d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:162",
+        "command": "\".opencode/skills/trellis-spec-bootstrap/references/spec-writing.md\": \"e9800fe9ed4a4cd87062ea1829cf2caa8d170ec15e141678a6a30e74c497f47d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:163",
+        "command": "\".opencode/skills/trellis-spec-bootstrap/SKILL.md\": \"97bfa68c06cebb558eb4464bc1b81f7d2d56040d75baa8de1ee5ad90cca0196a\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:164",
+        "command": "\".agents/skills/trellis-continue/SKILL.md\": \"6ee22b56c363c4c3b4e6511d4d1b97d5d123bcb43bbcffa231265749631d4297\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:165",
+        "command": "\".agents/skills/trellis-finish-work/SKILL.md\": \"79e6d165358253a7379cae647bbd50b6bf174a1107f451b768a2bb4ba7cc0b87\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:166",
+        "command": "\".agents/skills/trellis-start/SKILL.md\": \"ddcb643c43e967dc7e435cb815c9eb00ddab8913190d837d8b9504424f47a81a\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:167",
+        "command": "\".agents/skills/trellis-before-dev/SKILL.md\": \"8f897d8dd76c1eeb532cf15ba784360f45a93229f8dcd0acfc14282f014f92a0\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:168",
+        "command": "\".agents/skills/trellis-brainstorm/SKILL.md\": \"b3b33b61ec46c12293a021e7c6c746c9e4fba2844ee880e5e91370d35057ee6d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:169",
+        "command": "\".agents/skills/trellis-break-loop/SKILL.md\": \"f5a93699832f29dee443b53c135a7459519b371f689af191d15c29e8ee5c7bde\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:170",
+        "command": "\".agents/skills/trellis-check/SKILL.md\": \"2be18b6665b4da497c554acd5d76ef038cc960d25f3d4216f03e047202f2eadc\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:171",
+        "command": "\".agents/skills/trellis-update-spec/SKILL.md\": \"003ce08a3404aeb50998029392c4d4e57b626edf526d3ebd585032bb92dcbb96\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:172",
+        "command": "\".agents/skills/trellis-channel/references/command-reference.md\": \"c4df3d940d89814310bfdaded20e84dd1d6b96786f6772688de7a123338d3c8e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:173",
+        "command": "\".agents/skills/trellis-channel/references/forum.md\": \"407db39e8ebde47cea8637e3069bdb3d76ba42b43ed1d08ba97a56f26dbcfcb4\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:174",
+        "command": "\".agents/skills/trellis-channel/references/progress-debugging.md\": \"fe59afd4c0a558cbefc49cc5ef8a7e0e3916d6718cb3255dc6da1b698c850ff7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:175",
+        "command": "\".agents/skills/trellis-channel/references/workers.md\": \"d4481b2858bca82050cb8d131916da8a2ccc3857f199cdb9ced8bb41d592e2a7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:176",
+        "command": "\".agents/skills/trellis-channel/references/workflows.md\": \"0782d602efde6e94a7d7d7950fd605eedc9a1f5a523908284e76b628fd618fd4\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:177",
+        "command": "\".agents/skills/trellis-channel/SKILL.md\": \"ff84801c511a736da018b4b1149348ebc9a16b7fc18d905ec10cfa7acbf269a3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:178",
+        "command": "\".agents/skills/trellis-meta/references/customize-local/add-project-local-conventions.md\": \"ef3380e71aa9f5103d37b467b1f725a8033ac516e4de31e4d790be02ec2c39e8\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:179",
+        "command": "\".agents/skills/trellis-meta/references/customize-local/change-agents.md\": \"3eef0d9b9cf875f121c1a38afb8eee6d3cd3894127db601ae5a7760fa5b61575\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:180",
+        "command": "\".agents/skills/trellis-meta/references/customize-local/change-context-loading.md\": \"e6aa7d938741c08b864f54e9bda8e4e68e04bc60cb46682f6acabaf37f9b2da2\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:181",
+        "command": "\".agents/skills/trellis-meta/references/customize-local/change-hooks.md\": \"b3b1ed51cfa436a98fad8dda3ec75d997bd8f8cabbad04f101fd9e3d0e1a9e35\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:182",
+        "command": "\".agents/skills/trellis-meta/references/customize-local/change-skills-or-commands.md\": \"a6994e2418cdf5bcad10b4236b02741179ae794bc4fdd811a64f443293b69268\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:183",
+        "command": "\".agents/skills/trellis-meta/references/customize-local/change-spec-structure.md\": \"1a712408217ee9cc6a916d874e3d6ed1ba7a3bdc1b9dc4bb1c64393f0df1eb98\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:184",
+        "command": "\".agents/skills/trellis-meta/references/customize-local/change-task-lifecycle.md\": \"148b7442ef8106de907afd06f9d1ca96f7ec074caedced3dd4175b3a26698ca2\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:185",
+        "command": "\".agents/skills/trellis-meta/references/customize-local/change-workflow.md\": \"43fa780a2ca580de121b10893d49b99f978873deebbf45008c466e5ac6651519\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:186",
+        "command": "\".agents/skills/trellis-meta/references/customize-local/overview.md\": \"a0e4cbc3fcc521c0c0f481ade796d31d19c2a5ba697d93856c890fbcc6171d71\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:187",
+        "command": "\".agents/skills/trellis-meta/references/local-architecture/bundled-skills.md\": \"bac739b042d7a12dae5d14d85cbc312e56ca03f571d2ba7a25b20641ddaefc3f\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:188",
+        "command": "\".agents/skills/trellis-meta/references/local-architecture/context-injection.md\": \"8497289bf333b3aa456f317039d1239b7ece79254aa0eb62cfc647714c866084\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:189",
+        "command": "\".agents/skills/trellis-meta/references/local-architecture/generated-files.md\": \"1128d45b2e8c011c247bcf3a3ca1184ca4951fb34a0802c50bf3fecbd7e4de55\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:190",
+        "command": "\".agents/skills/trellis-meta/references/local-architecture/multi-agent-channel.md\": \"56e5070474aeca872e2d70c46feea5aaafecd3d3ec052c3f7b1877358dca62e9\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:191",
+        "command": "\".agents/skills/trellis-meta/references/local-architecture/overview.md\": \"50638fd9eaaba2e0edf2f2a84d920578d5b2fb7934031b174e417d3dc510b2a6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:192",
+        "command": "\".agents/skills/trellis-meta/references/local-architecture/spec-system.md\": \"55f3c95033a3cbed6c06e225187071502d7dcf3f153f4becbec6aa79acc782f5\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:193",
+        "command": "\".agents/skills/trellis-meta/references/local-architecture/task-system.md\": \"25dbd2be6a2271591274b56616b853b16e6fd9f44f43073350688e89e87295a6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:194",
+        "command": "\".agents/skills/trellis-meta/references/local-architecture/workflow.md\": \"cfcdc6e4468a5d9c816e929fcca01640cd41cfdaaa4824118b40a8e460c927b6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:195",
+        "command": "\".agents/skills/trellis-meta/references/local-architecture/workspace-memory.md\": \"79786a1ca2980b1785a36aba8142f9d879459c47dc000c999f638e5c864d04d3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:196",
+        "command": "\".agents/skills/trellis-meta/references/platform-files/agents.md\": \"dedea76cd3ff3221a0abd121093ddd32ed8815bb08ca63d20c32feb29ca76aa7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:197",
+        "command": "\".agents/skills/trellis-meta/references/platform-files/hooks-and-settings.md\": \"acdeba5866ccbe0e68fffc847e77e726cf79f579898e61312f6a8d62b48380ff\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:198",
+        "command": "\".agents/skills/trellis-meta/references/platform-files/overview.md\": \"821a2718b38e17439c2bb487a6dd3a95c8138e83dbda60b142a00ff80178dc3c\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:199",
+        "command": "\".agents/skills/trellis-meta/references/platform-files/platform-map.md\": \"59e13cdaa2077149b5d82ad25fa5dd821195be30bdc43d853619c4702d334a6e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:200",
+        "command": "\".agents/skills/trellis-meta/references/platform-files/skills-and-commands.md\": \"5732bb0a7d384a91abd0c103372f3865e0b186e75185f35e0e91b00a6b6bf5a3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:201",
+        "command": "\".agents/skills/trellis-meta/SKILL.md\": \"a190ecbde70a658a5b5c3e2558783e99c9afc6f2e5cdecdac8f11c06dd42065e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:202",
+        "command": "\".agents/skills/trellis-session-insight/references/cli-quick-reference.md\": \"c520353fe3fc00b9702ed4f780647c8fbd6d342e66527a03647f533a9fe09779\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:203",
+        "command": "\".agents/skills/trellis-session-insight/references/triggering-patterns.md\": \"121ecd23be83d1567e8ce15c366a81073d7a2b1d3ad616fce235c07ca1f1cc20\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:204",
+        "command": "\".agents/skills/trellis-session-insight/SKILL.md\": \"f6ad80eaca21b8fa63d31ae26b612bb2bb69dd04469603828509a8c5a0463ff1\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:205",
+        "command": "\".agents/skills/trellis-spec-bootstrap/references/mcp-setup.md\": \"df542fc8f279edd38046d26a7c8151804b708f57b24d4aa2733cea587a88c65e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:206",
+        "command": "\".agents/skills/trellis-spec-bootstrap/references/repository-analysis.md\": \"0dae98d774f6e34559b9f3442888ac43e3a8af110c37cbefc49ce256986858b6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:207",
+        "command": "\".agents/skills/trellis-spec-bootstrap/references/spec-task-planning.md\": \"ef493d028c3b0807a8a534bb71fb92a68129f273db763ad27ceb464a522e799d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:208",
+        "command": "\".agents/skills/trellis-spec-bootstrap/references/spec-writing.md\": \"e9800fe9ed4a4cd87062ea1829cf2caa8d170ec15e141678a6a30e74c497f47d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:209",
+        "command": "\".agents/skills/trellis-spec-bootstrap/SKILL.md\": \"97bfa68c06cebb558eb4464bc1b81f7d2d56040d75baa8de1ee5ad90cca0196a\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:210",
+        "command": "\".codex/agents/trellis-check.toml\": \"a64bf083a35146c9b0074b98d20efcdfa9dc448f1696677bab12ea390354c1b0\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:211",
+        "command": "\".codex/agents/trellis-implement.toml\": \"719b3c332d9bec179be5cbd2728994d1add7dbfc9585944df04e58a3f434fbc5\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:212",
+        "command": "\".codex/agents/trellis-research.toml\": \"73bf9654d99ee60cec9f6d77fe60fe2e32afbdd7d3f01c8f759c131364bf3c31\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:217",
+        "command": "\".pi/prompts/trellis-start.md\": \"d2261d97173c77612144dd034cd5ed19b72a6b10fdaab647edabb4cfaa8c15a0\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:218",
+        "command": "\".pi/prompts/trellis-continue.md\": \"941670a62ece2ad13a628df5fa4cf664a6d66a70d9811daaada20ec5c9851cfe\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:219",
+        "command": "\".pi/prompts/trellis-finish-work.md\": \"16006238f2b8410a87fd8b857b4ed3f9f529b28cd85fe97cfeabe79f95406e41\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:220",
+        "command": "\".pi/skills/trellis-before-dev/SKILL.md\": \"8f897d8dd76c1eeb532cf15ba784360f45a93229f8dcd0acfc14282f014f92a0\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:221",
+        "command": "\".pi/skills/trellis-brainstorm/SKILL.md\": \"b3b33b61ec46c12293a021e7c6c746c9e4fba2844ee880e5e91370d35057ee6d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:222",
+        "command": "\".pi/skills/trellis-break-loop/SKILL.md\": \"f5a93699832f29dee443b53c135a7459519b371f689af191d15c29e8ee5c7bde\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:223",
+        "command": "\".pi/skills/trellis-check/SKILL.md\": \"2be18b6665b4da497c554acd5d76ef038cc960d25f3d4216f03e047202f2eadc\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:224",
+        "command": "\".pi/skills/trellis-update-spec/SKILL.md\": \"cef32aec88db973a0a0272cf18b91d4585fe6ed6625e3de06851a5d3402f65d6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:225",
+        "command": "\".pi/skills/trellis-channel/references/command-reference.md\": \"c4df3d940d89814310bfdaded20e84dd1d6b96786f6772688de7a123338d3c8e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:226",
+        "command": "\".pi/skills/trellis-channel/references/forum.md\": \"407db39e8ebde47cea8637e3069bdb3d76ba42b43ed1d08ba97a56f26dbcfcb4\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:227",
+        "command": "\".pi/skills/trellis-channel/references/progress-debugging.md\": \"fe59afd4c0a558cbefc49cc5ef8a7e0e3916d6718cb3255dc6da1b698c850ff7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:228",
+        "command": "\".pi/skills/trellis-channel/references/workers.md\": \"d4481b2858bca82050cb8d131916da8a2ccc3857f199cdb9ced8bb41d592e2a7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:229",
+        "command": "\".pi/skills/trellis-channel/references/workflows.md\": \"0782d602efde6e94a7d7d7950fd605eedc9a1f5a523908284e76b628fd618fd4\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:230",
+        "command": "\".pi/skills/trellis-channel/SKILL.md\": \"ff84801c511a736da018b4b1149348ebc9a16b7fc18d905ec10cfa7acbf269a3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:231",
+        "command": "\".pi/skills/trellis-meta/references/customize-local/add-project-local-conventions.md\": \"ef3380e71aa9f5103d37b467b1f725a8033ac516e4de31e4d790be02ec2c39e8\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:232",
+        "command": "\".pi/skills/trellis-meta/references/customize-local/change-agents.md\": \"3eef0d9b9cf875f121c1a38afb8eee6d3cd3894127db601ae5a7760fa5b61575\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:233",
+        "command": "\".pi/skills/trellis-meta/references/customize-local/change-context-loading.md\": \"e6aa7d938741c08b864f54e9bda8e4e68e04bc60cb46682f6acabaf37f9b2da2\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:234",
+        "command": "\".pi/skills/trellis-meta/references/customize-local/change-hooks.md\": \"b3b1ed51cfa436a98fad8dda3ec75d997bd8f8cabbad04f101fd9e3d0e1a9e35\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:235",
+        "command": "\".pi/skills/trellis-meta/references/customize-local/change-skills-or-commands.md\": \"a6994e2418cdf5bcad10b4236b02741179ae794bc4fdd811a64f443293b69268\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:236",
+        "command": "\".pi/skills/trellis-meta/references/customize-local/change-spec-structure.md\": \"1a712408217ee9cc6a916d874e3d6ed1ba7a3bdc1b9dc4bb1c64393f0df1eb98\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:237",
+        "command": "\".pi/skills/trellis-meta/references/customize-local/change-task-lifecycle.md\": \"148b7442ef8106de907afd06f9d1ca96f7ec074caedced3dd4175b3a26698ca2\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:238",
+        "command": "\".pi/skills/trellis-meta/references/customize-local/change-workflow.md\": \"43fa780a2ca580de121b10893d49b99f978873deebbf45008c466e5ac6651519\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:239",
+        "command": "\".pi/skills/trellis-meta/references/customize-local/overview.md\": \"a0e4cbc3fcc521c0c0f481ade796d31d19c2a5ba697d93856c890fbcc6171d71\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:240",
+        "command": "\".pi/skills/trellis-meta/references/local-architecture/bundled-skills.md\": \"bac739b042d7a12dae5d14d85cbc312e56ca03f571d2ba7a25b20641ddaefc3f\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:241",
+        "command": "\".pi/skills/trellis-meta/references/local-architecture/context-injection.md\": \"8497289bf333b3aa456f317039d1239b7ece79254aa0eb62cfc647714c866084\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:242",
+        "command": "\".pi/skills/trellis-meta/references/local-architecture/generated-files.md\": \"1128d45b2e8c011c247bcf3a3ca1184ca4951fb34a0802c50bf3fecbd7e4de55\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:243",
+        "command": "\".pi/skills/trellis-meta/references/local-architecture/multi-agent-channel.md\": \"56e5070474aeca872e2d70c46feea5aaafecd3d3ec052c3f7b1877358dca62e9\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:244",
+        "command": "\".pi/skills/trellis-meta/references/local-architecture/overview.md\": \"50638fd9eaaba2e0edf2f2a84d920578d5b2fb7934031b174e417d3dc510b2a6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:245",
+        "command": "\".pi/skills/trellis-meta/references/local-architecture/spec-system.md\": \"55f3c95033a3cbed6c06e225187071502d7dcf3f153f4becbec6aa79acc782f5\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:246",
+        "command": "\".pi/skills/trellis-meta/references/local-architecture/task-system.md\": \"25dbd2be6a2271591274b56616b853b16e6fd9f44f43073350688e89e87295a6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:247",
+        "command": "\".pi/skills/trellis-meta/references/local-architecture/workflow.md\": \"cfcdc6e4468a5d9c816e929fcca01640cd41cfdaaa4824118b40a8e460c927b6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:248",
+        "command": "\".pi/skills/trellis-meta/references/local-architecture/workspace-memory.md\": \"79786a1ca2980b1785a36aba8142f9d879459c47dc000c999f638e5c864d04d3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:249",
+        "command": "\".pi/skills/trellis-meta/references/platform-files/agents.md\": \"dedea76cd3ff3221a0abd121093ddd32ed8815bb08ca63d20c32feb29ca76aa7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:250",
+        "command": "\".pi/skills/trellis-meta/references/platform-files/hooks-and-settings.md\": \"acdeba5866ccbe0e68fffc847e77e726cf79f579898e61312f6a8d62b48380ff\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:251",
+        "command": "\".pi/skills/trellis-meta/references/platform-files/overview.md\": \"821a2718b38e17439c2bb487a6dd3a95c8138e83dbda60b142a00ff80178dc3c\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:252",
+        "command": "\".pi/skills/trellis-meta/references/platform-files/platform-map.md\": \"59e13cdaa2077149b5d82ad25fa5dd821195be30bdc43d853619c4702d334a6e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:253",
+        "command": "\".pi/skills/trellis-meta/references/platform-files/skills-and-commands.md\": \"5732bb0a7d384a91abd0c103372f3865e0b186e75185f35e0e91b00a6b6bf5a3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:254",
+        "command": "\".pi/skills/trellis-meta/SKILL.md\": \"a190ecbde70a658a5b5c3e2558783e99c9afc6f2e5cdecdac8f11c06dd42065e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:255",
+        "command": "\".pi/skills/trellis-session-insight/references/cli-quick-reference.md\": \"c520353fe3fc00b9702ed4f780647c8fbd6d342e66527a03647f533a9fe09779\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:256",
+        "command": "\".pi/skills/trellis-session-insight/references/triggering-patterns.md\": \"121ecd23be83d1567e8ce15c366a81073d7a2b1d3ad616fce235c07ca1f1cc20\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:257",
+        "command": "\".pi/skills/trellis-session-insight/SKILL.md\": \"f6ad80eaca21b8fa63d31ae26b612bb2bb69dd04469603828509a8c5a0463ff1\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:258",
+        "command": "\".pi/skills/trellis-spec-bootstrap/references/mcp-setup.md\": \"df542fc8f279edd38046d26a7c8151804b708f57b24d4aa2733cea587a88c65e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:259",
+        "command": "\".pi/skills/trellis-spec-bootstrap/references/repository-analysis.md\": \"0dae98d774f6e34559b9f3442888ac43e3a8af110c37cbefc49ce256986858b6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:260",
+        "command": "\".pi/skills/trellis-spec-bootstrap/references/spec-task-planning.md\": \"ef493d028c3b0807a8a534bb71fb92a68129f273db763ad27ceb464a522e799d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:261",
+        "command": "\".pi/skills/trellis-spec-bootstrap/references/spec-writing.md\": \"e9800fe9ed4a4cd87062ea1829cf2caa8d170ec15e141678a6a30e74c497f47d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:262",
+        "command": "\".pi/skills/trellis-spec-bootstrap/SKILL.md\": \"97bfa68c06cebb558eb4464bc1b81f7d2d56040d75baa8de1ee5ad90cca0196a\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:263",
+        "command": "\".pi/agents/trellis-check.md\": \"ac307add5db1038807b5d0976ed2051d37930f1e9bbcb972fa46f6a2c4db7900\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:264",
+        "command": "\".pi/agents/trellis-implement.md\": \"bb7eeee3682dd6bd87a2cb0acb7f15005466af8bf626189795e13740e6e7f898\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:265",
+        "command": "\".pi/agents/trellis-research.md\": \"887648b24bc0befdb4fb157a58571d6a548336b869279945047d9f81e743751c\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:266",
+        "command": "\".pi/extensions/trellis/index.ts\": \"41be08a00737d7a9601ce03876b043c6e204ae58f6ec8ccf552d1b6680c86586\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:268",
+        "command": "\".reasonix/skills/trellis-continue/SKILL.md\": \"db4444263edc6271248eeafa507fe1b7099c5e285a44ff14312097cf322ec466\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:269",
+        "command": "\".reasonix/skills/trellis-finish-work/SKILL.md\": \"efd705f36f66e3d5f78534d1c1742c635f1c138442a9855b84e12637600da820\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:270",
+        "command": "\".reasonix/skills/trellis-start/SKILL.md\": \"1b95ce2e21f70e0003882bce5c1fd3ef48a20d4a96ae710f5d6b2f825734c39d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:271",
+        "command": "\".reasonix/skills/trellis-before-dev/SKILL.md\": \"8f897d8dd76c1eeb532cf15ba784360f45a93229f8dcd0acfc14282f014f92a0\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:272",
+        "command": "\".reasonix/skills/trellis-brainstorm/SKILL.md\": \"b3b33b61ec46c12293a021e7c6c746c9e4fba2844ee880e5e91370d35057ee6d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:273",
+        "command": "\".reasonix/skills/trellis-break-loop/SKILL.md\": \"f5a93699832f29dee443b53c135a7459519b371f689af191d15c29e8ee5c7bde\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:274",
+        "command": "\".reasonix/skills/trellis-update-spec/SKILL.md\": \"2adfec65a851e63414ff8c4bd9dfdde9cae2bf5d5b3320391be39d53115c034b\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:275",
+        "command": "\".reasonix/skills/trellis-channel/references/command-reference.md\": \"c4df3d940d89814310bfdaded20e84dd1d6b96786f6772688de7a123338d3c8e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:276",
+        "command": "\".reasonix/skills/trellis-channel/references/forum.md\": \"407db39e8ebde47cea8637e3069bdb3d76ba42b43ed1d08ba97a56f26dbcfcb4\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:277",
+        "command": "\".reasonix/skills/trellis-channel/references/progress-debugging.md\": \"fe59afd4c0a558cbefc49cc5ef8a7e0e3916d6718cb3255dc6da1b698c850ff7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:278",
+        "command": "\".reasonix/skills/trellis-channel/references/workers.md\": \"d4481b2858bca82050cb8d131916da8a2ccc3857f199cdb9ced8bb41d592e2a7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:279",
+        "command": "\".reasonix/skills/trellis-channel/references/workflows.md\": \"0782d602efde6e94a7d7d7950fd605eedc9a1f5a523908284e76b628fd618fd4\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:280",
+        "command": "\".reasonix/skills/trellis-channel/SKILL.md\": \"ff84801c511a736da018b4b1149348ebc9a16b7fc18d905ec10cfa7acbf269a3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:281",
+        "command": "\".reasonix/skills/trellis-meta/references/customize-local/add-project-local-conventions.md\": \"ef3380e71aa9f5103d37b467b1f725a8033ac516e4de31e4d790be02ec2c39e8\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:282",
+        "command": "\".reasonix/skills/trellis-meta/references/customize-local/change-agents.md\": \"3eef0d9b9cf875f121c1a38afb8eee6d3cd3894127db601ae5a7760fa5b61575\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:283",
+        "command": "\".reasonix/skills/trellis-meta/references/customize-local/change-context-loading.md\": \"e6aa7d938741c08b864f54e9bda8e4e68e04bc60cb46682f6acabaf37f9b2da2\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:284",
+        "command": "\".reasonix/skills/trellis-meta/references/customize-local/change-hooks.md\": \"b3b1ed51cfa436a98fad8dda3ec75d997bd8f8cabbad04f101fd9e3d0e1a9e35\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:285",
+        "command": "\".reasonix/skills/trellis-meta/references/customize-local/change-skills-or-commands.md\": \"a6994e2418cdf5bcad10b4236b02741179ae794bc4fdd811a64f443293b69268\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:286",
+        "command": "\".reasonix/skills/trellis-meta/references/customize-local/change-spec-structure.md\": \"1a712408217ee9cc6a916d874e3d6ed1ba7a3bdc1b9dc4bb1c64393f0df1eb98\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:287",
+        "command": "\".reasonix/skills/trellis-meta/references/customize-local/change-task-lifecycle.md\": \"148b7442ef8106de907afd06f9d1ca96f7ec074caedced3dd4175b3a26698ca2\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:288",
+        "command": "\".reasonix/skills/trellis-meta/references/customize-local/change-workflow.md\": \"43fa780a2ca580de121b10893d49b99f978873deebbf45008c466e5ac6651519\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:289",
+        "command": "\".reasonix/skills/trellis-meta/references/customize-local/overview.md\": \"a0e4cbc3fcc521c0c0f481ade796d31d19c2a5ba697d93856c890fbcc6171d71\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:290",
+        "command": "\".reasonix/skills/trellis-meta/references/local-architecture/bundled-skills.md\": \"bac739b042d7a12dae5d14d85cbc312e56ca03f571d2ba7a25b20641ddaefc3f\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:291",
+        "command": "\".reasonix/skills/trellis-meta/references/local-architecture/context-injection.md\": \"8497289bf333b3aa456f317039d1239b7ece79254aa0eb62cfc647714c866084\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:292",
+        "command": "\".reasonix/skills/trellis-meta/references/local-architecture/generated-files.md\": \"1128d45b2e8c011c247bcf3a3ca1184ca4951fb34a0802c50bf3fecbd7e4de55\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:293",
+        "command": "\".reasonix/skills/trellis-meta/references/local-architecture/multi-agent-channel.md\": \"56e5070474aeca872e2d70c46feea5aaafecd3d3ec052c3f7b1877358dca62e9\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:294",
+        "command": "\".reasonix/skills/trellis-meta/references/local-architecture/overview.md\": \"50638fd9eaaba2e0edf2f2a84d920578d5b2fb7934031b174e417d3dc510b2a6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:295",
+        "command": "\".reasonix/skills/trellis-meta/references/local-architecture/spec-system.md\": \"55f3c95033a3cbed6c06e225187071502d7dcf3f153f4becbec6aa79acc782f5\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:296",
+        "command": "\".reasonix/skills/trellis-meta/references/local-architecture/task-system.md\": \"25dbd2be6a2271591274b56616b853b16e6fd9f44f43073350688e89e87295a6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:297",
+        "command": "\".reasonix/skills/trellis-meta/references/local-architecture/workflow.md\": \"cfcdc6e4468a5d9c816e929fcca01640cd41cfdaaa4824118b40a8e460c927b6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:298",
+        "command": "\".reasonix/skills/trellis-meta/references/local-architecture/workspace-memory.md\": \"79786a1ca2980b1785a36aba8142f9d879459c47dc000c999f638e5c864d04d3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:299",
+        "command": "\".reasonix/skills/trellis-meta/references/platform-files/agents.md\": \"dedea76cd3ff3221a0abd121093ddd32ed8815bb08ca63d20c32feb29ca76aa7\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:300",
+        "command": "\".reasonix/skills/trellis-meta/references/platform-files/hooks-and-settings.md\": \"acdeba5866ccbe0e68fffc847e77e726cf79f579898e61312f6a8d62b48380ff\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:301",
+        "command": "\".reasonix/skills/trellis-meta/references/platform-files/overview.md\": \"821a2718b38e17439c2bb487a6dd3a95c8138e83dbda60b142a00ff80178dc3c\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:302",
+        "command": "\".reasonix/skills/trellis-meta/references/platform-files/platform-map.md\": \"59e13cdaa2077149b5d82ad25fa5dd821195be30bdc43d853619c4702d334a6e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:303",
+        "command": "\".reasonix/skills/trellis-meta/references/platform-files/skills-and-commands.md\": \"5732bb0a7d384a91abd0c103372f3865e0b186e75185f35e0e91b00a6b6bf5a3\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:304",
+        "command": "\".reasonix/skills/trellis-meta/SKILL.md\": \"a190ecbde70a658a5b5c3e2558783e99c9afc6f2e5cdecdac8f11c06dd42065e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:305",
+        "command": "\".reasonix/skills/trellis-session-insight/references/cli-quick-reference.md\": \"c520353fe3fc00b9702ed4f780647c8fbd6d342e66527a03647f533a9fe09779\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:306",
+        "command": "\".reasonix/skills/trellis-session-insight/references/triggering-patterns.md\": \"121ecd23be83d1567e8ce15c366a81073d7a2b1d3ad616fce235c07ca1f1cc20\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:307",
+        "command": "\".reasonix/skills/trellis-session-insight/SKILL.md\": \"f6ad80eaca21b8fa63d31ae26b612bb2bb69dd04469603828509a8c5a0463ff1\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:308",
+        "command": "\".reasonix/skills/trellis-spec-bootstrap/references/mcp-setup.md\": \"df542fc8f279edd38046d26a7c8151804b708f57b24d4aa2733cea587a88c65e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:309",
+        "command": "\".reasonix/skills/trellis-spec-bootstrap/references/repository-analysis.md\": \"0dae98d774f6e34559b9f3442888ac43e3a8af110c37cbefc49ce256986858b6\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:310",
+        "command": "\".reasonix/skills/trellis-spec-bootstrap/references/spec-task-planning.md\": \"ef493d028c3b0807a8a534bb71fb92a68129f273db763ad27ceb464a522e799d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:311",
+        "command": "\".reasonix/skills/trellis-spec-bootstrap/references/spec-writing.md\": \"e9800fe9ed4a4cd87062ea1829cf2caa8d170ec15e141678a6a30e74c497f47d\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:312",
+        "command": "\".reasonix/skills/trellis-spec-bootstrap/SKILL.md\": \"97bfa68c06cebb558eb4464bc1b81f7d2d56040d75baa8de1ee5ad90cca0196a\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:313",
+        "command": "\".reasonix/skills/trellis-check/SKILL.md\": \"8db22352a4e9984f95743281105989274b45d115a1df2542981b4205bdfe5abc\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:314",
+        "command": "\".reasonix/skills/trellis-implement/SKILL.md\": \"8507af0326afd4261fb8b1f5f7e7b78cd551b96e8a8c4dc10be436eb6c78e81e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:315",
+        "command": "\".zcode/commands/trellis/continue.md\": \"b77f6b844a8b315c7a6d0792d59e4bd4593918ac27d7e1e164cb95ee3e3715da\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:316",
+        "command": "\".zcode/commands/trellis/finish-work.md\": \"f11f661cff6d5d26dccb5e9574c3d2c7873a9dfaed7962d471ff5ea2fd48d691\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:317",
+        "command": "\".zcode/commands/trellis/start.md\": \"ee45e276d97e241d8887e3b64753d02eb1d3f346b206bf16f326e87f9bd2ff97\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:318",
+        "command": "\".zcode/cli/agents/trellis-check.md\": \"40eb35e5c5fd46adfa0dcd2389bc66c7f65c15383bd307d53566356a750d8275\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:319",
+        "command": "\".zcode/cli/agents/trellis-implement.md\": \"012e945aad6ac49eb8237069f6086a169e5572bf4621020c6d9d6d8b20bbe663\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:320",
+        "command": "\".trae/commands/trellis-continue.md\": \"92fe6c44d0b492b2cb86e0a1bf78d272a9580c114380e366162e39e80d8bfc7e\",",
+        "classification": "run",
+        "risk_flags": []
+      },
+      {
+        "source": ".trellis/.template-hashes.json:321",
+        "command": "\".trae/commands/trellis-finish-work.md\": \"ae6746e1813e8f0fb2a760587b30f1c90d9a6e5fa9e1e13ede96679567ee0cd3\",",
+        "classification": "run",
+        "risk_flags": []
+      }
+    ],
+    "truncated": true,
+    "summary": {
+      "run": 1300,
+      "confirm": 0,
+      "static-only": 22
+    }
+  },
+  "validation_matrix": [
+    {
+      "name": "source-version-check",
+      "tier": "required",
+      "classification": "run",
+      "ok": true,
+      "note": "source versions agree"
+    },
+    {
+      "name": "package-manager-detection",
+      "tier": "required",
+      "classification": "run",
+      "ok": true,
+      "note": "selected package manager detected"
+    },
+    {
+      "name": "trellis-inventory",
+      "tier": "required",
+      "classification": "run",
+      "ok": true,
+      "note": "requires initialization decision if missing"
+    },
+    {
+      "name": "structured-config-parse",
+      "tier": "required",
+      "classification": "run",
+      "ok": true,
+      "note": "0 parse failures; 0 parser unavailable"
+    },
+    {
+      "name": "static-hook-detection",
+      "tier": "required",
+      "classification": "run",
+      "ok": false,
+      "note": "1300 runnable-looking hooks; 22 static-only hooks"
+    },
+    {
+      "name": "cli-basic",
+      "tier": "required",
+      "classification": "run",
+      "ok": null,
+      "note": "run with --run-basic-checks to execute trellis --version and --help"
+    },
+    {
+      "name": "safe-write-path",
+      "tier": "safe-write",
+      "classification": "confirm",
+      "ok": null,
+      "note": "run only when Trellis dry-run is available; otherwise static-only and skipped"
+    },
+    {
+      "name": "remote-or-expensive-hooks",
+      "tier": "optional",
+      "classification": "static-only",
+      "ok": null,
+      "note": "list only; do not execute by default"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{"file":".trellis/tasks/06-27-model-management-refresh-alias/prd.md","reason":"检查是否满足 endpoint_models/model_aliases 表创建、刷新服务、别名引擎、能力过滤、前端模型页面的验收标准。"}
+{"file":".trellis/tasks/06-27-model-management-refresh-alias/design.md","reason":"检查是否符合 SyncService/AliasEngine 设计、并发限流、迁移 v3、API 契约和前端组件结构。"}
+{"file":".trellis/tasks/06-27-model-management-refresh-alias/implement.md","reason":"检查是否按迁移、DAO、刷新服务、别名引擎、API、前端顺序完成并运行验证命令。"}
+{"file":".trellis/spec/guides/app-stack-conventions.md","reason":"检查实现是否遵守 DAO 只做 SQL、DAO 不做加密/别名解析、crypto 降级等分层约定。"}

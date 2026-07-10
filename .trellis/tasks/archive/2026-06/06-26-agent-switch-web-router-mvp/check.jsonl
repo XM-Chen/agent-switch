@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/06-26-agent-switch-web-router-mvp/prd.md", "reason": "父任务跨模块约束与集成验收依据：8页面信息架构、路径隔离(/、/api、/claude-code、/codex、/v1、/health)、服务地址 127.0.0.1:42567、凭据加密+Keychain 主密钥、请求日志不存正文/prompt/凭据、故障转移策略（优先级+错误分类+冷却+fallback 链）、模型能力过滤、导入导出安全底线、本地服务安全边界（仅绑 127.0.0.1 无认证）、8 子任务范围。"}
+{"file": ".trellis/spec/guides/app-stack-conventions.md", "reason": "集成级实现契约：各子系统（app-shell/凭据加密/模型管理刷新别名/工具接管/路由故障转移/v1 多端点/链路测试调试器/导入导出）的目录结构、API 契约、跨层一致性、安全边界、已知限制、测试要求。集成验收的权威核对依据，确认 8 子任务组合后契约一致。"}
+{"file": ".trellis/spec/guides/project-conventions.md", "reason": "项目级约定：UI 文案与文档默认中文、参考项目简称(ccs/sub2api/9router/cpa)。核对全应用文案中文。"}
+{"file": ".trellis/tasks/06-26-agent-switch-web-router-mvp/research/credential-storage-comparison.md", "reason": "凭据存储跨模块决策依据：SQLite 加密字段+Keychain 主密钥方案。核对凭据保护落地与决策一致。"}
+{"file": ".trellis/tasks/06-26-agent-switch-web-router-mvp/research/failover-policy-comparison.md", "reason": "故障转移跨模块决策依据：优先级+错误分类+冷却+fallback 链。核对路由故障转移落地。"}
+{"file": ".trellis/tasks/06-26-agent-switch-web-router-mvp/research/model-alias-mapping-comparison.md", "reason": "模型别名映射跨模块决策依据：分作用域 alias+解析优先级+候选链+失效提示。核对模型管理落地。"}
+{"file": ".trellis/tasks/06-26-agent-switch-web-router-mvp/research/endpoint-testing-comparison.md", "reason": "端点测试跨模块决策依据：真实链路测试+流式调试器+媒体临时展示不持久化。核对链路测试落地。"}

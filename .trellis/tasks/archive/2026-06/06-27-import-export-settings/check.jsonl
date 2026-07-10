@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/06-27-import-export-settings/prd.md", "reason": "验收标准来源 AC1-AC13：逐条核对完整备份导出含凭据可还原、脱敏包不含任何敏感项、主密钥不可用 503、导入前自动备份、接管强制关闭、导入事务回滚、弱密码警告、request_logs/测试数据永不导出、UI 中文风险提示。"}
+{"file": ".trellis/tasks/06-27-import-export-settings/design.md", "reason": "设计契约来源：核对容器格式与 format_version 校验、双密钥加密（主密钥模式 kdf=none / 密码模式 argon2id + salt 写包）、AAD 包级常量、merge 匹配键与 id 重映射、replace 事务、tool_takeover 强制 enabled=0 是否与代码一致。"}
+{"file": ".trellis/spec/guides/app-stack-conventions.md", "reason": "骨架约定：核对 DAO 不做加密、AES-GCM 结构、Keychain 降级 503、凭据脱敏响应、services 子模块组织、安全边界（不记录正文/凭据）是否被遵守。"}
+{"file": ".trellis/spec/guides/project-conventions.md", "reason": "核对 UI 文案与文档默认中文、参考项目简称使用正确。"}

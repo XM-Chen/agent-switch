@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "新增 prompts 表迁移 v10 与 DAO：迁移 append-only + 只做 DDL + 幂等、providers/meta 按原样存 JSON、DAO 不做加密等既有约定，prompts DAO（含 set_enabled_exclusive 单激活事务）需对齐"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "新增 services/prompts service、db/dao/prompts、http/api/prompts 的落点需符合后端模块边界约定（锚定 services/mcp 已落地范式）"}
+{"file": ".trellis/spec/backend/http-proxy-guidelines.md", "reason": "新增 /api/prompts 路由的错误码映射、atomic_write、should_sync 门槛、日志安全约定；确认 prompt 投影与 provider 切换解耦（B1：独立即时投影，不挂 perform_switch）"}
+{"file": ".trellis/spec/frontend/api-client-guidelines.md", "reason": "src/lib/api.ts 新增 promptsApi 需对齐既有 request 封装与类型契约风格（参考 mcpApi）"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "新增 PromptsPage CRUD 页面 + 弹窗需符合既有页面/组件规范（参考 McpPage/ProvidersPage 结构）"}

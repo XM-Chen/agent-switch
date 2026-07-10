@@ -1,0 +1,6 @@
+{"file":".trellis/spec/frontend/api-client-guidelines.md","reason":"前端必须通过 src/lib/api.ts 访问 Common Config/provider API，不能页面内直接拼 fetch。"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"新增编辑器/表单需遵守中文 UI、loading/error/empty 状态与组件约定。"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Common Config 编辑器和 ProviderForm 三态保存需要正确处理异步状态与缓存刷新。"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"如补后端测试或小修 API，需要遵守 handler/service 分层。"}
+{"file":".trellis/tasks/archive/2026-07/07-07-cc-switch-semantics/design.md","reason":"地基已定义 meta.snapshot + common_config_enabled + deep-merge/backfill 语义，本任务 UI 必须对齐。"}
+{"file":".trellis/tasks/archive/2026-07/07-07-cc-env-switches/design.md","reason":"ProviderForm 已承载 meta.snapshot.env 编辑器，本任务需避免覆盖 env 行为开关。"}

@@ -1,0 +1,3 @@
+{"file": ".trellis/tasks/06-29-dashboard-overview/prd.md", "reason": "验收标准来源 AC1-AC9：计数卡 4 列网格含分桶、工具接管三工具状态、自动刷新、近 10 条日志摘要成功失败区分、端点健康分桶、空状态不阻塞、复用 API 无新增后端、npm build 0 error。"}
+{"file": ".trellis/spec/guides/app-stack-conventions.md", "reason": "前端约定核对：复用 *Api 与 TanStack Query queryKey 命名、不新建 API 客户端、文案中文、样式遵循现有卡片风格、响应式网格（grid-cols-2 lg:grid-cols-4）。"}
+{"file": ".trellis/spec/guides/project-conventions.md", "reason": "核对 UI 文案默认中文。"}

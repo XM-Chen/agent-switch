@@ -19,6 +19,20 @@ GEMINI.md
 vitest-report.json
 nul
 
+# Trellis 生成的平台适配目录（.trellis/ 本身受版本控制）
+/.agents
+/.cursor
+/.opencode
+/.pi
+/.reasonix
+/.trae
+/.zcode
+
+# Tauri updater 签名私钥和生成的发布清单
+*.key
+*.key.pub
+/latest.json
+
 # Flatpak build artifacts
 flatpak/cc-switch.deb
 flatpak-build/

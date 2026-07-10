@@ -1,0 +1,2396 @@
+{
+  "generated_at": "2026-07-09T20:49:32.218056",
+  "project": "E:\\SynologyDrive\\git_files\\agent-switch",
+  "archive_dir": "E:\\SynologyDrive\\git_files\\agent-switch\\.trellis\\archive\\upgrades\\2026-07-09-trellis-unknown-to-0.6.6",
+  "from_version": "unknown",
+  "target_version": "0.6.6",
+  "snapshot_mode": "full",
+  "snapshot_max_mb": 25,
+  "file_count": 395,
+  "files": [
+    ".developer",
+    ".gitignore",
+    ".runtime/update-check-claude_09dd99da-16b6-4a05-bc82-cf7cb4c05778.marker",
+    ".runtime/update-check-claude_5f2b8158-5b13-4ed1-b5dc-19c2c8d06ae6.marker",
+    ".runtime/update-check-claude_eb5a6ea9-1662-4941-bb42-45fc89a2d15d.marker",
+    ".template-hashes.json",
+    ".version",
+    "agents/check.md",
+    "agents/implement.md",
+    "config.yaml",
+    "scripts/__init__.py",
+    "scripts/__pycache__/__init__.cpython-313.pyc",
+    "scripts/__pycache__/add_session.cpython-313.pyc",
+    "scripts/__pycache__/get_context.cpython-313.pyc",
+    "scripts/__pycache__/get_developer.cpython-313.pyc",
+    "scripts/__pycache__/init_developer.cpython-313.pyc",
+    "scripts/__pycache__/task.cpython-313.pyc",
+    "scripts/add_session.py",
+    "scripts/common/__init__.py",
+    "scripts/common/__pycache__/__init__.cpython-312.pyc",
+    "scripts/common/__pycache__/__init__.cpython-313.pyc",
+    "scripts/common/__pycache__/active_task.cpython-312.pyc",
+    "scripts/common/__pycache__/active_task.cpython-313.pyc",
+    "scripts/common/__pycache__/cli_adapter.cpython-313.pyc",
+    "scripts/common/__pycache__/config.cpython-312.pyc",
+    "scripts/common/__pycache__/config.cpython-313.pyc",
+    "scripts/common/__pycache__/developer.cpython-312.pyc",
+    "scripts/common/__pycache__/developer.cpython-313.pyc",
+    "scripts/common/__pycache__/git.cpython-312.pyc",
+    "scripts/common/__pycache__/git.cpython-313.pyc",
+    "scripts/common/__pycache__/git_context.cpython-312.pyc",
+    "scripts/common/__pycache__/git_context.cpython-313.pyc",
+    "scripts/common/__pycache__/io.cpython-312.pyc",
+    "scripts/common/__pycache__/io.cpython-313.pyc",
+    "scripts/common/__pycache__/log.cpython-312.pyc",
+    "scripts/common/__pycache__/log.cpython-313.pyc",
+    "scripts/common/__pycache__/packages_context.cpython-312.pyc",
+    "scripts/common/__pycache__/packages_context.cpython-313.pyc",
+    "scripts/common/__pycache__/paths.cpython-312.pyc",
+    "scripts/common/__pycache__/paths.cpython-313.pyc",
+    "scripts/common/__pycache__/safe_commit.cpython-312.pyc",
+    "scripts/common/__pycache__/safe_commit.cpython-313.pyc",
+    "scripts/common/__pycache__/session_context.cpython-312.pyc",
+    "scripts/common/__pycache__/session_context.cpython-313.pyc",
+    "scripts/common/__pycache__/task_context.cpython-312.pyc",
+    "scripts/common/__pycache__/task_context.cpython-313.pyc",
+    "scripts/common/__pycache__/task_queue.cpython-313.pyc",
+    "scripts/common/__pycache__/task_store.cpython-312.pyc",
+    "scripts/common/__pycache__/task_store.cpython-313.pyc",
+    "scripts/common/__pycache__/task_utils.cpython-312.pyc",
+    "scripts/common/__pycache__/task_utils.cpython-313.pyc",
+    "scripts/common/__pycache__/tasks.cpython-312.pyc",
+    "scripts/common/__pycache__/tasks.cpython-313.pyc",
+    "scripts/common/__pycache__/trellis_config.cpython-312.pyc",
+    "scripts/common/__pycache__/trellis_config.cpython-313.pyc",
+    "scripts/common/__pycache__/types.cpython-312.pyc",
+    "scripts/common/__pycache__/types.cpython-313.pyc",
+    "scripts/common/__pycache__/workflow_phase.cpython-312.pyc",
+    "scripts/common/__pycache__/workflow_phase.cpython-313.pyc",
+    "scripts/common/active_task.py",
+    "scripts/common/cli_adapter.py",
+    "scripts/common/config.py",
+    "scripts/common/developer.py",
+    "scripts/common/git.py",
+    "scripts/common/git_context.py",
+    "scripts/common/io.py",
+    "scripts/common/log.py",
+    "scripts/common/packages_context.py",
+    "scripts/common/paths.py",
+    "scripts/common/safe_commit.py",
+    "scripts/common/session_context.py",
+    "scripts/common/task_context.py",
+    "scripts/common/task_queue.py",
+    "scripts/common/task_store.py",
+    "scripts/common/task_utils.py",
+    "scripts/common/tasks.py",
+    "scripts/common/trellis_config.py",
+    "scripts/common/types.py",
+    "scripts/common/workflow_phase.py",
+    "scripts/get_context.py",
+    "scripts/get_developer.py",
+    "scripts/hooks/__pycache__/linear_sync.cpython-313.pyc",
+    "scripts/hooks/linear_sync.py",
+    "scripts/init_developer.py",
+    "scripts/task.py",
+    "spec/backend/database-guidelines.md",
+    "spec/backend/directory-structure.md",
+    "spec/backend/http-proxy-guidelines.md",
+    "spec/backend/index.md",
+    "spec/backend/portability-guidelines.md",
+    "spec/backend/quality-guidelines.md",
+    "spec/backend/translator-guidelines.md",
+    "spec/frontend/api-client-guidelines.md",
+    "spec/frontend/component-guidelines.md",
+    "spec/frontend/directory-structure.md",
+    "spec/frontend/index.md",
+    "spec/frontend/quality-guidelines.md",
+    "spec/frontend/state-management.md",
+    "spec/guides/app-stack-conventions.md",
+    "spec/guides/code-reuse-thinking-guide.md",
+    "spec/guides/cross-layer-thinking-guide.md",
+    "spec/guides/index.md",
+    "spec/guides/project-conventions.md",
+    "spec/trellis-runtime/platform-component-guidelines.md",
+    "spec/trellis-runtime/platform-directory-structure.md",
+    "spec/trellis-runtime/platform-hook-guidelines.md",
+    "spec/trellis-runtime/platform-quality-guidelines.md",
+    "spec/trellis-runtime/platform-state-management.md",
+    "spec/trellis-runtime/platform-type-safety.md",
+    "spec/trellis-runtime/runtime-directory-structure.md",
+    "spec/trellis-runtime/runtime-error-handling.md",
+    "spec/trellis-runtime/runtime-logging.md",
+    "spec/trellis-runtime/runtime-persistence.md",
+    "spec/trellis-runtime/runtime-quality.md",
+    "tasks/archive/2026-06/00-bootstrap-guidelines/prd.md",
+    "tasks/archive/2026-06/00-bootstrap-guidelines/task.json",
+    "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/check.jsonl",
+    "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/implement.jsonl",
+    "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/prd.md",
+    "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/credential-storage-comparison.md",
+    "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/endpoint-testing-comparison.md",
+    "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/failover-policy-comparison.md",
+    "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/model-alias-mapping-comparison.md",
+    "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/task.json",
+    "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/check.jsonl",
+    "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/design.md",
+    "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/implement.jsonl",
+    "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/implement.md",
+    "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/prd.md",
+    "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/research/accounts-endpoints-credentials-comparison.md",
+    "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/research/implementation-verification.md",
+    "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/task.json",
+    "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/check.jsonl",
+    "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/design.md",
+    "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/implement.jsonl",
+    "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/implement.md",
+    "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/prd.md",
+    "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/task.json",
+    "tasks/archive/2026-06/06-27-app-shell-local-service/check.jsonl",
+    "tasks/archive/2026-06/06-27-app-shell-local-service/design.md",
+    "tasks/archive/2026-06/06-27-app-shell-local-service/implement.jsonl",
+    "tasks/archive/2026-06/06-27-app-shell-local-service/implement.md",
+    "tasks/archive/2026-06/06-27-app-shell-local-service/prd.md",
+    "tasks/archive/2026-06/06-27-app-shell-local-service/research/app-shell-tech-stack-decisions.md",
+    "tasks/archive/2026-06/06-27-app-shell-local-service/research/implementation-verification.md",
+    "tasks/archive/2026-06/06-27-app-shell-local-service/task.json",
+    "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/check.jsonl",
+    "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/design.md",
+    "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/implement.jsonl",
+    "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/implement.md",
+    "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/prd.md",
+    "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/task.json",
+    "tasks/archive/2026-06/06-27-chain-testing-debugger/check.jsonl",
+    "tasks/archive/2026-06/06-27-chain-testing-debugger/design.md",
+    "tasks/archive/2026-06/06-27-chain-testing-debugger/implement.jsonl",
+    "tasks/archive/2026-06/06-27-chain-testing-debugger/implement.md",
+    "tasks/archive/2026-06/06-27-chain-testing-debugger/prd.md",
+    "tasks/archive/2026-06/06-27-chain-testing-debugger/task.json",
+    "tasks/archive/2026-06/06-27-import-export-settings/check.jsonl",
+    "tasks/archive/2026-06/06-27-import-export-settings/design.md",
+    "tasks/archive/2026-06/06-27-import-export-settings/implement.jsonl",
+    "tasks/archive/2026-06/06-27-import-export-settings/implement.md",
+    "tasks/archive/2026-06/06-27-import-export-settings/prd.md",
+    "tasks/archive/2026-06/06-27-import-export-settings/task.json",
+    "tasks/archive/2026-06/06-27-model-management-refresh-alias/check.jsonl",
+    "tasks/archive/2026-06/06-27-model-management-refresh-alias/design.md",
+    "tasks/archive/2026-06/06-27-model-management-refresh-alias/implement.jsonl",
+    "tasks/archive/2026-06/06-27-model-management-refresh-alias/implement.md",
+    "tasks/archive/2026-06/06-27-model-management-refresh-alias/prd.md",
+    "tasks/archive/2026-06/06-27-model-management-refresh-alias/research/model-management-comparison.md",
+    "tasks/archive/2026-06/06-27-model-management-refresh-alias/task.json",
+    "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/check.jsonl",
+    "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/design.md",
+    "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/implement.jsonl",
+    "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/implement.md",
+    "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/prd.md",
+    "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/task.json",
+    "tasks/archive/2026-06/06-27-routing-failover-core/check.jsonl",
+    "tasks/archive/2026-06/06-27-routing-failover-core/design.md",
+    "tasks/archive/2026-06/06-27-routing-failover-core/implement.jsonl",
+    "tasks/archive/2026-06/06-27-routing-failover-core/implement.md",
+    "tasks/archive/2026-06/06-27-routing-failover-core/prd.md",
+    "tasks/archive/2026-06/06-27-routing-failover-core/task.json",
+    "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/check.jsonl",
+    "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/design.md",
+    "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/implement.jsonl",
+    "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/implement.md",
+    "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/prd.md",
+    "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/task.json",
+    "tasks/archive/2026-06/06-29-dashboard-overview/check.jsonl",
+    "tasks/archive/2026-06/06-29-dashboard-overview/implement.jsonl",
+    "tasks/archive/2026-06/06-29-dashboard-overview/prd.md",
+    "tasks/archive/2026-06/06-29-dashboard-overview/task.json",
+    "tasks/archive/2026-06/06-30-requirement-alignment-audit/check.jsonl",
+    "tasks/archive/2026-06/06-30-requirement-alignment-audit/design.md",
+    "tasks/archive/2026-06/06-30-requirement-alignment-audit/implement.jsonl",
+    "tasks/archive/2026-06/06-30-requirement-alignment-audit/implement.md",
+    "tasks/archive/2026-06/06-30-requirement-alignment-audit/prd.md",
+    "tasks/archive/2026-06/06-30-requirement-alignment-audit/task.json",
+    "tasks/archive/2026-07/06-30-routing-failover-core-fix/check.jsonl",
+    "tasks/archive/2026-07/06-30-routing-failover-core-fix/design.md",
+    "tasks/archive/2026-07/06-30-routing-failover-core-fix/implement.jsonl",
+    "tasks/archive/2026-07/06-30-routing-failover-core-fix/implement.md",
+    "tasks/archive/2026-07/06-30-routing-failover-core-fix/prd.md",
+    "tasks/archive/2026-07/06-30-routing-failover-core-fix/task.json",
+    "tasks/archive/2026-07/07-03-codebase-audit/check.jsonl",
+    "tasks/archive/2026-07/07-03-codebase-audit/design.md",
+    "tasks/archive/2026-07/07-03-codebase-audit/implement.jsonl",
+    "tasks/archive/2026-07/07-03-codebase-audit/implement.md",
+    "tasks/archive/2026-07/07-03-codebase-audit/prd.md",
+    "tasks/archive/2026-07/07-03-codebase-audit/research/audit-report.md",
+    "tasks/archive/2026-07/07-03-codebase-audit/task.json",
+    "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/check.jsonl",
+    "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/design.md",
+    "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/implement.jsonl",
+    "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/implement.md",
+    "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/prd.md",
+    "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/task.json",
+    "tasks/archive/2026-07/07-03-fix-audit-p1-defects/check.jsonl",
+    "tasks/archive/2026-07/07-03-fix-audit-p1-defects/implement.jsonl",
+    "tasks/archive/2026-07/07-03-fix-audit-p1-defects/prd.md",
+    "tasks/archive/2026-07/07-03-fix-audit-p1-defects/task.json",
+    "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/check.jsonl",
+    "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/design.md",
+    "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/implement.jsonl",
+    "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/implement.md",
+    "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/prd.md",
+    "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/task.json",
+    "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/check.jsonl",
+    "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/design.md",
+    "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/implement.jsonl",
+    "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/implement.md",
+    "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/prd.md",
+    "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/task.json",
+    "tasks/archive/2026-07/07-03-fix-dashboard-error-state/check.jsonl",
+    "tasks/archive/2026-07/07-03-fix-dashboard-error-state/design.md",
+    "tasks/archive/2026-07/07-03-fix-dashboard-error-state/implement.jsonl",
+    "tasks/archive/2026-07/07-03-fix-dashboard-error-state/implement.md",
+    "tasks/archive/2026-07/07-03-fix-dashboard-error-state/prd.md",
+    "tasks/archive/2026-07/07-03-fix-dashboard-error-state/task.json",
+    "tasks/archive/2026-07/07-03-fix-db-portability/check.jsonl",
+    "tasks/archive/2026-07/07-03-fix-db-portability/design.md",
+    "tasks/archive/2026-07/07-03-fix-db-portability/implement.jsonl",
+    "tasks/archive/2026-07/07-03-fix-db-portability/implement.md",
+    "tasks/archive/2026-07/07-03-fix-db-portability/prd.md",
+    "tasks/archive/2026-07/07-03-fix-db-portability/task.json",
+    "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/check.jsonl",
+    "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/design.md",
+    "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/implement.jsonl",
+    "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/implement.md",
+    "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/prd.md",
+    "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/task.json",
+    "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/check.jsonl",
+    "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/design.md",
+    "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/implement.jsonl",
+    "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/implement.md",
+    "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/prd.md",
+    "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/task.json",
+    "tasks/archive/2026-07/07-03-fix-passthrough-multipart/check.jsonl",
+    "tasks/archive/2026-07/07-03-fix-passthrough-multipart/design.md",
+    "tasks/archive/2026-07/07-03-fix-passthrough-multipart/implement.jsonl",
+    "tasks/archive/2026-07/07-03-fix-passthrough-multipart/implement.md",
+    "tasks/archive/2026-07/07-03-fix-passthrough-multipart/prd.md",
+    "tasks/archive/2026-07/07-03-fix-passthrough-multipart/task.json",
+    "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/check.jsonl",
+    "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/design.md",
+    "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/implement.jsonl",
+    "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/implement.md",
+    "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/prd.md",
+    "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/task.json",
+    "tasks/archive/2026-07/07-03-fix-remaining-defects/check.jsonl",
+    "tasks/archive/2026-07/07-03-fix-remaining-defects/implement.jsonl",
+    "tasks/archive/2026-07/07-03-fix-remaining-defects/prd.md",
+    "tasks/archive/2026-07/07-03-fix-remaining-defects/task.json",
+    "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/check.jsonl",
+    "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/design.md",
+    "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/implement.jsonl",
+    "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/implement.md",
+    "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/prd.md",
+    "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/task.json",
+    "tasks/archive/2026-07/07-03-fix-translator-wire-format/check.jsonl",
+    "tasks/archive/2026-07/07-03-fix-translator-wire-format/design.md",
+    "tasks/archive/2026-07/07-03-fix-translator-wire-format/implement.jsonl",
+    "tasks/archive/2026-07/07-03-fix-translator-wire-format/implement.md",
+    "tasks/archive/2026-07/07-03-fix-translator-wire-format/prd.md",
+    "tasks/archive/2026-07/07-03-fix-translator-wire-format/task.json",
+    "tasks/archive/2026-07/07-04-dual-mode-switching-core/check.jsonl",
+    "tasks/archive/2026-07/07-04-dual-mode-switching-core/implement.jsonl",
+    "tasks/archive/2026-07/07-04-dual-mode-switching-core/prd.md",
+    "tasks/archive/2026-07/07-04-dual-mode-switching-core/task.json",
+    "tasks/archive/2026-07/07-04-dual-mode-takeover/check.jsonl",
+    "tasks/archive/2026-07/07-04-dual-mode-takeover/implement.jsonl",
+    "tasks/archive/2026-07/07-04-dual-mode-takeover/prd.md",
+    "tasks/archive/2026-07/07-04-dual-mode-takeover/task.json",
+    "tasks/archive/2026-07/07-04-frontend-switcher-page/check.jsonl",
+    "tasks/archive/2026-07/07-04-frontend-switcher-page/design.md",
+    "tasks/archive/2026-07/07-04-frontend-switcher-page/implement.jsonl",
+    "tasks/archive/2026-07/07-04-frontend-switcher-page/implement.md",
+    "tasks/archive/2026-07/07-04-frontend-switcher-page/prd.md",
+    "tasks/archive/2026-07/07-04-frontend-switcher-page/task.json",
+    "tasks/archive/2026-07/07-04-provider-crud-switch-api/check.jsonl",
+    "tasks/archive/2026-07/07-04-provider-crud-switch-api/implement.jsonl",
+    "tasks/archive/2026-07/07-04-provider-crud-switch-api/prd.md",
+    "tasks/archive/2026-07/07-04-provider-crud-switch-api/task.json",
+    "tasks/archive/2026-07/07-04-providers-schema-migration/check.jsonl",
+    "tasks/archive/2026-07/07-04-providers-schema-migration/implement.jsonl",
+    "tasks/archive/2026-07/07-04-providers-schema-migration/prd.md",
+    "tasks/archive/2026-07/07-04-providers-schema-migration/task.json",
+    "tasks/archive/2026-07/07-04-proxy-providers-bridge/check.jsonl",
+    "tasks/archive/2026-07/07-04-proxy-providers-bridge/design.md",
+    "tasks/archive/2026-07/07-04-proxy-providers-bridge/implement.jsonl",
+    "tasks/archive/2026-07/07-04-proxy-providers-bridge/implement.md",
+    "tasks/archive/2026-07/07-04-proxy-providers-bridge/prd.md",
+    "tasks/archive/2026-07/07-04-proxy-providers-bridge/task.json",
+    "tasks/archive/2026-07/07-04-spec-gates-archive/check.jsonl",
+    "tasks/archive/2026-07/07-04-spec-gates-archive/implement.jsonl",
+    "tasks/archive/2026-07/07-04-spec-gates-archive/prd.md",
+    "tasks/archive/2026-07/07-04-spec-gates-archive/task.json",
+    "tasks/archive/2026-07/07-06-app-updater/check.jsonl",
+    "tasks/archive/2026-07/07-06-app-updater/design.md",
+    "tasks/archive/2026-07/07-06-app-updater/implement.jsonl",
+    "tasks/archive/2026-07/07-06-app-updater/implement.md",
+    "tasks/archive/2026-07/07-06-app-updater/prd.md",
+    "tasks/archive/2026-07/07-06-app-updater/task.json",
+    "tasks/archive/2026-07/07-06-fix-credential-decrypt/check.jsonl",
+    "tasks/archive/2026-07/07-06-fix-credential-decrypt/implement.jsonl",
+    "tasks/archive/2026-07/07-06-fix-credential-decrypt/prd.md",
+    "tasks/archive/2026-07/07-06-fix-credential-decrypt/task.json",
+    "tasks/archive/2026-07/07-06-import-from-ccs/check.jsonl",
+    "tasks/archive/2026-07/07-06-import-from-ccs/design.md",
+    "tasks/archive/2026-07/07-06-import-from-ccs/implement.jsonl",
+    "tasks/archive/2026-07/07-06-import-from-ccs/implement.md",
+    "tasks/archive/2026-07/07-06-import-from-ccs/prd.md",
+    "tasks/archive/2026-07/07-06-import-from-ccs/research/agent-switch-direct-provider-path.md",
+    "tasks/archive/2026-07/07-06-import-from-ccs/research/ccs-data-format.md",
+    "tasks/archive/2026-07/07-06-import-from-ccs/task.json",
+    "tasks/archive/2026-07/07-07-cc-env-switches/check.jsonl",
+    "tasks/archive/2026-07/07-07-cc-env-switches/design.md",
+    "tasks/archive/2026-07/07-07-cc-env-switches/implement.jsonl",
+    "tasks/archive/2026-07/07-07-cc-env-switches/implement.md",
+    "tasks/archive/2026-07/07-07-cc-env-switches/prd.md",
+    "tasks/archive/2026-07/07-07-cc-env-switches/task.json",
+    "tasks/archive/2026-07/07-07-cc-mcp/check.jsonl",
+    "tasks/archive/2026-07/07-07-cc-mcp/design.md",
+    "tasks/archive/2026-07/07-07-cc-mcp/implement.jsonl",
+    "tasks/archive/2026-07/07-07-cc-mcp/implement.md",
+    "tasks/archive/2026-07/07-07-cc-mcp/prd.md",
+    "tasks/archive/2026-07/07-07-cc-mcp/task.json",
+    "tasks/archive/2026-07/07-07-cc-prompts/check.jsonl",
+    "tasks/archive/2026-07/07-07-cc-prompts/design.md",
+    "tasks/archive/2026-07/07-07-cc-prompts/implement.jsonl",
+    "tasks/archive/2026-07/07-07-cc-prompts/implement.md",
+    "tasks/archive/2026-07/07-07-cc-prompts/prd.md",
+    "tasks/archive/2026-07/07-07-cc-prompts/task.json",
+    "tasks/archive/2026-07/07-07-cc-switch-semantics/check.jsonl",
+    "tasks/archive/2026-07/07-07-cc-switch-semantics/design.md",
+    "tasks/archive/2026-07/07-07-cc-switch-semantics/implement.jsonl",
+    "tasks/archive/2026-07/07-07-cc-switch-semantics/implement.md",
+    "tasks/archive/2026-07/07-07-cc-switch-semantics/prd.md",
+    "tasks/archive/2026-07/07-07-cc-switch-semantics/research/agent-switch-current.md",
+    "tasks/archive/2026-07/07-07-cc-switch-semantics/research/ccs-switch-semantics.md",
+    "tasks/archive/2026-07/07-07-cc-switch-semantics/research/decision-evidence.md",
+    "tasks/archive/2026-07/07-07-cc-switch-semantics/task.json",
+    "tasks/archive/2026-07/07-07-claude-code-ccs-align/check.jsonl",
+    "tasks/archive/2026-07/07-07-claude-code-ccs-align/implement.jsonl",
+    "tasks/archive/2026-07/07-07-claude-code-ccs-align/prd.md",
+    "tasks/archive/2026-07/07-07-claude-code-ccs-align/task.json",
+    "tasks/archive/2026-07/07-08-cc-common-config-editor/check.jsonl",
+    "tasks/archive/2026-07/07-08-cc-common-config-editor/design.md",
+    "tasks/archive/2026-07/07-08-cc-common-config-editor/implement.jsonl",
+    "tasks/archive/2026-07/07-08-cc-common-config-editor/implement.md",
+    "tasks/archive/2026-07/07-08-cc-common-config-editor/prd.md",
+    "tasks/archive/2026-07/07-08-cc-common-config-editor/task.json",
+    "tasks/archive/2026-07/07-08-cc-deeplink/check.jsonl",
+    "tasks/archive/2026-07/07-08-cc-deeplink/design.md",
+    "tasks/archive/2026-07/07-08-cc-deeplink/implement.jsonl",
+    "tasks/archive/2026-07/07-08-cc-deeplink/implement.md",
+    "tasks/archive/2026-07/07-08-cc-deeplink/prd.md",
+    "tasks/archive/2026-07/07-08-cc-deeplink/task.json",
+    "tasks/archive/2026-07/07-08-cc-sessions/check.jsonl",
+    "tasks/archive/2026-07/07-08-cc-sessions/design.md",
+    "tasks/archive/2026-07/07-08-cc-sessions/implement.jsonl",
+    "tasks/archive/2026-07/07-08-cc-sessions/implement.md",
+    "tasks/archive/2026-07/07-08-cc-sessions/prd.md",
+    "tasks/archive/2026-07/07-08-cc-sessions/task.json",
+    "tasks/archive/2026-07/07-08-cc-skills/check.jsonl",
+    "tasks/archive/2026-07/07-08-cc-skills/design.md",
+    "tasks/archive/2026-07/07-08-cc-skills/implement.jsonl",
+    "tasks/archive/2026-07/07-08-cc-skills/implement.md",
+    "tasks/archive/2026-07/07-08-cc-skills/prd.md",
+    "tasks/archive/2026-07/07-08-cc-skills/task.json",
+    "workflow.md",
+    "workspace/index.md",
+    "workspace/xm-chen/index.md",
+    "workspace/xm-chen/journal-1.md"
+  ],
+  "git_status": {
+    "git": true,
+    "dirty": true,
+    "ok": true,
+    "entries": [
+      "?? .trellis-upgrade-audit.json"
+    ],
+    "truncated": false,
+    "stderr": ""
+  },
+  "allow_dirty": true,
+  "copied_files": [
+    {
+      "path": ".developer",
+      "bytes": 57,
+      "copied": true
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 461,
+      "copied": true
+    },
+    {
+      "path": ".runtime/update-check-claude_09dd99da-16b6-4a05-bc82-cf7cb4c05778.marker",
+      "bytes": 8,
+      "copied": true
+    },
+    {
+      "path": ".runtime/update-check-claude_5f2b8158-5b13-4ed1-b5dc-19c2c8d06ae6.marker",
+      "bytes": 8,
+      "copied": true
+    },
+    {
+      "path": ".runtime/update-check-claude_eb5a6ea9-1662-4941-bb42-45fc89a2d15d.marker",
+      "bytes": 8,
+      "copied": true
+    },
+    {
+      "path": ".template-hashes.json",
+      "bytes": 53019,
+      "copied": true
+    },
+    {
+      "path": ".version",
+      "bytes": 5,
+      "copied": true
+    },
+    {
+      "path": "agents/check.md",
+      "bytes": 2537,
+      "copied": true
+    },
+    {
+      "path": "agents/implement.md",
+      "bytes": 2344,
+      "copied": true
+    },
+    {
+      "path": "config.yaml",
+      "bytes": 4341,
+      "copied": true
+    },
+    {
+      "path": "scripts/__init__.py",
+      "bytes": 105,
+      "copied": true
+    },
+    {
+      "path": "scripts/__pycache__/__init__.cpython-313.pyc",
+      "bytes": 240,
+      "copied": true
+    },
+    {
+      "path": "scripts/__pycache__/add_session.cpython-313.pyc",
+      "bytes": 21484,
+      "copied": true
+    },
+    {
+      "path": "scripts/__pycache__/get_context.cpython-313.pyc",
+      "bytes": 490,
+      "copied": true
+    },
+    {
+      "path": "scripts/__pycache__/get_developer.cpython-313.pyc",
+      "bytes": 815,
+      "copied": true
+    },
+    {
+      "path": "scripts/__pycache__/init_developer.cpython-313.pyc",
+      "bytes": 1804,
+      "copied": true
+    },
+    {
+      "path": "scripts/__pycache__/task.cpython-313.pyc",
+      "bytes": 20779,
+      "copied": true
+    },
+    {
+      "path": "scripts/add_session.py",
+      "bytes": 18544,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__init__.py",
+      "bytes": 2771,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/__init__.cpython-312.pyc",
+      "bytes": 2815,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/__init__.cpython-313.pyc",
+      "bytes": 2815,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/active_task.cpython-312.pyc",
+      "bytes": 25032,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/active_task.cpython-313.pyc",
+      "bytes": 25890,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/cli_adapter.cpython-313.pyc",
+      "bytes": 26430,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/config.cpython-312.pyc",
+      "bytes": 15670,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/config.cpython-313.pyc",
+      "bytes": 15726,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/developer.cpython-312.pyc",
+      "bytes": 6007,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/developer.cpython-313.pyc",
+      "bytes": 5966,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/git.cpython-312.pyc",
+      "bytes": 1333,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/git.cpython-313.pyc",
+      "bytes": 1319,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/git_context.cpython-312.pyc",
+      "bytes": 3635,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/git_context.cpython-313.pyc",
+      "bytes": 3665,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/io.cpython-312.pyc",
+      "bytes": 1530,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/io.cpython-313.pyc",
+      "bytes": 1504,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/log.cpython-312.pyc",
+      "bytes": 2265,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/log.cpython-313.pyc",
+      "bytes": 2329,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/packages_context.cpython-312.pyc",
+      "bytes": 8781,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/packages_context.cpython-313.pyc",
+      "bytes": 9124,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/paths.cpython-312.pyc",
+      "bytes": 12585,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/paths.cpython-313.pyc",
+      "bytes": 12563,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/safe_commit.cpython-312.pyc",
+      "bytes": 12209,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/safe_commit.cpython-313.pyc",
+      "bytes": 12089,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/session_context.cpython-312.pyc",
+      "bytes": 30808,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/session_context.cpython-313.pyc",
+      "bytes": 31343,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/task_context.cpython-312.pyc",
+      "bytes": 8666,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/task_context.cpython-313.pyc",
+      "bytes": 8873,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/task_queue.cpython-313.pyc",
+      "bytes": 5574,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/task_store.cpython-312.pyc",
+      "bytes": 26583,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/task_store.cpython-313.pyc",
+      "bytes": 26903,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/task_utils.cpython-312.pyc",
+      "bytes": 9022,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/task_utils.cpython-313.pyc",
+      "bytes": 9093,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/tasks.cpython-312.pyc",
+      "bytes": 4258,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/tasks.cpython-313.pyc",
+      "bytes": 4274,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/trellis_config.cpython-312.pyc",
+      "bytes": 5049,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/trellis_config.cpython-313.pyc",
+      "bytes": 5152,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/types.cpython-312.pyc",
+      "bytes": 3831,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/types.cpython-313.pyc",
+      "bytes": 3913,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/workflow_phase.cpython-312.pyc",
+      "bytes": 8068,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/__pycache__/workflow_phase.cpython-313.pyc",
+      "bytes": 8122,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/active_task.py",
+      "bytes": 20556,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/cli_adapter.py",
+      "bytes": 29734,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/config.py",
+      "bytes": 13913,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/developer.py",
+      "bytes": 5163,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/git.py",
+      "bytes": 893,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/git_context.py",
+      "bytes": 3074,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/io.py",
+      "bytes": 909,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/log.py",
+      "bytes": 1119,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/packages_context.py",
+      "bytes": 7868,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/paths.py",
+      "bytes": 12458,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/safe_commit.py",
+      "bytes": 11377,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/session_context.py",
+      "bytes": 26031,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/task_context.py",
+      "bytes": 7072,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/task_queue.py",
+      "bytes": 5009,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/task_store.py",
+      "bytes": 26522,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/task_utils.py",
+      "bytes": 8645,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/tasks.py",
+      "bytes": 3178,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/trellis_config.py",
+      "bytes": 3949,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/types.py",
+      "bytes": 2951,
+      "copied": true
+    },
+    {
+      "path": "scripts/common/workflow_phase.py",
+      "bytes": 6694,
+      "copied": true
+    },
+    {
+      "path": "scripts/get_context.py",
+      "bytes": 318,
+      "copied": true
+    },
+    {
+      "path": "scripts/get_developer.py",
+      "bytes": 446,
+      "copied": true
+    },
+    {
+      "path": "scripts/hooks/__pycache__/linear_sync.cpython-313.pyc",
+      "bytes": 10171,
+      "copied": true
+    },
+    {
+      "path": "scripts/hooks/linear_sync.py",
+      "bytes": 7676,
+      "copied": true
+    },
+    {
+      "path": "scripts/init_developer.py",
+      "bytes": 1054,
+      "copied": true
+    },
+    {
+      "path": "scripts/task.py",
+      "bytes": 18688,
+      "copied": true
+    },
+    {
+      "path": "spec/backend/database-guidelines.md",
+      "bytes": 16325,
+      "copied": true
+    },
+    {
+      "path": "spec/backend/directory-structure.md",
+      "bytes": 2241,
+      "copied": true
+    },
+    {
+      "path": "spec/backend/http-proxy-guidelines.md",
+      "bytes": 12640,
+      "copied": true
+    },
+    {
+      "path": "spec/backend/index.md",
+      "bytes": 1913,
+      "copied": true
+    },
+    {
+      "path": "spec/backend/portability-guidelines.md",
+      "bytes": 1373,
+      "copied": true
+    },
+    {
+      "path": "spec/backend/quality-guidelines.md",
+      "bytes": 843,
+      "copied": true
+    },
+    {
+      "path": "spec/backend/translator-guidelines.md",
+      "bytes": 1532,
+      "copied": true
+    },
+    {
+      "path": "spec/frontend/api-client-guidelines.md",
+      "bytes": 4623,
+      "copied": true
+    },
+    {
+      "path": "spec/frontend/component-guidelines.md",
+      "bytes": 5336,
+      "copied": true
+    },
+    {
+      "path": "spec/frontend/directory-structure.md",
+      "bytes": 1288,
+      "copied": true
+    },
+    {
+      "path": "spec/frontend/index.md",
+      "bytes": 950,
+      "copied": true
+    },
+    {
+      "path": "spec/frontend/quality-guidelines.md",
+      "bytes": 461,
+      "copied": true
+    },
+    {
+      "path": "spec/frontend/state-management.md",
+      "bytes": 629,
+      "copied": true
+    },
+    {
+      "path": "spec/guides/app-stack-conventions.md",
+      "bytes": 53036,
+      "copied": true
+    },
+    {
+      "path": "spec/guides/code-reuse-thinking-guide.md",
+      "bytes": 7381,
+      "copied": true
+    },
+    {
+      "path": "spec/guides/cross-layer-thinking-guide.md",
+      "bytes": 14979,
+      "copied": true
+    },
+    {
+      "path": "spec/guides/index.md",
+      "bytes": 4468,
+      "copied": true
+    },
+    {
+      "path": "spec/guides/project-conventions.md",
+      "bytes": 5139,
+      "copied": true
+    },
+    {
+      "path": "spec/trellis-runtime/platform-component-guidelines.md",
+      "bytes": 4363,
+      "copied": true
+    },
+    {
+      "path": "spec/trellis-runtime/platform-directory-structure.md",
+      "bytes": 5313,
+      "copied": true
+    },
+    {
+      "path": "spec/trellis-runtime/platform-hook-guidelines.md",
+      "bytes": 4865,
+      "copied": true
+    },
+    {
+      "path": "spec/trellis-runtime/platform-quality-guidelines.md",
+      "bytes": 4013,
+      "copied": true
+    },
+    {
+      "path": "spec/trellis-runtime/platform-state-management.md",
+      "bytes": 4508,
+      "copied": true
+    },
+    {
+      "path": "spec/trellis-runtime/platform-type-safety.md",
+      "bytes": 4753,
+      "copied": true
+    },
+    {
+      "path": "spec/trellis-runtime/runtime-directory-structure.md",
+      "bytes": 5722,
+      "copied": true
+    },
+    {
+      "path": "spec/trellis-runtime/runtime-error-handling.md",
+      "bytes": 5125,
+      "copied": true
+    },
+    {
+      "path": "spec/trellis-runtime/runtime-logging.md",
+      "bytes": 4078,
+      "copied": true
+    },
+    {
+      "path": "spec/trellis-runtime/runtime-persistence.md",
+      "bytes": 5502,
+      "copied": true
+    },
+    {
+      "path": "spec/trellis-runtime/runtime-quality.md",
+      "bytes": 4032,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/00-bootstrap-guidelines/prd.md",
+      "bytes": 5518,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/00-bootstrap-guidelines/task.json",
+      "bytes": 757,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/check.jsonl",
+      "bytes": 2092,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/implement.jsonl",
+      "bytes": 1533,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/prd.md",
+      "bytes": 19284,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/credential-storage-comparison.md",
+      "bytes": 4105,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/endpoint-testing-comparison.md",
+      "bytes": 7039,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/failover-policy-comparison.md",
+      "bytes": 8693,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/model-alias-mapping-comparison.md",
+      "bytes": 7732,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/task.json",
+      "bytes": 914,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/check.jsonl",
+      "bytes": 942,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/design.md",
+      "bytes": 10731,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/implement.jsonl",
+      "bytes": 820,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/implement.md",
+      "bytes": 6614,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/prd.md",
+      "bytes": 7327,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/research/accounts-endpoints-credentials-comparison.md",
+      "bytes": 8210,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/research/implementation-verification.md",
+      "bytes": 3713,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/task.json",
+      "bytes": 642,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/check.jsonl",
+      "bytes": 949,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/design.md",
+      "bytes": 14232,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/implement.jsonl",
+      "bytes": 1227,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/implement.md",
+      "bytes": 7616,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/prd.md",
+      "bytes": 4725,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/task.json",
+      "bytes": 587,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/check.jsonl",
+      "bytes": 717,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/design.md",
+      "bytes": 9915,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/implement.jsonl",
+      "bytes": 633,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/implement.md",
+      "bytes": 5972,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/prd.md",
+      "bytes": 7239,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/research/app-shell-tech-stack-decisions.md",
+      "bytes": 4157,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/research/implementation-verification.md",
+      "bytes": 2654,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/task.json",
+      "bytes": 612,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/design.md",
+      "bytes": 3304,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/implement.md",
+      "bytes": 1477,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/prd.md",
+      "bytes": 3199,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/task.json",
+      "bytes": 588,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/design.md",
+      "bytes": 3304,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/implement.md",
+      "bytes": 1477,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/prd.md",
+      "bytes": 3199,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/task.json",
+      "bytes": 588,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-import-export-settings/check.jsonl",
+      "bytes": 1122,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-import-export-settings/design.md",
+      "bytes": 9596,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-import-export-settings/implement.jsonl",
+      "bytes": 1437,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-import-export-settings/implement.md",
+      "bytes": 3070,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-import-export-settings/prd.md",
+      "bytes": 9980,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-import-export-settings/task.json",
+      "bytes": 579,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/check.jsonl",
+      "bytes": 792,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/design.md",
+      "bytes": 8006,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/implement.jsonl",
+      "bytes": 613,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/implement.md",
+      "bytes": 2549,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/prd.md",
+      "bytes": 8091,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/research/model-management-comparison.md",
+      "bytes": 1387,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/task.json",
+      "bytes": 626,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/design.md",
+      "bytes": 10728,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/implement.md",
+      "bytes": 4581,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/prd.md",
+      "bytes": 6716,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/task.json",
+      "bytes": 604,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-routing-failover-core/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-routing-failover-core/design.md",
+      "bytes": 19505,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-routing-failover-core/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-routing-failover-core/implement.md",
+      "bytes": 10318,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-routing-failover-core/prd.md",
+      "bytes": 11987,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-routing-failover-core/task.json",
+      "bytes": 583,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/design.md",
+      "bytes": 10658,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/implement.md",
+      "bytes": 4876,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/prd.md",
+      "bytes": 6781,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/task.json",
+      "bytes": 610,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-29-dashboard-overview/check.jsonl",
+      "bytes": 681,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-29-dashboard-overview/implement.jsonl",
+      "bytes": 902,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-29-dashboard-overview/prd.md",
+      "bytes": 7065,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-29-dashboard-overview/task.json",
+      "bytes": 704,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/design.md",
+      "bytes": 4762,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/implement.md",
+      "bytes": 2565,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/prd.md",
+      "bytes": 5042,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/task.json",
+      "bytes": 589,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/check.jsonl",
+      "bytes": 530,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/design.md",
+      "bytes": 10113,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/implement.jsonl",
+      "bytes": 764,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/implement.md",
+      "bytes": 4158,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/prd.md",
+      "bytes": 7131,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/task.json",
+      "bytes": 591,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-codebase-audit/check.jsonl",
+      "bytes": 287,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-codebase-audit/design.md",
+      "bytes": 4263,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-codebase-audit/implement.jsonl",
+      "bytes": 341,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-codebase-audit/implement.md",
+      "bytes": 2831,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-codebase-audit/prd.md",
+      "bytes": 4031,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-codebase-audit/research/audit-report.md",
+      "bytes": 35989,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-codebase-audit/task.json",
+      "bytes": 560,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/design.md",
+      "bytes": 4728,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/implement.md",
+      "bytes": 2681,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/prd.md",
+      "bytes": 3275,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/task.json",
+      "bytes": 645,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-audit-p1-defects/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-audit-p1-defects/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-audit-p1-defects/prd.md",
+      "bytes": 3611,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-audit-p1-defects/task.json",
+      "bytes": 787,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/check.jsonl",
+      "bytes": 234,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/design.md",
+      "bytes": 3271,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/implement.jsonl",
+      "bytes": 247,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/implement.md",
+      "bytes": 3018,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/prd.md",
+      "bytes": 4888,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/task.json",
+      "bytes": 626,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/design.md",
+      "bytes": 9076,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/implement.md",
+      "bytes": 3951,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/prd.md",
+      "bytes": 5096,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/task.json",
+      "bytes": 634,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/design.md",
+      "bytes": 9479,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/implement.md",
+      "bytes": 6024,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/prd.md",
+      "bytes": 7679,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/task.json",
+      "bytes": 633,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-db-portability/check.jsonl",
+      "bytes": 237,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-db-portability/design.md",
+      "bytes": 3835,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-db-portability/implement.jsonl",
+      "bytes": 253,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-db-portability/implement.md",
+      "bytes": 1770,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-db-portability/prd.md",
+      "bytes": 5160,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-db-portability/task.json",
+      "bytes": 606,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/check.jsonl",
+      "bytes": 253,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/design.md",
+      "bytes": 7126,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/implement.jsonl",
+      "bytes": 253,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/implement.md",
+      "bytes": 6638,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/prd.md",
+      "bytes": 4753,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/task.json",
+      "bytes": 614,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/check.jsonl",
+      "bytes": 234,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/design.md",
+      "bytes": 2886,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/implement.jsonl",
+      "bytes": 234,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/implement.md",
+      "bytes": 1996,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/prd.md",
+      "bytes": 3752,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/task.json",
+      "bytes": 640,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/design.md",
+      "bytes": 3729,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/implement.md",
+      "bytes": 2084,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/prd.md",
+      "bytes": 3026,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/task.json",
+      "bytes": 638,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/check.jsonl",
+      "bytes": 228,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/design.md",
+      "bytes": 3376,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/implement.jsonl",
+      "bytes": 249,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/implement.md",
+      "bytes": 2061,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/prd.md",
+      "bytes": 4856,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/task.json",
+      "bytes": 623,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-remaining-defects/check.jsonl",
+      "bytes": 253,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-remaining-defects/implement.jsonl",
+      "bytes": 253,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-remaining-defects/prd.md",
+      "bytes": 4767,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-remaining-defects/task.json",
+      "bytes": 828,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/design.md",
+      "bytes": 10388,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/implement.md",
+      "bytes": 6171,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/prd.md",
+      "bytes": 8095,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/task.json",
+      "bytes": 625,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/check.jsonl",
+      "bytes": 233,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/design.md",
+      "bytes": 3491,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/implement.jsonl",
+      "bytes": 247,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/implement.md",
+      "bytes": 2671,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/prd.md",
+      "bytes": 5409,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/task.json",
+      "bytes": 642,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-switching-core/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-switching-core/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-switching-core/prd.md",
+      "bytes": 472,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-switching-core/task.json",
+      "bytes": 904,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-takeover/check.jsonl",
+      "bytes": 392,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-takeover/implement.jsonl",
+      "bytes": 392,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-takeover/prd.md",
+      "bytes": 6152,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-takeover/task.json",
+      "bytes": 1024,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/check.jsonl",
+      "bytes": 475,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/design.md",
+      "bytes": 5451,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/implement.jsonl",
+      "bytes": 634,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/implement.md",
+      "bytes": 3001,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/prd.md",
+      "bytes": 4935,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/task.json",
+      "bytes": 1006,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-provider-crud-switch-api/check.jsonl",
+      "bytes": 418,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-provider-crud-switch-api/implement.jsonl",
+      "bytes": 418,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-provider-crud-switch-api/prd.md",
+      "bytes": 4501,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-provider-crud-switch-api/task.json",
+      "bytes": 917,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-providers-schema-migration/check.jsonl",
+      "bytes": 436,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-providers-schema-migration/implement.jsonl",
+      "bytes": 436,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-providers-schema-migration/prd.md",
+      "bytes": 5143,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-providers-schema-migration/task.json",
+      "bytes": 980,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/check.jsonl",
+      "bytes": 340,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/design.md",
+      "bytes": 3926,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/implement.jsonl",
+      "bytes": 431,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/implement.md",
+      "bytes": 2652,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/prd.md",
+      "bytes": 3920,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/task.json",
+      "bytes": 1033,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-spec-gates-archive/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-spec-gates-archive/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-spec-gates-archive/prd.md",
+      "bytes": 1806,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-spec-gates-archive/task.json",
+      "bytes": 878,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-app-updater/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-app-updater/design.md",
+      "bytes": 10137,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-app-updater/implement.jsonl",
+      "bytes": 712,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-app-updater/implement.md",
+      "bytes": 8494,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-app-updater/prd.md",
+      "bytes": 7222,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-app-updater/task.json",
+      "bytes": 572,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-fix-credential-decrypt/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-fix-credential-decrypt/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-fix-credential-decrypt/prd.md",
+      "bytes": 4443,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-fix-credential-decrypt/task.json",
+      "bytes": 627,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/design.md",
+      "bytes": 10402,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/implement.jsonl",
+      "bytes": 1267,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/implement.md",
+      "bytes": 8809,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/prd.md",
+      "bytes": 10584,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/research/agent-switch-direct-provider-path.md",
+      "bytes": 10922,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/research/ccs-data-format.md",
+      "bytes": 15767,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/task.json",
+      "bytes": 584,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-env-switches/check.jsonl",
+      "bytes": 530,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-env-switches/design.md",
+      "bytes": 10030,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-env-switches/implement.jsonl",
+      "bytes": 1062,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-env-switches/implement.md",
+      "bytes": 4235,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-env-switches/prd.md",
+      "bytes": 11396,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-env-switches/task.json",
+      "bytes": 879,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-mcp/check.jsonl",
+      "bytes": 459,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-mcp/design.md",
+      "bytes": 7074,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-mcp/implement.jsonl",
+      "bytes": 954,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-mcp/implement.md",
+      "bytes": 3577,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-mcp/prd.md",
+      "bytes": 10538,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-mcp/task.json",
+      "bytes": 645,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-prompts/check.jsonl",
+      "bytes": 448,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-prompts/design.md",
+      "bytes": 7655,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-prompts/implement.jsonl",
+      "bytes": 1150,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-prompts/implement.md",
+      "bytes": 4015,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-prompts/prd.md",
+      "bytes": 9076,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-prompts/task.json",
+      "bytes": 797,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/design.md",
+      "bytes": 8773,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/implement.md",
+      "bytes": 6495,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/prd.md",
+      "bytes": 10726,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/research/agent-switch-current.md",
+      "bytes": 12305,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/research/ccs-switch-semantics.md",
+      "bytes": 16770,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/research/decision-evidence.md",
+      "bytes": 11633,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/task.json",
+      "bytes": 1019,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-claude-code-ccs-align/check.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-claude-code-ccs-align/implement.jsonl",
+      "bytes": 254,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-claude-code-ccs-align/prd.md",
+      "bytes": 6448,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-claude-code-ccs-align/task.json",
+      "bytes": 1626,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/check.jsonl",
+      "bytes": 564,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/design.md",
+      "bytes": 2446,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/implement.jsonl",
+      "bytes": 1023,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/implement.md",
+      "bytes": 1271,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/prd.md",
+      "bytes": 6284,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/task.json",
+      "bytes": 1077,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-deeplink/check.jsonl",
+      "bytes": 582,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-deeplink/design.md",
+      "bytes": 3645,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-deeplink/implement.jsonl",
+      "bytes": 1371,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-deeplink/implement.md",
+      "bytes": 1873,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-deeplink/prd.md",
+      "bytes": 9527,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-deeplink/task.json",
+      "bytes": 1535,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-sessions/check.jsonl",
+      "bytes": 444,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-sessions/design.md",
+      "bytes": 2426,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-sessions/implement.jsonl",
+      "bytes": 826,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-sessions/implement.md",
+      "bytes": 1342,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-sessions/prd.md",
+      "bytes": 6985,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-sessions/task.json",
+      "bytes": 1021,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-skills/check.jsonl",
+      "bytes": 569,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-skills/design.md",
+      "bytes": 3259,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-skills/implement.jsonl",
+      "bytes": 1238,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-skills/implement.md",
+      "bytes": 4109,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-skills/prd.md",
+      "bytes": 8472,
+      "copied": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-skills/task.json",
+      "bytes": 1965,
+      "copied": true
+    },
+    {
+      "path": "workflow.md",
+      "bytes": 37294,
+      "copied": true
+    },
+    {
+      "path": "workspace/index.md",
+      "bytes": 2307,
+      "copied": true
+    },
+    {
+      "path": "workspace/xm-chen/index.md",
+      "bytes": 2580,
+      "copied": true
+    },
+    {
+      "path": "workspace/xm-chen/journal-1.md",
+      "bytes": 28159,
+      "copied": true
+    }
+  ],
+  "snapshot_copied": true
+}

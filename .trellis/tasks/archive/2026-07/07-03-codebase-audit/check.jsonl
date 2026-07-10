@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/guides/app-stack-conventions.md", "reason": "质量检查对照应用契约 — 确认发现是否违反技术栈/路径隔离约定"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "P3 质量附录判断重复模式/可简化的依据"}

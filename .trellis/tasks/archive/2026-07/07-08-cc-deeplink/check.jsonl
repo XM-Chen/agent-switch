@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查 parser/import 测试、安全错误处理和 cargo test。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"检查确认对话框测试、取消流程、构建与 UI 状态。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"DeepLink 跨 OS 协议、Tauri、后端导入、前端确认和现有服务，需要跨层检查。"}
+{"file":".trellis/tasks/07-08-cc-deeplink/prd.md","reason":"检查仅 ccswitch 协议、四类资源、确认导入与敏感信息约束。"}

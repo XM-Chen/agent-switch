@@ -1,0 +1,32 @@
+{
+  "id": "fix-audit-p1-defects",
+  "name": "fix-audit-p1-defects",
+  "title": "P1 缺陷修复(codebase-audit)",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "xm-chen",
+  "assignee": "xm-chen",
+  "createdAt": "2026-07-03",
+  "completedAt": "2026-07-03",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-03-fix-anthropic-streaming-stop",
+    "07-03-fix-passthrough-multipart",
+    "07-03-fix-codex-oauth-relogin-pk",
+    "07-03-fix-stream-test-json-parse",
+    "07-03-fix-dashboard-error-state"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

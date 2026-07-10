@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/guides/app-stack-conventions.md", "reason": "应用技术栈/目录/路径隔离契约 — finder/verifier 据此判断跨层与路径违规"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨层数据流/契约一致性清单 — 前端↔commands↔services/db、translator 双向 SSE"}

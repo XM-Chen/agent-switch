@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/guides/app-stack-conventions.md", "reason": "应用本体技术栈约定：含第10节『路由转发主循环未接入子模块』缺口清单、translator/StreamGuard/model_locks 接线约定、AES/迁移/Codex OAuth 约定，是本任务的直接规范依据"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "接线时复用已实现的 translator/StreamGuard/model_locks/endpoints.update，避免重复造轮子或在主循环重写子模块逻辑"}
+{"file": ".trellis/tasks/archive/2026-06/06-27-routing-failover-core/design.md", "reason": "routing-failover-core 原始技术设计：数据流图、转换器注册方向、故障转移状态机、冷却矩阵，本任务接线必须与原设计契约一致"}

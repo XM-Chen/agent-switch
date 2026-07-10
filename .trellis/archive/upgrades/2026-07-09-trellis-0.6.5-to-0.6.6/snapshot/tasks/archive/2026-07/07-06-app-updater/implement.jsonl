@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/app-stack-conventions.md", "reason": "Windows 构建约定、Tauri 生命周期与插件注册、前端 api.ts 分组、SettingsPage 现有结构——updater 插件注册与设置页 UI 需对齐"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "新增依赖/插件的模块边界与注册规则（lib.rs plugin 注册、Cargo.toml 依赖）"}
+{"file": ".trellis/spec/frontend/api-client-guidelines.md", "reason": "前端 src/lib/ 新增 updater.ts 封装的约定与错误处理风格"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "SettingsPage 新增“关于与更新”区块需对齐现有组件/深色模式/卡片布局约定"}

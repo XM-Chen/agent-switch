@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/07-06-import-from-ccs/research/ccs-data-format.md", "reason": "ccs config.json/settingsConfig 完整格式、id 与 sanitize 规则、边界情况——detect/import 解析逻辑的直接依据"}
+{"file": ".trellis/tasks/07-06-import-from-ccs/research/agent-switch-direct-provider-path.md", "reason": "direct provider 从创建到切换生效的代码路径、DirectSettings/settings_config 契约、apply_direct 数据来源——endpoint+provider 双表编排的依据"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "后端模块边界与新增文件位置规则（services/importers/ 新模块、http/api 路由挂载）"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Rust 后端质量门命令、测试要求、日志敏感信息约束"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQLite/DAO/事务约定——导入编排涉及 endpoints+providers 双表事务与回滚"}
+{"file": ".trellis/spec/frontend/api-client-guidelines.md", "reason": "前端 HTTP API 客户端约定——ccsImportApi 封装与类型定义"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨层契约一致性思考——detect/import 前后端数据契约对齐"}

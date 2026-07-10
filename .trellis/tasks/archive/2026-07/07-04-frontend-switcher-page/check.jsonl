@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/api-client-guidelines.md", "reason": "校验 providersApi 是否符合 api.ts 参数/响应/错误约定"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "校验 queryKey/loading/error/invalidate 用法"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "校验中文 UI、展示常量复用、组件分层"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "校验 build/test 门禁"}

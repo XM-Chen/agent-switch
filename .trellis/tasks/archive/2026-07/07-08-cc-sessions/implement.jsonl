@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/directory-structure.md","reason":"新增 sessions API 和 service 需遵守 handler/service 分层。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"JSONL 解析、路径安全、只读边界需要 Rust 测试。"}
+{"file":".trellis/spec/frontend/api-client-guidelines.md","reason":"/sessions 页面必须通过 src/lib/api.ts 访问后端 API。"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"会话页需要中文 UI、loading/error/empty 状态和可读消息组件。"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"列表分页/search/详情 query key 与缓存状态需要遵守前端状态规范。"}
+{"file":".trellis/tasks/07-08-cc-sessions/prd.md","reason":"会话管理强调只读边界，实施时需逐条对照需求。"}

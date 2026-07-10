@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "新增 providers::backfill_from_takeover DAO 函数需遵循 DAO 约定、事务、幂等回填写法"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "回填函数归属 db/dao/providers.rs、lib.rs 启动接线位置"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "DAO 单测、集成测试、提交前质量门约定"}

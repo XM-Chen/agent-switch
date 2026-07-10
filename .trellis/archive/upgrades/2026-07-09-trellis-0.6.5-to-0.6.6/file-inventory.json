@@ -1,0 +1,2433 @@
+{
+  "exists": true,
+  "root": "E:\\SynologyDrive\\git_files\\agent-switch\\.trellis",
+  "days_window": 90,
+  "totals": {
+    "files": 395,
+    "bytes": 1982298,
+    "active_files": 395
+  },
+  "top_dirs": {
+    ".developer": {
+      "files": 1,
+      "bytes": 57
+    },
+    ".gitignore": {
+      "files": 1,
+      "bytes": 461
+    },
+    ".template-hashes.json": {
+      "files": 1,
+      "bytes": 53019
+    },
+    ".version": {
+      "files": 1,
+      "bytes": 5
+    },
+    "config.yaml": {
+      "files": 1,
+      "bytes": 4341
+    },
+    "workflow.md": {
+      "files": 1,
+      "bytes": 37294
+    },
+    ".runtime": {
+      "files": 3,
+      "bytes": 24
+    },
+    "agents": {
+      "files": 2,
+      "bytes": 4881
+    },
+    "scripts": {
+      "files": 75,
+      "bytes": 713314
+    },
+    "workspace": {
+      "files": 3,
+      "bytes": 33046
+    },
+    "tasks": {
+      "files": 277,
+      "bytes": 948425
+    },
+    "spec": {
+      "files": 29,
+      "bytes": 187431
+    }
+  },
+  "preserve_candidates": [
+    {
+      "path": ".developer",
+      "bytes": 57,
+      "modified": "2026-06-26T10:51:32.838765+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 461,
+      "modified": "2026-06-26T10:51:31.689485+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": ".runtime/update-check-claude_09dd99da-16b6-4a05-bc82-cf7cb4c05778.marker",
+      "bytes": 8,
+      "modified": "2026-06-29T04:20:21.687329+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": ".runtime/update-check-claude_5f2b8158-5b13-4ed1-b5dc-19c2c8d06ae6.marker",
+      "bytes": 8,
+      "modified": "2026-06-29T01:52:58.189670+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": ".runtime/update-check-claude_eb5a6ea9-1662-4941-bb42-45fc89a2d15d.marker",
+      "bytes": 8,
+      "modified": "2026-06-28T08:07:03.787760+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": ".template-hashes.json",
+      "bytes": 53019,
+      "modified": "2026-06-26T10:51:32.612136+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": ".version",
+      "bytes": 5,
+      "modified": "2026-06-26T10:51:31.713839+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "agents/check.md",
+      "bytes": 2537,
+      "modified": "2026-06-26T10:51:31.692486+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "agents/implement.md",
+      "bytes": 2344,
+      "modified": "2026-06-26T10:51:31.692486+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "config.yaml",
+      "bytes": 4341,
+      "modified": "2026-06-26T10:51:31.690486+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/__init__.py",
+      "bytes": 105,
+      "modified": "2026-06-26T10:51:31.687487+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/__pycache__/__init__.cpython-313.pyc",
+      "bytes": 240,
+      "modified": "2026-06-26T11:08:56.827203+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/__pycache__/add_session.cpython-313.pyc",
+      "bytes": 21484,
+      "modified": "2026-06-26T11:08:56.856841+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/__pycache__/get_context.cpython-313.pyc",
+      "bytes": 490,
+      "modified": "2026-06-26T11:08:56.943172+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/__pycache__/get_developer.cpython-313.pyc",
+      "bytes": 815,
+      "modified": "2026-06-26T11:08:56.949031+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/__pycache__/init_developer.cpython-313.pyc",
+      "bytes": 1804,
+      "modified": "2026-06-26T11:08:56.971159+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/__pycache__/task.cpython-313.pyc",
+      "bytes": 20779,
+      "modified": "2026-06-26T11:08:56.982265+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/add_session.py",
+      "bytes": 18544,
+      "modified": "2026-06-26T10:51:31.635878+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__init__.py",
+      "bytes": 2771,
+      "modified": "2026-06-26T10:51:31.675929+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/__init__.cpython-312.pyc",
+      "bytes": 2815,
+      "modified": "2026-06-28T08:02:43.139564+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/__init__.cpython-313.pyc",
+      "bytes": 2815,
+      "modified": "2026-06-26T10:51:32.723932+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/active_task.cpython-312.pyc",
+      "bytes": 25032,
+      "modified": "2026-06-28T08:02:43.230559+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/active_task.cpython-313.pyc",
+      "bytes": 25890,
+      "modified": "2026-06-26T10:51:32.787810+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/cli_adapter.cpython-313.pyc",
+      "bytes": 26430,
+      "modified": "2026-06-26T11:08:56.906402+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/config.cpython-312.pyc",
+      "bytes": 15670,
+      "modified": "2026-06-28T08:02:43.350307+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/config.cpython-313.pyc",
+      "bytes": 15726,
+      "modified": "2026-06-26T10:52:43.979756+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/developer.cpython-312.pyc",
+      "bytes": 6007,
+      "modified": "2026-06-28T08:24:07.087534+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/developer.cpython-313.pyc",
+      "bytes": 5966,
+      "modified": "2026-06-26T10:51:32.834764+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/git.cpython-312.pyc",
+      "bytes": 1333,
+      "modified": "2026-06-28T08:07:03.268033+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/git.cpython-313.pyc",
+      "bytes": 1319,
+      "modified": "2026-06-26T10:57:29.620770+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/git_context.cpython-312.pyc",
+      "bytes": 3635,
+      "modified": "2026-06-28T08:07:03.238012+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/git_context.cpython-313.pyc",
+      "bytes": 3665,
+      "modified": "2026-06-26T10:57:29.614772+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/io.cpython-312.pyc",
+      "bytes": 1530,
+      "modified": "2026-06-28T08:02:43.466555+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/io.cpython-313.pyc",
+      "bytes": 1504,
+      "modified": "2026-06-26T10:52:44.008468+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/log.cpython-312.pyc",
+      "bytes": 2265,
+      "modified": "2026-06-28T08:23:56.539762+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/log.cpython-313.pyc",
+      "bytes": 2329,
+      "modified": "2026-06-26T10:58:04.825085+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/packages_context.cpython-312.pyc",
+      "bytes": 8781,
+      "modified": "2026-06-28T08:07:03.345248+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/packages_context.cpython-313.pyc",
+      "bytes": 9124,
+      "modified": "2026-06-26T10:57:29.676296+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/paths.cpython-312.pyc",
+      "bytes": 12585,
+      "modified": "2026-06-28T08:02:43.174668+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/paths.cpython-313.pyc",
+      "bytes": 12563,
+      "modified": "2026-06-26T10:51:32.737934+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/safe_commit.cpython-312.pyc",
+      "bytes": 12209,
+      "modified": "2026-06-28T08:23:56.690508+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/safe_commit.cpython-313.pyc",
+      "bytes": 12089,
+      "modified": "2026-06-26T10:58:04.912662+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/session_context.cpython-312.pyc",
+      "bytes": 30808,
+      "modified": "2026-06-28T08:07:03.310940+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/session_context.cpython-313.pyc",
+      "bytes": 31343,
+      "modified": "2026-06-26T10:57:29.656770+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/task_context.cpython-312.pyc",
+      "bytes": 8666,
+      "modified": "2026-06-28T08:23:56.715575+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/task_context.cpython-313.pyc",
+      "bytes": 8873,
+      "modified": "2026-06-26T10:58:04.924677+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/task_queue.cpython-313.pyc",
+      "bytes": 5574,
+      "modified": "2026-06-26T11:08:56.936624+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/task_store.cpython-312.pyc",
+      "bytes": 26583,
+      "modified": "2026-06-28T08:23:56.639993+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/task_store.cpython-313.pyc",
+      "bytes": 26903,
+      "modified": "2026-06-26T10:58:04.888664+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/task_utils.cpython-312.pyc",
+      "bytes": 9022,
+      "modified": "2026-06-28T08:23:56.577771+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/task_utils.cpython-313.pyc",
+      "bytes": 9093,
+      "modified": "2026-06-26T10:58:04.839101+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/tasks.cpython-312.pyc",
+      "bytes": 4258,
+      "modified": "2026-06-28T08:02:43.439837+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/tasks.cpython-313.pyc",
+      "bytes": 4274,
+      "modified": "2026-06-26T10:52:43.995467+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/trellis_config.cpython-312.pyc",
+      "bytes": 5049,
+      "modified": "2026-06-28T08:02:50.879998+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/trellis_config.cpython-313.pyc",
+      "bytes": 5152,
+      "modified": "2026-06-26T10:53:28.802582+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/types.cpython-312.pyc",
+      "bytes": 3831,
+      "modified": "2026-06-28T08:02:43.488821+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/types.cpython-313.pyc",
+      "bytes": 3913,
+      "modified": "2026-06-26T10:52:44.022481+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/workflow_phase.cpython-312.pyc",
+      "bytes": 8068,
+      "modified": "2026-06-28T08:07:03.412172+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/__pycache__/workflow_phase.cpython-313.pyc",
+      "bytes": 8122,
+      "modified": "2026-06-26T10:57:29.699179+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/active_task.py",
+      "bytes": 20556,
+      "modified": "2026-06-26T10:51:31.639875+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/cli_adapter.py",
+      "bytes": 29734,
+      "modified": "2026-06-26T10:51:31.641876+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/config.py",
+      "bytes": 13913,
+      "modified": "2026-06-26T10:51:31.643878+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/developer.py",
+      "bytes": 5163,
+      "modified": "2026-06-26T10:51:31.644875+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/git.py",
+      "bytes": 893,
+      "modified": "2026-06-26T10:51:31.646875+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/git_context.py",
+      "bytes": 3074,
+      "modified": "2026-06-26T10:51:31.648875+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/io.py",
+      "bytes": 909,
+      "modified": "2026-06-26T10:51:31.650877+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/log.py",
+      "bytes": 1119,
+      "modified": "2026-06-26T10:51:31.652879+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/packages_context.py",
+      "bytes": 7868,
+      "modified": "2026-06-26T10:51:31.654889+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/paths.py",
+      "bytes": 12458,
+      "modified": "2026-06-26T10:51:31.656887+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/safe_commit.py",
+      "bytes": 11377,
+      "modified": "2026-06-26T10:51:31.658887+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/session_context.py",
+      "bytes": 26031,
+      "modified": "2026-06-26T10:51:31.660885+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/task_context.py",
+      "bytes": 7072,
+      "modified": "2026-06-26T10:51:31.663889+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/task_queue.py",
+      "bytes": 5009,
+      "modified": "2026-06-26T10:51:31.664890+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/task_store.py",
+      "bytes": 26522,
+      "modified": "2026-06-26T10:51:31.667884+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/task_utils.py",
+      "bytes": 8645,
+      "modified": "2026-06-26T10:51:31.669930+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/tasks.py",
+      "bytes": 3178,
+      "modified": "2026-06-26T10:51:31.661885+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/trellis_config.py",
+      "bytes": 3949,
+      "modified": "2026-06-26T10:51:31.670928+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/types.py",
+      "bytes": 2951,
+      "modified": "2026-06-26T10:51:31.672928+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/common/workflow_phase.py",
+      "bytes": 6694,
+      "modified": "2026-06-26T10:51:31.674932+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/get_context.py",
+      "bytes": 318,
+      "modified": "2026-06-26T10:51:31.677929+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/get_developer.py",
+      "bytes": 446,
+      "modified": "2026-06-26T10:51:31.678930+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/hooks/__pycache__/linear_sync.cpython-313.pyc",
+      "bytes": 10171,
+      "modified": "2026-06-26T11:08:56.967135+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/hooks/linear_sync.py",
+      "bytes": 7676,
+      "modified": "2026-06-26T10:51:31.682479+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/init_developer.py",
+      "bytes": 1054,
+      "modified": "2026-06-26T10:51:31.683486+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "scripts/task.py",
+      "bytes": 18688,
+      "modified": "2026-06-26T10:51:31.686486+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/backend/database-guidelines.md",
+      "bytes": 16325,
+      "modified": "2026-07-09T08:25:58.399807+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/backend/directory-structure.md",
+      "bytes": 2241,
+      "modified": "2026-07-06T01:46:06.519868+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/backend/http-proxy-guidelines.md",
+      "bytes": 12640,
+      "modified": "2026-07-09T08:27:23.573293+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/backend/index.md",
+      "bytes": 1913,
+      "modified": "2026-07-03T11:57:18.652274+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/backend/portability-guidelines.md",
+      "bytes": 1373,
+      "modified": "2026-07-03T11:57:53.635543+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/backend/quality-guidelines.md",
+      "bytes": 843,
+      "modified": "2026-07-03T11:57:53.827825+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/backend/translator-guidelines.md",
+      "bytes": 1532,
+      "modified": "2026-07-03T11:57:53.182062+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/frontend/api-client-guidelines.md",
+      "bytes": 4623,
+      "modified": "2026-07-09T08:27:48.567800+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/frontend/component-guidelines.md",
+      "bytes": 5336,
+      "modified": "2026-07-09T08:28:31.918358+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/frontend/directory-structure.md",
+      "bytes": 1288,
+      "modified": "2026-07-06T01:44:37.969671+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/frontend/index.md",
+      "bytes": 950,
+      "modified": "2026-07-06T01:45:09.722311+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/frontend/quality-guidelines.md",
+      "bytes": 461,
+      "modified": "2026-07-03T11:58:50.341869+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/frontend/state-management.md",
+      "bytes": 629,
+      "modified": "2026-07-03T11:58:22.463492+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/guides/app-stack-conventions.md",
+      "bytes": 53036,
+      "modified": "2026-07-06T07:57:48.589447+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/guides/code-reuse-thinking-guide.md",
+      "bytes": 7381,
+      "modified": "2026-06-26T10:51:31.698838+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/guides/cross-layer-thinking-guide.md",
+      "bytes": 14979,
+      "modified": "2026-06-26T10:51:31.698838+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/guides/index.md",
+      "bytes": 4468,
+      "modified": "2026-06-27T07:40:15.319261+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/guides/project-conventions.md",
+      "bytes": 5139,
+      "modified": "2026-06-27T04:53:52.748704+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/trellis-runtime/platform-component-guidelines.md",
+      "bytes": 4363,
+      "modified": "2026-06-26T11:07:18.695946+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/trellis-runtime/platform-directory-structure.md",
+      "bytes": 5313,
+      "modified": "2026-06-26T11:06:28.862417+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/trellis-runtime/platform-hook-guidelines.md",
+      "bytes": 4865,
+      "modified": "2026-06-26T11:07:19.186978+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/trellis-runtime/platform-quality-guidelines.md",
+      "bytes": 4013,
+      "modified": "2026-06-26T11:07:59.601888+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/trellis-runtime/platform-state-management.md",
+      "bytes": 4508,
+      "modified": "2026-06-26T11:07:19.377473+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/trellis-runtime/platform-type-safety.md",
+      "bytes": 4753,
+      "modified": "2026-06-26T11:07:59.291710+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/trellis-runtime/runtime-directory-structure.md",
+      "bytes": 5722,
+      "modified": "2026-06-26T11:05:17.099298+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/trellis-runtime/runtime-error-handling.md",
+      "bytes": 5125,
+      "modified": "2026-06-26T11:05:17.479189+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/trellis-runtime/runtime-logging.md",
+      "bytes": 4078,
+      "modified": "2026-06-26T11:06:28.284963+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/trellis-runtime/runtime-persistence.md",
+      "bytes": 5502,
+      "modified": "2026-06-26T11:05:17.313551+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "spec/trellis-runtime/runtime-quality.md",
+      "bytes": 4032,
+      "modified": "2026-06-26T11:06:28.381297+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/00-bootstrap-guidelines/prd.md",
+      "bytes": 5518,
+      "modified": "2026-06-26T11:07:59.787429+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/00-bootstrap-guidelines/task.json",
+      "bytes": 757,
+      "modified": "2026-06-30T00:51:45.848134+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/check.jsonl",
+      "bytes": 2092,
+      "modified": "2026-06-29T06:18:35+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/implement.jsonl",
+      "bytes": 1533,
+      "modified": "2026-06-29T06:18:36+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/prd.md",
+      "bytes": 19284,
+      "modified": "2026-06-27T04:21:35+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/credential-storage-comparison.md",
+      "bytes": 4105,
+      "modified": "2026-06-27T03:48:00+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/endpoint-testing-comparison.md",
+      "bytes": 7039,
+      "modified": "2026-06-26T16:46:09+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/failover-policy-comparison.md",
+      "bytes": 8693,
+      "modified": "2026-06-26T16:21:03+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/research/model-alias-mapping-comparison.md",
+      "bytes": 7732,
+      "modified": "2026-06-27T03:29:35+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-26-agent-switch-web-router-mvp/task.json",
+      "bytes": 914,
+      "modified": "2026-06-29T07:28:24+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/check.jsonl",
+      "bytes": 942,
+      "modified": "2026-06-27T08:06:24.550817+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/design.md",
+      "bytes": 10731,
+      "modified": "2026-06-27T07:58:49.525719+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/implement.jsonl",
+      "bytes": 820,
+      "modified": "2026-06-27T08:06:24.486849+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/implement.md",
+      "bytes": 6614,
+      "modified": "2026-06-27T08:02:36.712238+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/prd.md",
+      "bytes": 7327,
+      "modified": "2026-06-27T07:57:17.038310+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/research/accounts-endpoints-credentials-comparison.md",
+      "bytes": 8210,
+      "modified": "2026-06-27T07:55:24.472764+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/research/implementation-verification.md",
+      "bytes": 3713,
+      "modified": "2026-06-27T09:43:02.718239+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-accounts-endpoints-credential-security/task.json",
+      "bytes": 642,
+      "modified": "2026-06-27T14:30:44.926718+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/check.jsonl",
+      "bytes": 949,
+      "modified": "2026-06-29T02:09:49+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/design.md",
+      "bytes": 14232,
+      "modified": "2026-06-29T03:21:17+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/implement.jsonl",
+      "bytes": 1227,
+      "modified": "2026-06-29T02:09:49+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/implement.md",
+      "bytes": 7616,
+      "modified": "2026-06-29T03:23:36+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/prd.md",
+      "bytes": 4725,
+      "modified": "2026-06-27T04:46:03+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/06-27-app-shell-local-service/task.json",
+      "bytes": 587,
+      "modified": "2026-06-29T03:36:23+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/check.jsonl",
+      "bytes": 717,
+      "modified": "2026-06-27T05:03:03.308038+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/design.md",
+      "bytes": 9915,
+      "modified": "2026-06-27T05:02:16.839617+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/implement.jsonl",
+      "bytes": 633,
+      "modified": "2026-06-27T05:02:55.932918+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/implement.md",
+      "bytes": 5972,
+      "modified": "2026-06-27T05:02:45.747566+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/prd.md",
+      "bytes": 7239,
+      "modified": "2026-06-27T05:01:35.195925+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/research/app-shell-tech-stack-decisions.md",
+      "bytes": 4157,
+      "modified": "2026-06-27T05:00:26.215295+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/research/implementation-verification.md",
+      "bytes": 2654,
+      "modified": "2026-06-27T07:38:03.681574+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-app-shell-local-service/task.json",
+      "bytes": 612,
+      "modified": "2026-06-27T07:49:50.808991+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-06-27T04:21:19+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/design.md",
+      "bytes": 3304,
+      "modified": "2026-06-28T15:13:28+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-06-27T04:21:19+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/implement.md",
+      "bytes": 1477,
+      "modified": "2026-06-28T15:13:37+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/prd.md",
+      "bytes": 3199,
+      "modified": "2026-06-28T15:12:59+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/06-27-chain-testing-debugger/task.json",
+      "bytes": 588,
+      "modified": "2026-06-29T01:33:26.049049+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-06-27T04:21:19.403445+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/design.md",
+      "bytes": 3304,
+      "modified": "2026-06-28T15:13:28.573644+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-06-27T04:21:19.403445+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/implement.md",
+      "bytes": 1477,
+      "modified": "2026-06-28T15:13:37.098432+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/prd.md",
+      "bytes": 3199,
+      "modified": "2026-06-28T15:12:59.872298+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-chain-testing-debugger/task.json",
+      "bytes": 588,
+      "modified": "2026-06-28T15:30:57.374781+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-import-export-settings/check.jsonl",
+      "bytes": 1122,
+      "modified": "2026-06-29T04:15:35+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-import-export-settings/design.md",
+      "bytes": 9596,
+      "modified": "2026-06-29T04:18:07+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-import-export-settings/implement.jsonl",
+      "bytes": 1437,
+      "modified": "2026-06-29T04:15:34+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-import-export-settings/implement.md",
+      "bytes": 3070,
+      "modified": "2026-06-29T00:52:33+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-import-export-settings/prd.md",
+      "bytes": 9980,
+      "modified": "2026-06-29T04:17:47+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-import-export-settings/task.json",
+      "bytes": 579,
+      "modified": "2026-06-29T05:34:55+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/check.jsonl",
+      "bytes": 792,
+      "modified": "2026-06-27T14:36:52.430257+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/design.md",
+      "bytes": 8006,
+      "modified": "2026-06-27T14:35:46.877619+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/implement.jsonl",
+      "bytes": 613,
+      "modified": "2026-06-27T14:37:30.280641+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/implement.md",
+      "bytes": 2549,
+      "modified": "2026-06-27T14:36:18.125885+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/prd.md",
+      "bytes": 8091,
+      "modified": "2026-06-27T14:35:46.765958+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/research/model-management-comparison.md",
+      "bytes": 1387,
+      "modified": "2026-06-27T14:37:01.387238+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-model-management-refresh-alias/task.json",
+      "bytes": 626,
+      "modified": "2026-06-28T06:15:29.127654+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-06-27T04:21:19.159670+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/design.md",
+      "bytes": 10728,
+      "modified": "2026-06-28T13:32:06.596323+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-06-27T04:21:19.158666+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/implement.md",
+      "bytes": 4581,
+      "modified": "2026-06-28T13:36:09.329927+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/prd.md",
+      "bytes": 6716,
+      "modified": "2026-06-28T13:20:55.209643+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-openai-compatible-v1-endpoints/task.json",
+      "bytes": 604,
+      "modified": "2026-06-28T15:01:32.903831+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-routing-failover-core/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-06-27T04:21:18.950296+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-routing-failover-core/design.md",
+      "bytes": 19505,
+      "modified": "2026-06-28T09:11:52.829896+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-routing-failover-core/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-06-27T04:21:18.949289+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-routing-failover-core/implement.md",
+      "bytes": 10318,
+      "modified": "2026-06-28T11:36:18.139619+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-routing-failover-core/prd.md",
+      "bytes": 11987,
+      "modified": "2026-06-28T09:11:01.410925+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-routing-failover-core/task.json",
+      "bytes": 583,
+      "modified": "2026-06-28T11:36:52.000093+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-06-27T04:21:18.397892+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/design.md",
+      "bytes": 10658,
+      "modified": "2026-06-28T06:38:14.848677+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-06-27T04:21:18.397892+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/implement.md",
+      "bytes": 4876,
+      "modified": "2026-06-28T06:38:51.130321+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/prd.md",
+      "bytes": 6781,
+      "modified": "2026-06-28T06:37:04.438427+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-27-tool-takeover-claude-code-codex/task.json",
+      "bytes": 610,
+      "modified": "2026-06-28T08:23:56.737373+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-29-dashboard-overview/check.jsonl",
+      "bytes": 681,
+      "modified": "2026-06-29T08:48:00.751267+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-29-dashboard-overview/implement.jsonl",
+      "bytes": 902,
+      "modified": "2026-06-29T08:48:00.545703+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-29-dashboard-overview/prd.md",
+      "bytes": 7065,
+      "modified": "2026-06-29T08:29:43.217527+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-29-dashboard-overview/task.json",
+      "bytes": 704,
+      "modified": "2026-06-29T09:50:25.086467+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-06-30T02:02:51.467024+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/design.md",
+      "bytes": 4762,
+      "modified": "2026-06-30T10:06:07.557256+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-06-30T02:02:51.455917+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/implement.md",
+      "bytes": 2565,
+      "modified": "2026-06-30T11:01:23.495859+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/prd.md",
+      "bytes": 5042,
+      "modified": "2026-06-30T10:04:30.476160+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-06/06-30-requirement-alignment-audit/task.json",
+      "bytes": 589,
+      "modified": "2026-06-30T11:05:01.332924+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/check.jsonl",
+      "bytes": 530,
+      "modified": "2026-06-30T11:14:56.970293+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/design.md",
+      "bytes": 10113,
+      "modified": "2026-06-30T11:13:31.995853+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/implement.jsonl",
+      "bytes": 764,
+      "modified": "2026-06-30T11:14:56.894802+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/implement.md",
+      "bytes": 4158,
+      "modified": "2026-06-30T11:14:04.208992+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/prd.md",
+      "bytes": 7131,
+      "modified": "2026-06-30T11:12:02.457316+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/06-30-routing-failover-core-fix/task.json",
+      "bytes": 591,
+      "modified": "2026-07-01T01:44:11.420356+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-codebase-audit/check.jsonl",
+      "bytes": 287,
+      "modified": "2026-07-03T01:58:56.607631+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-codebase-audit/design.md",
+      "bytes": 4263,
+      "modified": "2026-07-03T01:57:17.048469+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-codebase-audit/implement.jsonl",
+      "bytes": 341,
+      "modified": "2026-07-03T01:58:45.743625+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-codebase-audit/implement.md",
+      "bytes": 2831,
+      "modified": "2026-07-03T01:57:41.383093+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-codebase-audit/prd.md",
+      "bytes": 4031,
+      "modified": "2026-07-03T01:56:51.057811+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-codebase-audit/research/audit-report.md",
+      "bytes": 35989,
+      "modified": "2026-07-03T03:14:35.449629+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-codebase-audit/task.json",
+      "bytes": 560,
+      "modified": "2026-07-03T03:43:37.275960+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T03:47:56.743357+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/design.md",
+      "bytes": 4728,
+      "modified": "2026-07-03T03:52:02.735127+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T03:47:56.741754+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/implement.md",
+      "bytes": 2681,
+      "modified": "2026-07-03T03:52:43.469274+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/prd.md",
+      "bytes": 3275,
+      "modified": "2026-07-03T03:50:48.529852+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-anthropic-streaming-stop/task.json",
+      "bytes": 645,
+      "modified": "2026-07-03T05:29:59.254143+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-audit-p1-defects/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T03:47:47.667162+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-audit-p1-defects/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T03:47:47.666159+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-audit-p1-defects/prd.md",
+      "bytes": 3611,
+      "modified": "2026-07-03T03:48:35.341388+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-audit-p1-defects/task.json",
+      "bytes": 787,
+      "modified": "2026-07-03T05:33:09.548178+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/check.jsonl",
+      "bytes": 234,
+      "modified": "2026-07-03T11:48:59.879173+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/design.md",
+      "bytes": 3271,
+      "modified": "2026-07-03T11:48:59.901616+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/implement.jsonl",
+      "bytes": 247,
+      "modified": "2026-07-03T11:48:59.886077+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/implement.md",
+      "bytes": 3018,
+      "modified": "2026-07-03T11:48:59.906622+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/prd.md",
+      "bytes": 4888,
+      "modified": "2026-07-03T10:22:20.124251+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-credentials/task.json",
+      "bytes": 626,
+      "modified": "2026-07-03T14:13:32.467480+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T04:01:14.617142+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/design.md",
+      "bytes": 9076,
+      "modified": "2026-07-03T04:05:39.990736+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T04:01:14.615133+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/implement.md",
+      "bytes": 3951,
+      "modified": "2026-07-03T04:05:54.044441+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/prd.md",
+      "bytes": 5096,
+      "modified": "2026-07-03T04:04:50.065649+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-codex-oauth-relogin-pk/task.json",
+      "bytes": 634,
+      "modified": "2026-07-03T05:30:36.964457+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T04:01:16.402461+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/design.md",
+      "bytes": 9479,
+      "modified": "2026-07-03T04:05:35.112622+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T04:01:16.400181+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/implement.md",
+      "bytes": 6024,
+      "modified": "2026-07-03T04:05:51.561868+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/prd.md",
+      "bytes": 7679,
+      "modified": "2026-07-03T04:05:09.579130+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-dashboard-error-state/task.json",
+      "bytes": 633,
+      "modified": "2026-07-03T05:31:58.675951+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-db-portability/check.jsonl",
+      "bytes": 237,
+      "modified": "2026-07-03T10:22:20.127795+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-db-portability/design.md",
+      "bytes": 3835,
+      "modified": "2026-07-03T10:22:20.132317+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-db-portability/implement.jsonl",
+      "bytes": 253,
+      "modified": "2026-07-03T10:22:20.133321+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-db-portability/implement.md",
+      "bytes": 1770,
+      "modified": "2026-07-03T10:22:20.135826+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-db-portability/prd.md",
+      "bytes": 5160,
+      "modified": "2026-07-03T10:22:20.140525+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-db-portability/task.json",
+      "bytes": 606,
+      "modified": "2026-07-03T14:13:23.097112+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/check.jsonl",
+      "bytes": 253,
+      "modified": "2026-07-03T10:22:20.145551+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/design.md",
+      "bytes": 7126,
+      "modified": "2026-07-03T10:22:20.148072+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/implement.jsonl",
+      "bytes": 253,
+      "modified": "2026-07-03T10:22:20.149073+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/implement.md",
+      "bytes": 6638,
+      "modified": "2026-07-03T10:22:20.153592+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/prd.md",
+      "bytes": 4753,
+      "modified": "2026-07-03T10:22:20.157104+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-fmt-spec-alignment/task.json",
+      "bytes": 614,
+      "modified": "2026-07-03T14:12:25.643021+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/check.jsonl",
+      "bytes": 234,
+      "modified": "2026-07-03T10:22:20.161613+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/design.md",
+      "bytes": 2886,
+      "modified": "2026-07-03T10:22:20.166660+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/implement.jsonl",
+      "bytes": 234,
+      "modified": "2026-07-03T10:22:20.167655+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/implement.md",
+      "bytes": 1996,
+      "modified": "2026-07-03T10:22:20.171170+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/prd.md",
+      "bytes": 3752,
+      "modified": "2026-07-03T10:22:20.174691+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-frontend-deadcode-tests/task.json",
+      "bytes": 640,
+      "modified": "2026-07-03T14:13:41.628759+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T03:47:57.288772+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/design.md",
+      "bytes": 3729,
+      "modified": "2026-07-03T03:56:41.182622+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T03:47:57.287257+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/implement.md",
+      "bytes": 2084,
+      "modified": "2026-07-03T03:57:07.470738+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/prd.md",
+      "bytes": 3026,
+      "modified": "2026-07-03T03:55:14.775683+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-passthrough-multipart/task.json",
+      "bytes": 638,
+      "modified": "2026-07-03T05:30:27.588831+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/check.jsonl",
+      "bytes": 228,
+      "modified": "2026-07-03T10:22:20.182692+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/design.md",
+      "bytes": 3376,
+      "modified": "2026-07-03T10:22:20.186459+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/implement.jsonl",
+      "bytes": 249,
+      "modified": "2026-07-03T10:22:20.187977+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/implement.md",
+      "bytes": 2061,
+      "modified": "2026-07-03T10:22:20.190976+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/prd.md",
+      "bytes": 4856,
+      "modified": "2026-07-03T10:22:20.194975+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-proxy-oauth-failover/task.json",
+      "bytes": 623,
+      "modified": "2026-07-03T14:13:14.487567+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-remaining-defects/check.jsonl",
+      "bytes": 253,
+      "modified": "2026-07-03T10:22:20.199848+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-remaining-defects/implement.jsonl",
+      "bytes": 253,
+      "modified": "2026-07-03T10:22:20.201353+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-remaining-defects/prd.md",
+      "bytes": 4767,
+      "modified": "2026-07-03T10:22:20.204923+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-remaining-defects/task.json",
+      "bytes": 828,
+      "modified": "2026-07-03T14:13:50.694072+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T04:01:15.247963+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/design.md",
+      "bytes": 10388,
+      "modified": "2026-07-03T04:05:13.959774+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T04:01:15.245961+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/implement.md",
+      "bytes": 6171,
+      "modified": "2026-07-03T04:05:30.644026+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/prd.md",
+      "bytes": 8095,
+      "modified": "2026-07-03T04:04:47.993850+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-stream-test-json-parse/task.json",
+      "bytes": 625,
+      "modified": "2026-07-03T05:31:47.793495+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/check.jsonl",
+      "bytes": 233,
+      "modified": "2026-07-03T10:22:20.210438+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/design.md",
+      "bytes": 3491,
+      "modified": "2026-07-03T10:22:20.214439+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/implement.jsonl",
+      "bytes": 247,
+      "modified": "2026-07-03T10:22:20.215441+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/implement.md",
+      "bytes": 2671,
+      "modified": "2026-07-03T10:22:20.218948+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/prd.md",
+      "bytes": 5409,
+      "modified": "2026-07-03T10:22:20.221955+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-03-fix-translator-wire-format/task.json",
+      "bytes": 642,
+      "modified": "2026-07-03T14:13:05.830926+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-switching-core/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T17:14:10.413892+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-switching-core/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T17:14:10.411894+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-switching-core/prd.md",
+      "bytes": 472,
+      "modified": "2026-07-03T17:14:10.409893+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-switching-core/task.json",
+      "bytes": 904,
+      "modified": "2026-07-06T02:36:33.085776+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-takeover/check.jsonl",
+      "bytes": 392,
+      "modified": "2026-07-04T02:20:02.659984+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-takeover/implement.jsonl",
+      "bytes": 392,
+      "modified": "2026-07-04T02:20:02.261590+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-takeover/prd.md",
+      "bytes": 6152,
+      "modified": "2026-07-04T02:17:50.074619+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-dual-mode-takeover/task.json",
+      "bytes": 1024,
+      "modified": "2026-07-05T06:35:49.860984+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/check.jsonl",
+      "bytes": 475,
+      "modified": "2026-07-05T07:51:02.143835+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/design.md",
+      "bytes": 5451,
+      "modified": "2026-07-05T07:50:43.124723+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/implement.jsonl",
+      "bytes": 634,
+      "modified": "2026-07-05T07:51:02.010884+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/implement.md",
+      "bytes": 3001,
+      "modified": "2026-07-05T07:50:43.269451+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/prd.md",
+      "bytes": 4935,
+      "modified": "2026-07-05T07:50:05.638072+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-frontend-switcher-page/task.json",
+      "bytes": 1006,
+      "modified": "2026-07-06T01:47:09.908197+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-provider-crud-switch-api/check.jsonl",
+      "bytes": 418,
+      "modified": "2026-07-04T05:04:44.400180+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-provider-crud-switch-api/implement.jsonl",
+      "bytes": 418,
+      "modified": "2026-07-04T05:04:44.240665+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-provider-crud-switch-api/prd.md",
+      "bytes": 4501,
+      "modified": "2026-07-04T05:01:28.906280+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-provider-crud-switch-api/task.json",
+      "bytes": 917,
+      "modified": "2026-07-04T06:20:47.088382+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-providers-schema-migration/check.jsonl",
+      "bytes": 436,
+      "modified": "2026-07-03T17:21:40.108766+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-providers-schema-migration/implement.jsonl",
+      "bytes": 436,
+      "modified": "2026-07-03T17:21:23.695432+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-providers-schema-migration/prd.md",
+      "bytes": 5143,
+      "modified": "2026-07-03T17:20:29.033485+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-providers-schema-migration/task.json",
+      "bytes": 980,
+      "modified": "2026-07-03T17:48:20.649089+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/check.jsonl",
+      "bytes": 340,
+      "modified": "2026-07-05T06:48:10.098128+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/design.md",
+      "bytes": 3926,
+      "modified": "2026-07-05T06:46:31.550765+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/implement.jsonl",
+      "bytes": 431,
+      "modified": "2026-07-05T06:47:36.934839+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/implement.md",
+      "bytes": 2652,
+      "modified": "2026-07-05T06:46:31.617247+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/prd.md",
+      "bytes": 3920,
+      "modified": "2026-07-05T06:43:36.998442+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-proxy-providers-bridge/task.json",
+      "bytes": 1033,
+      "modified": "2026-07-05T07:24:19.545902+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-spec-gates-archive/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T17:15:49.029967+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-spec-gates-archive/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-03T17:15:49.028447+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-spec-gates-archive/prd.md",
+      "bytes": 1806,
+      "modified": "2026-07-06T01:58:31.328607+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-04-spec-gates-archive/task.json",
+      "bytes": 878,
+      "modified": "2026-07-06T02:36:22.743572+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-app-updater/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-06T04:20:41.811438+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-app-updater/design.md",
+      "bytes": 10137,
+      "modified": "2026-07-06T08:21:48.351943+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-app-updater/implement.jsonl",
+      "bytes": 712,
+      "modified": "2026-07-06T07:24:19.537731+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-app-updater/implement.md",
+      "bytes": 8494,
+      "modified": "2026-07-06T04:45:42.521343+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-app-updater/prd.md",
+      "bytes": 7222,
+      "modified": "2026-07-06T04:44:08.964882+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-app-updater/task.json",
+      "bytes": 572,
+      "modified": "2026-07-06T10:38:59.440478+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-fix-credential-decrypt/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-06T10:20:57.473783+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-fix-credential-decrypt/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-06T10:20:57.471783+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-fix-credential-decrypt/prd.md",
+      "bytes": 4443,
+      "modified": "2026-07-06T10:36:38.721049+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-fix-credential-decrypt/task.json",
+      "bytes": 627,
+      "modified": "2026-07-06T10:39:00.702078+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-06T04:20:41.519868+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/design.md",
+      "bytes": 10402,
+      "modified": "2026-07-06T05:11:36.801469+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/implement.jsonl",
+      "bytes": 1267,
+      "modified": "2026-07-06T04:48:56.560578+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/implement.md",
+      "bytes": 8809,
+      "modified": "2026-07-06T04:37:28.366257+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/prd.md",
+      "bytes": 10584,
+      "modified": "2026-07-06T05:11:02.193703+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/research/agent-switch-direct-provider-path.md",
+      "bytes": 10922,
+      "modified": "2026-07-06T04:30:16.637062+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/research/ccs-data-format.md",
+      "bytes": 15767,
+      "modified": "2026-07-06T04:31:46.294068+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-06-import-from-ccs/task.json",
+      "bytes": 584,
+      "modified": "2026-07-06T10:38:58.258565+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-env-switches/check.jsonl",
+      "bytes": 530,
+      "modified": "2026-07-07T12:11:05.054522+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-env-switches/design.md",
+      "bytes": 10030,
+      "modified": "2026-07-07T14:51:59.636834+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-env-switches/implement.jsonl",
+      "bytes": 1062,
+      "modified": "2026-07-07T12:11:04.978159+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-env-switches/implement.md",
+      "bytes": 4235,
+      "modified": "2026-07-07T14:53:36.320107+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-env-switches/prd.md",
+      "bytes": 11396,
+      "modified": "2026-07-07T14:54:31.992737+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-env-switches/task.json",
+      "bytes": 879,
+      "modified": "2026-07-08T06:51:58.327898+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-mcp/check.jsonl",
+      "bytes": 459,
+      "modified": "2026-07-07T08:30:31.188098+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-mcp/design.md",
+      "bytes": 7074,
+      "modified": "2026-07-07T08:19:24.028524+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-mcp/implement.jsonl",
+      "bytes": 954,
+      "modified": "2026-07-07T08:28:15.251682+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-mcp/implement.md",
+      "bytes": 3577,
+      "modified": "2026-07-07T10:32:29.750575+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-mcp/prd.md",
+      "bytes": 10538,
+      "modified": "2026-07-07T08:17:21.164481+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-mcp/task.json",
+      "bytes": 645,
+      "modified": "2026-07-07T11:23:28.100874+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-prompts/check.jsonl",
+      "bytes": 448,
+      "modified": "2026-07-07T12:08:32.581846+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-prompts/design.md",
+      "bytes": 7655,
+      "modified": "2026-07-07T12:06:56.460016+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-prompts/implement.jsonl",
+      "bytes": 1150,
+      "modified": "2026-07-07T12:08:32.346193+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-prompts/implement.md",
+      "bytes": 4015,
+      "modified": "2026-07-07T12:07:30.716387+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-prompts/prd.md",
+      "bytes": 9076,
+      "modified": "2026-07-07T11:52:41.578294+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-prompts/task.json",
+      "bytes": 797,
+      "modified": "2026-07-08T06:51:57.422060+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-07T02:03:31.340522+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/design.md",
+      "bytes": 8773,
+      "modified": "2026-07-07T04:07:15.989290+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-07T02:03:31.338522+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/implement.md",
+      "bytes": 6495,
+      "modified": "2026-07-07T06:30:31.973126+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/prd.md",
+      "bytes": 10726,
+      "modified": "2026-07-07T03:24:10.571936+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/research/agent-switch-current.md",
+      "bytes": 12305,
+      "modified": "2026-07-07T02:16:06.767051+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/research/ccs-switch-semantics.md",
+      "bytes": 16770,
+      "modified": "2026-07-07T02:15:13.461982+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/research/decision-evidence.md",
+      "bytes": 11633,
+      "modified": "2026-07-07T02:17:30.224315+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-cc-switch-semantics/task.json",
+      "bytes": 1019,
+      "modified": "2026-07-07T06:52:34.493697+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-claude-code-ccs-align/check.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-07T02:01:37.770691+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-claude-code-ccs-align/implement.jsonl",
+      "bytes": 254,
+      "modified": "2026-07-07T02:01:37.769691+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-claude-code-ccs-align/prd.md",
+      "bytes": 6448,
+      "modified": "2026-07-08T08:26:01.857196+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-07-claude-code-ccs-align/task.json",
+      "bytes": 1626,
+      "modified": "2026-07-09T10:45:36.318279+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/check.jsonl",
+      "bytes": 564,
+      "modified": "2026-07-08T08:14:42.711090+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/design.md",
+      "bytes": 2446,
+      "modified": "2026-07-08T08:14:42.531478+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/implement.jsonl",
+      "bytes": 1023,
+      "modified": "2026-07-08T08:14:42.654748+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/implement.md",
+      "bytes": 1271,
+      "modified": "2026-07-08T08:14:42.585846+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/prd.md",
+      "bytes": 6284,
+      "modified": "2026-07-08T08:13:56.854759+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-common-config-editor/task.json",
+      "bytes": 1077,
+      "modified": "2026-07-09T10:43:57.925323+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-deeplink/check.jsonl",
+      "bytes": 582,
+      "modified": "2026-07-08T08:24:33.572359+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-deeplink/design.md",
+      "bytes": 3645,
+      "modified": "2026-07-08T08:24:33.408287+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-deeplink/implement.jsonl",
+      "bytes": 1371,
+      "modified": "2026-07-08T08:24:33.521913+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-deeplink/implement.md",
+      "bytes": 1873,
+      "modified": "2026-07-08T08:24:33.448637+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-deeplink/prd.md",
+      "bytes": 9527,
+      "modified": "2026-07-08T08:23:34.564054+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-deeplink/task.json",
+      "bytes": 1535,
+      "modified": "2026-07-09T10:44:07.170407+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-sessions/check.jsonl",
+      "bytes": 444,
+      "modified": "2026-07-08T08:22:04.983317+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-sessions/design.md",
+      "bytes": 2426,
+      "modified": "2026-07-08T08:22:04.780975+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-sessions/implement.jsonl",
+      "bytes": 826,
+      "modified": "2026-07-08T08:22:04.919018+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-sessions/implement.md",
+      "bytes": 1342,
+      "modified": "2026-07-08T08:22:04.827812+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-sessions/prd.md",
+      "bytes": 6985,
+      "modified": "2026-07-08T08:21:23.514219+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-sessions/task.json",
+      "bytes": 1021,
+      "modified": "2026-07-09T10:44:06.146345+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-skills/check.jsonl",
+      "bytes": 569,
+      "modified": "2026-07-08T08:18:31.076946+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-skills/design.md",
+      "bytes": 3259,
+      "modified": "2026-07-08T08:18:30.909474+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-skills/implement.jsonl",
+      "bytes": 1238,
+      "modified": "2026-07-08T08:18:31.017689+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-skills/implement.md",
+      "bytes": 4109,
+      "modified": "2026-07-09T04:33:05.506548+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-skills/prd.md",
+      "bytes": 8472,
+      "modified": "2026-07-08T08:15:47.117680+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "tasks/archive/2026-07/07-08-cc-skills/task.json",
+      "bytes": 1965,
+      "modified": "2026-07-09T10:44:05.280930+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "workflow.md",
+      "bytes": 37294,
+      "modified": "2026-06-26T10:51:31.689485+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "workspace/index.md",
+      "bytes": 2307,
+      "modified": "2026-06-26T10:51:31.694486+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "workspace/xm-chen/index.md",
+      "bytes": 2580,
+      "modified": "2026-07-08T06:52:19.294995+00:00",
+      "active_within_days": true
+    },
+    {
+      "path": "workspace/xm-chen/journal-1.md",
+      "bytes": 28159,
+      "modified": "2026-07-08T06:52:19.286159+00:00",
+      "active_within_days": true
+    }
+  ],
+  "preserve_candidates_truncated": false
+}

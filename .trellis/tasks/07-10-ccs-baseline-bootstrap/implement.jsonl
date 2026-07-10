@@ -1,0 +1,5 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/tasks/07-10-ccs-baseline-bootstrap/prd.md", "reason": "地基任务需求与验收"}
+{"file": ".trellis/tasks/07-10-ccs-baseline-bootstrap/implement.md", "reason": "执行清单与回滚点"}
+{"file": ".trellis/tasks/07-10-ccs-baseline-migration/research/ccs-v3.16.5-validation-gates.md", "reason": "原样Windows验证门"}
+{"file": ".trellis/tasks/07-10-ccs-baseline-migration/research/branch-trellis-identity-plan.md", "reason": "安全分支与Trellis迁入证据"}

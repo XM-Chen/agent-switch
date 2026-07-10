@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/api-client-guidelines.md", "reason": "新增 providersApi 需遵循 src/lib/api.ts 参数/响应/错误约定"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "useQuery/useMutation queryKey、loading/error 空态、invalidate 约定"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "中文 UI、共享展示常量(presentation.ts)、组件分层"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "页面/组件/lib/测试文件布局"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "build/test 命令与 Vitest 约定"}

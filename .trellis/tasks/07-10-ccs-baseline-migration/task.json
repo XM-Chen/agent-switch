@@ -1,0 +1,28 @@
+{
+  "id": "ccs-baseline-migration",
+  "name": "ccs-baseline-migration",
+  "title": "以 ccs 为新基线重建 Agent Switch",
+  "description": "从 ccs v3.16.5 创建 agent-switch-ccs 分支，先验证完整基线，再裁剪为 Windows/简体中文/Claude Code 单应用并完成 Agent Switch 0.3.0 身份改造。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "xm-chen",
+  "assignee": "xm-chen",
+  "createdAt": "2026-07-10",
+  "completedAt": null,
+  "branch": "agent-switch-ccs",
+  "base_branch": "8d1b3306d09a27b9d8fc29694791d8421aba5f93",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-10-ccs-baseline-bootstrap"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

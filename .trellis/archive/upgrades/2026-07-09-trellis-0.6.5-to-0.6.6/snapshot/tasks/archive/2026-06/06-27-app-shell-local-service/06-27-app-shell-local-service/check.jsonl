@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/06-27-app-shell-local-service/prd.md", "reason": "验收标准来源：逐条核对骨架可启动、Web UI 中文导航、127.0.0.1:42567、/health、路径隔离可解释占位、关闭即停服务、SQLite 初始化边界。"}
+{"file": ".trellis/tasks/06-27-app-shell-local-service/design.md", "reason": "设计契约来源：核对路径隔离路由顺序、占位错误格式、健康检查字段、Arc<Mutex<Connection>>、graceful shutdown 通道、固定端口不换端口的取舍是否与代码一致。"}
+{"file": ".trellis/spec/guides/app-stack-conventions.md", "reason": "骨架权威约定：核对目录结构、Axum 0.8 {*path} 语法、ServeDir+SPA fallback、Vite esnext target、Tailwind v4 无 config、Windows icon.ico 等陷阱是否被遵守。"}
+{"file": ".trellis/spec/guides/project-conventions.md", "reason": "核对文档与 UI 文案是否默认中文、参考项目简称使用是否正确。"}

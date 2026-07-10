@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查 cargo test、路径安全测试、外部网络行为与错误处理。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"检查 /skills 页面测试、构建、交互状态与确认弹窗。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Skills 横跨 DB、文件系统、HTTP API、前端状态和外部网络，需要跨层验收。"}
+{"file":".trellis/tasks/07-08-cc-skills/prd.md","reason":"完整 ccs 范围大，检查必须逐条映射 PRD AC。"}

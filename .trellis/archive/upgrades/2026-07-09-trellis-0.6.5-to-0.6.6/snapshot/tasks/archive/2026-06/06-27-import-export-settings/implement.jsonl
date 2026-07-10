@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/guides/app-stack-conventions.md", "reason": "应用层权威约定：Rust 后端目录结构与分层、DAO 不做加密（凭据 BLOB 原样存取）、AES-256-GCM 加密结构（nonce(12)||ciphertext||tag，AAD=记录 ID）、Keychain 降级（不可用时 503 不静默明文）、凭据脱敏（响应只返回 has_* 布尔不回 BLOB）、services/ 子模块组织约定。portability 服务与 API 实现必须对齐。"}
+{"file": ".trellis/spec/guides/project-conventions.md", "reason": "项目级约定：文档与 UI 文案默认中文、参考项目简称（ccs/sub2api/9router/cpa）、技术栈决策处理规则。"}
+{"file": ".trellis/tasks/06-27-import-export-settings/prd.md", "reason": "本任务需求与验收标准 AC1-AC13、父任务继承的导入导出规则、技术决策 D1-D4（双模式分治冲突、双密钥加密、版本化 JSON+gzip 容器、SettingsPage 集成）。"}
+{"file": ".trellis/tasks/06-27-import-export-settings/design.md", "reason": "本任务技术设计：ExportPackage/Payload/KdfParams 容器结构、crypto_box 双密钥加密契约、collect/apply 数据流、merge 匹配键矩阵与 id 重映射、replace 事务、API 契约、依赖取舍。"}
+{"file": ".trellis/tasks/06-27-import-export-settings/implement.md", "reason": "本任务执行顺序：依赖→services/portability/→settings API→前端→质量门→运行验证；风险与回滚点。"}

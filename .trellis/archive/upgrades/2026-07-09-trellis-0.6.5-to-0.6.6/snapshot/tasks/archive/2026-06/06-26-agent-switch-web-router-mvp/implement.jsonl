@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/06-26-agent-switch-web-router-mvp/prd.md", "reason": "父任务跨模块约束：集成验收若发现 bug 需修复时须遵守（路径隔离、凭据加密、日志不存正文、能力过滤、安全边界、服务地址 42567 等）。"}
+{"file": ".trellis/spec/guides/app-stack-conventions.md", "reason": "集成级实现契约：修复时对齐各子系统目录结构、API 契约、跨层一致性、安全边界、已知限制；新代码须遵守 DAO 不做加密、AES-GCM 结构、Keychain 降级 503、凭据脱敏等约定。"}
+{"file": ".trellis/spec/guides/project-conventions.md", "reason": "修复时 UI 文案与注释默认中文。"}
+{"file": ".trellis/tasks/06-26-agent-switch-web-router-mvp/research/failover-policy-comparison.md", "reason": "故障转移决策依据：修复路由相关集成问题时对齐错误分类与冷却策略。"}
+{"file": ".trellis/tasks/06-26-agent-switch-web-router-mvp/research/credential-storage-comparison.md", "reason": "凭据存储决策依据：修复凭据相关集成问题时对齐加密+Keychain 方案。"}
+{"file": ".trellis/tasks/06-26-agent-switch-web-router-mvp/research/model-alias-mapping-comparison.md", "reason": "模型别名决策依据：修复模型管理集成问题时对齐解析优先级与候选链。"}
+{"file": ".trellis/tasks/06-26-agent-switch-web-router-mvp/research/endpoint-testing-comparison.md", "reason": "端点测试决策依据：修复链路测试集成问题时对齐流式调试器与媒体不持久化。"}
