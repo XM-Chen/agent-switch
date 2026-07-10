@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
-- **Last Active**: 2026-07-08
+- **Total Sessions**: 17
+- **Last Active**: 2026-07-10
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~794 | Active |
+| `journal-1.md` | ~827 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 17 | 2026-07-10 | Bootstrap 收尾 + 范围修订：取消 Claude-only 裁剪 | `b932c9cbd` | `agent-switch-ccs` |
 | 16 | 2026-07-08 | cc-prompts 与 cc-env-switches 完成 | `205c10a9d`, `b648e61c7`, `54aa02145`, `f703e45ed` | `main` |
 | 15 | 2026-07-07 | cc-mcp 完成：Claude Code MCP 统一管理（全量投影 + 反向导入） | `9a1af01bb`, `65661fda8`, `8b122a07b` | `main` |
 | 14 | 2026-07-07 | cc-switch-semantics 完成：回填保护 + Common Config Snippet（A1-hybrid） | `b39ac289b`, `36dfdef0b`, `ff924eee6` | `main` |

@@ -792,3 +792,36 @@ app-shell 收尾后梳理剩余任务时发现：`06-27-` 路径下有 4 个 pla
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Bootstrap 收尾 + 范围修订：取消 Claude-only 裁剪
+
+**Date**: 2026-07-10
+**Task**: Bootstrap 收尾 + 范围修订：取消 Claude-only 裁剪
+**Branch**: `agent-switch-ccs`
+
+### Summary
+
+确认 ccs v3.16.5 基线已就位，8/8 AC 通过；smoke 因本机 ~/.cc-switch 隔离阻塞，用户批准豁免并记录到 implement.md（提交 30b86caf1）。归档 07-10-ccs-baseline-bootstrap（提交 b932c9cbd）。范围修订：用户取消『仅 Claude Code』子任务，保留 ccs 全部多应用支持；身份改造转为待再讨论；仅 Windows/仅中文两条不变。作废 ccs-claude-only-trim 与 ccs-agent-switch-identity/ccs-updater-release 三条相关规划，剩余主线为 ccs-windows-zh-trim + ccs-retained-features-regression。已更新 memory：project-goal-approach-ccs 与 agent-switch-ccs-baseline-decisions。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b932c9cbd` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
