@@ -25,7 +25,7 @@
 - [x] 执行 `pnpm install --frozen-lockfile`、typecheck、format:check、test:unit、build:renderer；4 个 OpenClaw 既有测试失败已记录。
 - [x] 执行 Rust fmt/clippy/test/check；clippy 13 errors、Rust 8 个既有 Windows 测试失败已记录。
 - [x] `pnpm tauri build --no-bundle` 通过；完整 bundle 因 updater 私钥缺失而阻塞，未改配置绕过。
-- [ ] 隔离环境启动 smoke：未执行；本机存在真实 `~/.cc-switch`，需 Windows Sandbox/VM/独立用户。
+- [~] 隔离环境启动 smoke：**用户批准豁免（2026-07-10）**。本机存在真实 `~/.cc-switch`，原样 ccs 启动会读写它，风险不可接受；`--no-bundle` release executable 已证明可编译。原样启动 smoke 推迟到具备 Windows Sandbox/VM 时补跑，或并入后续「仅 Windows/中文裁剪」及身份改造（新 `~/.agent-switch` 空 HOME）阶段一并做隔离验证。不阻塞 bootstrap 收尾。
 - [x] 每条命令 exit code、摘要、阻塞写入 `research/r3-validation-results.md`。
 
 ## 步骤 4：Trellis 迁入 + 规范刷新（回滚点 B3）
