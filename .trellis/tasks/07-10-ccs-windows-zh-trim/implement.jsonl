@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/guides/change-validation-matrix.md", "reason": "每批次通用门禁命令、i18n/Windows-only 附加检查、区分基线失败与新回归"}
+{"file": ".trellis/spec/guides/project-and-toolchain.md", "reason": "工具链版本与 pnpm/cargo 命令基线"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "前端 i18n 与 settings 组件约定，确认删语言切换 UI 的边界"}
+{"file": ".trellis/tasks/07-10-ccs-windows-zh-trim/prd.md", "reason": "本任务需求与 AC1-AC9"}
+{"file": ".trellis/tasks/07-10-ccs-windows-zh-trim/design.md", "reason": "受影响文件、改法、批次与回滚点"}
+{"file": ".trellis/tasks/07-10-ccs-windows-zh-trim/implement.md", "reason": "执行清单与验证命令"}

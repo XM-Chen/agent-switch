@@ -2,7 +2,25 @@
 
 ## Goal
 
-在当前 `agent-switch` Git 仓库中新建本地分支 `agent-switch-ccs`，以 cc-switch（下称 `ccs`）正式版 `v3.16.5` 作为完整产品基线；先原样验证该基线，再在其上有计划地裁剪功能、替换品牌/身份、加入用户自定义需求，最终形成一个仅面向 Windows、仅简体中文、仅 Claude Code、个人自用的独立 Agent Switch。当前 `agent-switch/main` 原样保留为可回退的旧实现。
+在当前 `agent-switch` Git 仓库中新建本地分支 `agent-switch-ccs`，以 cc-switch（下称 `ccs`）正式版 `v3.16.5` 作为完整产品基线；先原样验证该基线，再在其上有计划地裁剪功能、替换品牌/身份、加入用户自定义需求，最终形成一个仅面向 Windows、仅简体中文、功能上完整仿照 ccs（保留多应用）、但作为**与本机原版 ccs（CC Switch）完全区分开的独立 Agent Switch**、个人自用。当前 `agent-switch/main` 原样保留为可回退的旧实现。
+
+## 2026-07-10 范围修订（优先于下方旧 Requirements/Decisions/AC）
+
+用户在 2026-07-10 收敛了产品范围，以下修订**覆盖**下文 Requirements/Decisions/Acceptance Criteria 中的冲突条款；未被覆盖的部分继续有效。
+
+1. **撤销 Claude-only（原 D3 / R5 客户端裁剪）**：保留 ccs 现有全部多应用客户端支持（Claude Code / Codex / Gemini CLI / OpenClaw / opencode / Hermes / Claude Desktop 等）与全部 Provider/代理/MCP/Prompts/Skills/Sessions/Deep Link/Usage/备份/同步能力。不裁 `App.tsx`/`AppSwitcher`/`VALID_APPS`，不删非 Claude 的 commands/services/proxy adapters，不删 OpenClaw `workspace` view/`commands/workspace.rs`。原 `ccs-claude-only-trim` 子任务作废；R5 的「客户端」「数据库单应用化」「外围模块单应用化」「Agents 占位页删除 D26」「Claude 上游归属 D25」「首启 import-before-seed D24」等以 Claude-only 为前提的条款不再按单应用执行。
+2. **保留身份改造（R6 / D7 / D14–D19）= "和 ccs 区分开"的核心手段**：仍改为独立产品身份——显示名 `Agent-Switch`、identifier `com.agent-switch.app`、npm/crate 名 `agent-switch`/`agent_switch_lib`、数据根 `~/.agent-switch`、Deep Link `agentswitch://`、Windows AUMID、显式 WiX `upgradeCode`、版本 `0.3.0`、品牌资产替换、保留 MIT LICENSE 与 Jason Young 来源归属。**updater 的指向改造**（endpoint 改走 `XM-Chen/agent-switch`、内置自有公钥、不连 ccs 官方更新源）**属于身份改造范围保留**，因为它同样是"和 ccs 区分开"的必要部分。数据根改到 `~/.agent-switch` 空库后的首启行为（是否 import 现有 `~/.claude/settings.json`）作为身份改造数据根改造的直接后果一并处理。
+3. **删除 / 暂缓的后续子任务**：
+   - **真实 updater 发布流程**（release build workflow、生成 `latest.json`、真实 push release、Windows Authenticode）——个人自用先不做正式发布；只保留 updater 指向改造（见第 2 条）。原 `ccs-updater-release` 子任务收缩为身份改造的一部分（仅指向改造），发布流程删除。
+   - **预设精选 / 商业内容清理（原 D22）**——删聚合/中转商预设、aff/ref/utm 返利参数、sponsor/Funding 内容等暂缓；保留 ccs 原样预设与商业链接，未来另开子任务。
+   - **安全增强（原 D27 非 loopback 强制鉴权、D23 补充 远端同步风险确认）**——暂缓，未来另开子任务。
+   - **最终回归门（原 `ccs-retained-features-regression`）**——删除独立回归子任务，验收改由每个子任务用自己的 AC 各自完成。
+4. **保持不变的维度**：仅 Windows（D8）、仅简体中文（D12）、以 ccs v3.16.5 为基线、定期手动同步上游（D2）、纯 ccs 基线提交锚点与分阶段可回滚（R2/R7）。
+5. **修订后的子任务图**：
+   - `ccs-baseline-bootstrap`（已归档）
+   - `ccs-windows-zh-trim`（进行中规划）— 仅 Windows + 仅中文
+   - `ccs-agent-switch-identity`（待创建）— 身份改造 + updater 指向改造 + 数据根首启行为
+   - 其余子任务作废/暂缓。
 
 ## Background
 

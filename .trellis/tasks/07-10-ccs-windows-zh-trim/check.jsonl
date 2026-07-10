@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/change-validation-matrix.md", "reason": "check 阶段对照通用门禁、i18n/Windows-only 残留门、基线失败区分"}
+{"file": ".trellis/spec/frontend/quality-and-testing.md", "reason": "前端质量检查与测试基线"}
+{"file": ".trellis/tasks/07-10-ccs-windows-zh-trim/prd.md", "reason": "核对 AC1-AC9"}
+{"file": ".trellis/tasks/07-10-ccs-windows-zh-trim/design.md", "reason": "核对受影响文件与不改清单（身份/多应用边界）"}

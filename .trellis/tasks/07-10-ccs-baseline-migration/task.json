@@ -19,7 +19,8 @@
   "pr_url": null,
   "subtasks": [],
   "children": [
-    "07-10-ccs-baseline-bootstrap"
+    "07-10-ccs-baseline-bootstrap",
+    "07-10-ccs-windows-zh-trim"
   ],
   "parent": null,
   "relatedFiles": [],
