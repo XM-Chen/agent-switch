@@ -72,4 +72,56 @@
 - `pnpm build:renderer` → 通过（built in 16.07s）。文档不被代码 import，删除不影响构建。
 - 文档批无单测覆盖；B2 已确认全测 3 fail / 385 pass 与基线一致，B3 不触源码故维持。
 
-**结论**：B3 无新增失败，验证门绿。待提交。
+**结论**：B3 无新增失败，验证门绿。已提交（`cc960fd58 docs: drop non-chinese readme and docs`）。
+
+## trellis-check 复核（三批合并后）
+
+复核基线提交点 `06e4fa103`，HEAD `cc960fd58`，`git diff 06e4fa103..HEAD` 范围。
+
+### AC1 平台资产 — PASS
+- `flatpak/` 已删（4 文件）；`src-tauri/icons/icon.icns`、`dmg-background.png`、`android/`、`ios/` 已删。
+- `src-tauri/tauri.conf.json`：`bundle.targets` = `["msi"]`；`icon` 数组不含 `icon.icns`（仅 png/ico）；`macOS` 键已删。`createUpdaterArtifacts: true` 保留。
+- 残留 `grep "icon.icns|dmg-background|flatpak" src-tauri/` 仅命中 `target/` 编译产物二进制（ccswitch 字符串嵌入 exe/lib），无源码/配置引用。
+
+### AC2 CI — PASS（按 design 不动）
+- `git diff` 范围内无 `.github/workflows/*` 改动。design §1 已定 CI/release workflow 不属本任务（并入身份任务），故 `release.yml`/`ci.yml`/`claude.yml`/`stale.yml` 原样保留。
+
+### AC3 i18n — PASS
+- `src/i18n/locales/` 仅 `zh.json`。`src/i18n/index.ts`：`Language = "zh"`；`getInitialLanguage(): Language => "zh"`；`resources` 仅 zh；`fallbackLng: "zh"`。
+- `LanguageSettings.tsx` 已删；`SettingsPage.tsx` 已删 import 与 JSX 调用，保留 `ThemeSettings`/`WindowSettings`/`AppVisibilitySettings`/`SkillStorageLocationSettings`。
+- `Settings.language` 字段读写链按 design §3.3 保留未删：`src/hooks/useSettings.ts` line 275-280/409-414 仍写 `localStorage.language`；`src/hooks/useSettingsForm.ts`、`src/types.ts`、`src/lib/schemas/settings.ts` 未在 diff 中。
+- `grep "LanguageSettings" src/ tests/` → 无残留。
+
+### AC4 文档 — PASS
+- `git ls-files 'docs/*'` 无 `-en.*`/`-ja.*` 残留。顶层仅 `README_ZH.md`。
+- `docs/user-manual/zh/` 保留；`docs/user-manual/README.md` 已改只剩中文索引（en/ja 失效链接删除，品牌 `CC Switch` 保留）。
+
+### AC5 浅裁 — PASS
+- diff 仅含 `tauri.conf.json`/`i18n`/`LanguageSettings`/`SettingsPage`/`docs`/`flatpak`/icons；无任何 `src-tauri/src/**/*.rs` 改动 → Rust `#[cfg(target_os)]` 分支原样保留。
+- `i18next`/`useTranslation`/`t('key')` 调用未删（index.ts 仅缩 resources 与固语言，不含调用点）。
+- 前端 platform 判定无改动（diff 中无 `navigator.platform`/`platform()` 相关文件）。
+
+### AC6 多应用保留 — PASS
+- `src/components/openclaw/`（6 文件 + hooks/）在。`src-tauri/src/commands/workspace.rs` 在。Codex/Gemini/Hermes/Claude Desktop 集成文件无改动（diff 仅 i18n + settings + docs + 平台资产）。
+
+### AC7 身份未变 — PASS
+- `tauri.conf.json` 仍含 `productName: "CC Switch"`、`identifier: com.ccswitch.desktop`、`version: "3.16.5"`、`plugins.deep-link schemes: ["ccswitch"]`、`plugins.updater.pubkey`+`endpoints`（ccs 官方源）、`bundle.windows.wix.template: wix/per-user-main.wxs`。
+- npm 名 `cc-switch`、Cargo crate `cc-switch`（Cargo.toml 未在 diff）未改。
+
+### AC8 批次独立可回滚 — PASS
+- 三批次为三个独立提交：`db9a8958e`(B1 平台) / `ebf11f331`(B2 i18n) / `cc960fd58`(B3 文档)，各可单独 `git revert`。B2 连带 2 个 SettingsDialog 测试文件（mock 删除 + 就绪信号改 `theme-settings`），属删组件必改，非范围蔓延。
+
+### AC9 未 push — PASS
+- `git rev-parse @{u}` 报 `no upstream configured`；`origin/agent-switch-ccs` 不存在；分支 `agent-switch-ccs`，working tree 干净。本任务无网络操作。
+
+### 复跑验证（HEAD）
+- `pnpm typecheck` → 通过（exit 0）。
+- `pnpm format:check` → All matched files use Prettier code style!
+- `pnpm vitest run --exclude='.claude/**' --exclude='**/.claude/**'` → `1 failed file / 3 failed tests / 385 passed`，与 B1 实测基线完全一致，无新增回归。失败文件 = `tests/integration/App.test.tsx`（OpenClaw 既有），非本任务引入。
+- `cargo fmt --check` → 通过（exit 0）。
+- `cargo check --locked` → 通过（exit 0，10 warning = 基线）。
+- `cargo clippy --locked -- -D warnings` → 13 error（exit 101），与基线 13 恒等（未改 Rust 源码，error 集不变：`misc.rs`/`settings.rs`/`examples.rs` 的 unused import/function/unneeded return）。
+- 未重跑 `pnpm tauri build --no-bundle`（B1 提交点已验证 release exe 可编译，B2/B3 未改 Rust 源码，配置未再动）。
+
+### 最终结论
+AC1-AC9 全 PASS，无新增回归，无偏差需自修。本任务三批可进入 finish/archive，后续身份改造交 `ccs-agent-switch-identity` 子任务。
