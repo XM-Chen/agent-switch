@@ -825,3 +825,40 @@ app-shell 收尾后梳理剩余任务时发现：`06-27-` 路径下有 4 个 pla
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: ccs-windows-zh-trim: 仅 Windows + 仅简体中文裁剪完成
+
+**Date**: 2026-07-11
+**Task**: ccs-windows-zh-trim: 仅 Windows + 仅简体中文裁剪完成
+**Branch**: `agent-switch-ccs`
+
+### Summary
+
+在 agent-switch-ccs 分支（ccs v3.16.5 基线）上分三批次裁剪为仅 Windows + 仅简体中文，每批独立提交、独立可回滚。B1 平台裁剪：删 flatpak/ + iOS/Android/macOS 图标资产，tauri.conf.json bundle.targets 收缩为 [msi]，删 macOS 键与 icon.icns 引用，release exe 构建通过。B2 语言裁剪：i18n locales 仅留 zh.json，index.ts 固定语言为 zh（Language/类型/getInitialLanguage/fallbackLng），删除 LanguageSettings.tsx 及 SettingsPage 引用，保留 Settings.language 字段读写链与 i18next 抽象（浅裁）；连带更新两个 SettingsDialog 测试用 ThemeSettings 作就绪信号。B3 文档裁剪：删非中文 README/docs/release-notes/user-manual 及 -en/-ja 截图，user-manual/README 改为只指向中文。trellis-check 复核 AC1-AC9 全 PASS：vitest 3 fail/385 pass、clippy 13 error、cargo check 25 green、typecheck/format/fmt green 均与基线恒等，零新增回归。身份（CC Switch/com.ccswitch.desktop/ccswitch）与多应用支持完整保留，留给后续 ccs-agent-switch-identity 子任务。实测基线需排除 .claude/worktrees 否则 vitest 收集遗留 worktree 测试副本致假性失败。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dbce5ccc1` | (see git log) |
+| `db9a8958e` | (see git log) |
+| `ebf11f331` | (see git log) |
+| `cc960fd58` | (see git log) |
+| `19f7d55b6` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
