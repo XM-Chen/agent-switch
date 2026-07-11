@@ -1,22 +1,18 @@
-# CC Switch User Manual / 用户手册 / ユーザーマニュアル
+# CC Switch 用户手册
 
 > Claude Code / Claude Desktop / Codex / Gemini CLI / OpenCode / OpenClaw / Hermes
 
-## Language / 语言 / 言語
+## 语言
 
-| Language | Link |
-|----------|------|
-| [中文](./zh/README.md) | 简体中文用户手册 |
-| [English](./en/README.md) | English User Manual |
-| [日本語](./ja/README.md) | 日本語ユーザーマニュアル |
+本仓库仅维护简体中文用户手册，见 [中文手册](./zh/README.md)。
 
-## Version / 版本 / バージョン
+## 版本
 
-- Documentation version: v3.16.0
-- Last updated: 2026-05-29
-- Compatible with CC Switch v3.16.0+
+- 文档版本：v3.16.0
+- 最后更新：2026-05-29
+- 兼容 CC Switch v3.16.0+
 
-## Links
+## 链接
 
 - [GitHub Issues](https://github.com/farion1231/cc-switch/issues)
 - [GitHub Repository](https://github.com/farion1231/cc-switch)
