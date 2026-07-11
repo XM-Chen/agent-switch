@@ -1,7 +1,8 @@
-//! Deep link import functionality for CC Switch
+//! Deep link import functionality for Agent Switch
 //!
-//! This module implements the ccswitch:// protocol for importing configurations
-//! via deep links. Supports importing:
+//! Primary protocol: agentswitch://
+//! Paste-compat: also accepts legacy ccswitch:// URLs in-app (not system-registered).
+//! Supports importing:
 //! - Provider configurations (Claude/Codex/Gemini)
 //! - MCP server configurations
 //! - Prompts
@@ -29,7 +30,7 @@ pub use skill::import_skill_from_deeplink;
 
 /// Deep link import request model
 ///
-/// Represents a parsed ccswitch:// URL ready for processing.
+/// Represents a parsed agentswitch:// (or paste-compat ccswitch://) URL ready for processing.
 /// This struct contains all possible fields for all resource types.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
