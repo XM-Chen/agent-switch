@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/guides/identity-data-and-updater.md", "reason": "验收 AC 对照：身份映射、数据根隔离、Deep Link 注册/粘贴、WiX、updater、品牌与 LICENSE"}
+{"file": ".trellis/spec/guides/change-validation-matrix.md", "reason": "身份/Deep Link/updater/首启附加检查与静态残留分类门（允许列表须有说明）"}
+{"file": ".trellis/spec/guides/project-and-toolchain.md", "reason": "有效质量门命令全集与禁止 push/release 纪律"}
+{"file": ".trellis/spec/backend/quality-and-testing.md", "reason": "cargo fmt/clippy/test/check 与基线已知失败对照"}
+{"file": ".trellis/spec/backend/architecture-and-ipc.md", "reason": "首启 import-before-seed 与不得读旧产品 DB 的启动不变量"}
+{"file": ".trellis/spec/backend/database-backup-and-sync.md", "reason": "备份/DB 路径身份是否仍指向 agent-switch"}
+{"file": ".trellis/spec/frontend/quality-and-testing.md", "reason": "前端门禁与用户可见文案/测试回归"}
+{"file": ".trellis/tasks/07-10-ccs-baseline-migration/research/branch-trellis-identity-plan.md", "reason": "改动面清单对照，检查遗漏的身份硬编码"}
+{"file": ".trellis/tasks/archive/2026-07/07-10-ccs-windows-zh-trim/research/trim-batch-results.md", "reason": "与裁剪后基线失败数对比，区分预存失败与新回归"}

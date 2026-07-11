@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/guides/identity-data-and-updater.md", "reason": "身份映射、数据根、Deep Link、WiX upgradeCode、updater 全链路与品牌归属的权威指南；本任务主契约"}
+{"file": ".trellis/spec/guides/project-and-toolchain.md", "reason": "三处版本同步、有效门禁命令、提交边界、LICENSE/私钥纪律"}
+{"file": ".trellis/spec/guides/change-validation-matrix.md", "reason": "身份/路径、Deep Link、updater、首启的附加验证与静态残留扫描规则"}
+{"file": ".trellis/spec/backend/architecture-and-ipc.md", "reason": "lib.rs 启动顺序不变量、import-before-seed、数据根不得读 ~/.cc-switch、deeplink 横切层位置"}
+{"file": ".trellis/spec/backend/database-backup-and-sync.md", "reason": "DB/backup 文件名与目录身份改名边界；只操作 ~/.agent-switch，禁止读写 ~/.cc-switch"}
+{"file": ".trellis/spec/backend/quality-and-testing.md", "reason": "Rust 门禁、临时 HOME 测试约定、基线已知 clippy/test 失败（不得恶化）"}
+{"file": ".trellis/spec/frontend/ipc-api-and-state.md", "reason": "localStorage key 审计、API wrapper 边界；L6 品牌与 UpdateContext key 改动依据"}
+{"file": ".trellis/spec/frontend/quality-and-testing.md", "reason": "前端 typecheck/unit/build 门禁与 i18n 测试约定"}
+{"file": ".trellis/tasks/07-10-ccs-baseline-migration/research/branch-trellis-identity-plan.md", "reason": "父任务身份盘点：包/数据根/Deep Link/WiX/updater 证据与改动面清单"}
+{"file": ".trellis/tasks/archive/2026-07/07-10-ccs-windows-zh-trim/research/trim-batch-results.md", "reason": "裁剪后基线门禁结果；身份改造后不得使预存失败恶化"}

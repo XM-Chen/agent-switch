@@ -20,10 +20,11 @@
   "subtasks": [],
   "children": [
     "07-10-ccs-baseline-bootstrap",
-    "07-10-ccs-windows-zh-trim"
+    "07-10-ccs-windows-zh-trim",
+    "07-11-ccs-agent-switch-identity"
   ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
+  "notes": "2026-07-11: 子任务 07-11-ccs-agent-switch-identity 身份改造实现完成（B0–B7），status=in_progress；全量门禁相对 windows-zh-trim 基线不恶化；未 commit/push/归档。见子任务 implement.md 第 9 节门禁表。",
   "meta": {}
 }
