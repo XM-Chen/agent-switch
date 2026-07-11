@@ -36,7 +36,7 @@
 - `source_protocol`；
 - provider/prompt/mcp/skill 四类导入测试。
 
-不注册 `ccswitch://` 为系统处理程序。应用内粘贴兼容不默认实现，需另有明确需求。
+不注册 `ccswitch://` 为系统处理程序。应用内粘贴兼容已实现（07-11 身份改造）：`deeplink/parser.rs` 与 `lib.rs` handler 主认 `agentswitch://`，同时接受粘贴的 `ccswitch://`；系统层只注册 `agentswitch`。非法 scheme 测试用真正无效值（如 `httpx://`）。
 
 ## Windows MSI 身份
 
