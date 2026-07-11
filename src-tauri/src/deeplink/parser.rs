@@ -1,6 +1,7 @@
 //! Deep link URL parser
 //!
-//! Parses ccswitch:// URLs into DeepLinkImportRequest structures.
+//! Parses agentswitch:// URLs (primary) into DeepLinkImportRequest structures.
+//! Paste-compat: also accepts legacy ccswitch:// URLs.
 
 use super::utils::validate_url;
 use super::DeepLinkImportRequest;
@@ -8,20 +9,21 @@ use crate::error::AppError;
 use std::collections::HashMap;
 use url::Url;
 
-/// Parse a ccswitch:// URL into a DeepLinkImportRequest
+/// Parse an agentswitch:// (or paste-compat ccswitch://) URL into a DeepLinkImportRequest
 ///
 /// Expected format:
-/// ccswitch://v1/import?resource={type}&...
+/// agentswitch://v1/import?resource={type}&...
+/// ccswitch://v1/import?resource={type}&... (paste-compat only; not system-registered)
 pub fn parse_deeplink_url(url_str: &str) -> Result<DeepLinkImportRequest, AppError> {
     // Parse URL
     let url = Url::parse(url_str)
         .map_err(|e| AppError::InvalidInput(format!("Invalid deep link URL: {e}")))?;
 
-    // Validate scheme
+    // Validate scheme: primary agentswitch, paste-compat ccswitch
     let scheme = url.scheme();
-    if scheme != "ccswitch" {
+    if scheme != "agentswitch" && scheme != "ccswitch" {
         return Err(AppError::InvalidInput(format!(
-            "Invalid scheme: expected 'ccswitch', got '{scheme}'"
+            "Invalid scheme: expected 'agentswitch' (or paste-compat 'ccswitch'), got '{scheme}'"
         )));
     }
 
