@@ -34,7 +34,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { settingsApi } from "@/lib/api";
-import { LanguageSettings } from "@/components/settings/LanguageSettings";
 import { ThemeSettings } from "@/components/settings/ThemeSettings";
 import { WindowSettings } from "@/components/settings/WindowSettings";
 import { AppVisibilitySettings } from "@/components/settings/AppVisibilitySettings";
@@ -252,10 +251,6 @@ export function SettingsPage({
                     transition={{ duration: 0.3 }}
                     className="space-y-6"
                   >
-                    <LanguageSettings
-                      value={settings.language}
-                      onChange={(lang) => handleAutoSave({ language: lang })}
-                    />
                     <ThemeSettings />
                     <AppVisibilitySettings
                       settings={settings}

@@ -184,15 +184,6 @@ vi.mock("@/components/ui/tabs", () => {
   };
 });
 
-vi.mock("@/components/settings/LanguageSettings", () => ({
-  LanguageSettings: ({ value, onChange }: any) => (
-    <div>
-      <span>language:{value}</span>
-      <button onClick={() => onChange("en")}>change-language</button>
-    </div>
-  ),
-}));
-
 vi.mock("@/components/settings/ThemeSettings", () => ({
   ThemeSettings: () => <div>theme-settings</div>,
 }));
@@ -288,7 +279,7 @@ describe("SettingsPage Component", () => {
 
     renderSettingsPage();
 
-    expect(screen.queryByText("language:zh")).not.toBeInTheDocument();
+    expect(screen.queryByText("theme-settings")).not.toBeInTheDocument();
     // 加载状态下显示 spinner 而不是表单内容
     expect(document.querySelector(".animate-spin")).toBeInTheDocument();
   });
@@ -325,13 +316,7 @@ describe("SettingsPage Component", () => {
 
     renderSettingsPage({ onOpenChange });
 
-    expect(screen.getByText("language:zh")).toBeInTheDocument();
     expect(screen.getByText("theme-settings")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText("change-language"));
-    expect(settingsMock.updateSettings).toHaveBeenCalledWith({
-      language: "en",
-    });
 
     fireEvent.click(screen.getByText("window-settings"));
     expect(settingsMock.updateSettings).toHaveBeenCalledWith({
