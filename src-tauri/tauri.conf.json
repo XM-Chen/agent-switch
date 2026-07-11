@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "CC Switch",
-  "version": "3.16.5",
-  "identifier": "com.ccswitch.desktop",
+  "productName": "Agent-Switch",
+  "version": "0.3.0",
+  "identifier": "com.agent-switch.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3000",
@@ -45,20 +45,21 @@
     ],
     "windows": {
       "wix": {
-        "template": "wix/per-user-main.wxs"
+        "template": "wix/per-user-main.wxs",
+        "upgradeCode": "370c2d3e-a326-5100-8146-efa72c816642"
       }
     }
   },
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["ccswitch"]
+        "schemes": ["agentswitch"]
       }
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM4MDI4QzlBNTczOTI4RTMKUldUaktEbFhtb3dDeUM5US9kT0FmdGR5Ti9vQzcwa2dTMlpibDVDUmQ2M0VGTzVOWnd0SGpFVlEK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ0RDE2RjZCMTRCNzAwNzcKUldSM0FMY1VhMi9SMUg4WHllSlpzZEQ2YkU0UUpGR0U1ZzMyK1A3eGF2cVcwZGRtM0dFTktkRXIK",
       "endpoints": [
-        "https://github.com/farion1231/cc-switch/releases/latest/download/latest.json"
+        "https://github.com/XM-Chen/agent-switch/releases/latest/download/latest.json"
       ]
     }
   }
