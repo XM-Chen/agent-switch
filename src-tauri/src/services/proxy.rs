@@ -2736,11 +2736,11 @@ mod tests {
             let dir = TempDir::new().expect("failed to create temp home");
             let original_home = env::var("HOME").ok();
             let original_userprofile = env::var("USERPROFILE").ok();
-            let original_test_home = env::var("CC_SWITCH_TEST_HOME").ok();
+            let original_test_home = env::var("AGENT_SWITCH_TEST_HOME").ok();
 
             env::set_var("HOME", dir.path());
             env::set_var("USERPROFILE", dir.path());
-            env::set_var("CC_SWITCH_TEST_HOME", dir.path());
+            env::set_var("AGENT_SWITCH_TEST_HOME", dir.path());
 
             Self {
                 dir,
@@ -2764,8 +2764,8 @@ mod tests {
             }
 
             match &self.original_test_home {
-                Some(value) => env::set_var("CC_SWITCH_TEST_HOME", value),
-                None => env::remove_var("CC_SWITCH_TEST_HOME"),
+                Some(value) => env::set_var("AGENT_SWITCH_TEST_HOME", value),
+                None => env::remove_var("AGENT_SWITCH_TEST_HOME"),
             }
         }
     }
@@ -5554,7 +5554,7 @@ requires_openai_auth = true
         let catalog_path = crate::codex_config::get_codex_model_catalog_path();
         assert!(
             catalog_path.exists(),
-            "cc-switch-model-catalog.json must be created on provider switch"
+            "agent-switch-model-catalog.json must be created on provider switch"
         );
         let catalog_text = std::fs::read_to_string(&catalog_path).expect("read catalog json");
         let catalog: serde_json::Value =
