@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/guides/change-validation-matrix.md", "reason": "验证门与静态残留分类扫描（返利参数/文案 key 允许列表须有说明）"}
+{"file": ".trellis/spec/frontend/quality-and-testing.md", "reason": "前端门禁与基线失败数对照，区分预存 flaky 与删预设新增红"}
+{"file": ".trellis/spec/guides/single-app-trimming.md", "reason": "确认删预设的依赖链无遗漏（partnerPromotionKey/图标/测试）"}

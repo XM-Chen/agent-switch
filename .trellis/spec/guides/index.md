@@ -7,6 +7,12 @@
 - 目标：Agent Switch 0.3.0，仅 Windows、简体中文、Claude Code；基于 ccs 成熟架构分阶段裁剪。
 - 父任务权威来源：`.trellis/tasks/07-10-ccs-baseline-migration/`。
 
+## 术语 / 缩写
+
+- `ags` = 本项目 **Agent Switch**（当前分支 `agent-switch-ccs` 的产品，identifier `com.agent-switch.app`，0.3.0 起）。用户会用 `ags` 指代本项目自身。
+- `ccs` = 参考项目 `cc-switch`（`farion1231/cc-switch`，本项目源基线）。
+- `cpa` = 参考项目 `cli-proxy-api`（`router-for-me/CLIProxyAPI`）。
+
 ## 指南
 
 1. [项目与工具链约定](project-and-toolchain.md)

@@ -21,10 +21,11 @@
   "children": [
     "07-10-ccs-baseline-bootstrap",
     "07-10-ccs-windows-zh-trim",
-    "07-11-ccs-agent-switch-identity"
+    "07-11-ccs-agent-switch-identity",
+    "07-12-ccs-preset-ad-cleanup"
   ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "2026-07-12: 三个子任务全部实现完成并归档（bootstrap / windows-zh-trim / agent-switch-identity）。身份改造 B0–B7 已分批提交（9998b7a6f…a61b530d0）+ trellis/spec 收尾（7217f0486、29b2d1d20），全量门禁相对 windows-zh-trim 基线不恶化；未 push。父任务保持 planning，待用户单独做集成 review 后归档。",
+  "notes": "2026-07-12: 三个子任务全部实现完成并归档（bootstrap / windows-zh-trim / agent-switch-identity）。身份改造 B0–B7 已分批提交（9998b7a6f…a61b530d0）+ trellis/spec 收尾（7217f0486、29b2d1d20），全量门禁相对 windows-zh-trim 基线不恶化；未 push。父任务保持 planning，待用户单独做集成 review 后归档。 2026-07-12 暂缓项复核：经用户确认按 D6「严格以 ccs 行为为准」，撤销 D27（非 loopback 强制鉴权）与 D23 附加披露门（db.sql 明文含 API token 的泄露确认）——核对 ccs v3.16.5 基线 proxy 无 is_loopback 入站鉴权、仅 Claude Desktop gateway 单端点有 token（handlers.rs validate_claude_desktop_gateway_auth），同步确认仅有流量/覆盖提示无 API key 泄露披露，二者均为超出 ccs 的增强故不做。剩余待办仅 A1：清除继承自 ccs 的中转商/聚合预设广告、返利参数（aff/ref/utm_ccswitch）与促销文案（D22 精选），已开子任务 07-12-ccs-preset-ad-cleanup。",
   "meta": {}
 }

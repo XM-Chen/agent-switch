@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/single-app-trimming.md", "reason": "预设裁剪的跨层依赖顺序（UI→数据→i18n→测试），删预设条目的正确清理链"}
+{"file": ".trellis/spec/frontend/directory-and-components.md", "reason": "src/config 预设文件与 src/icons 图标注册表位置、组件引用关系"}
+{"file": ".trellis/spec/frontend/quality-and-testing.md", "reason": "前端门禁命令（typecheck/build:renderer/vitest）与基线已知失败数对照"}
+{"file": ".trellis/spec/guides/change-validation-matrix.md", "reason": "任意代码改动的验证门与静态残留分类扫描要求"}

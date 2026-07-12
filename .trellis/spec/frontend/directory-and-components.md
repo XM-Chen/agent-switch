@@ -29,6 +29,10 @@
 - 组件 props 显式建模；避免把整个 App state 或 Provider map 透传给深层组件。
 - 对话框/表单的草稿状态留在组件内；提交后的 SSOT 是后端/Query cache。
 
+## Provider 预设目录（D22 精选官方）
+
+`src/config/*ProviderPresets.ts`（claude 为规范集，codex/gemini/claudeDesktop/openclaw/opencode/hermes 为按 name 镜像）只保留一手模型厂商官方模板 + 少数特批知名聚合入口（OpenRouter / SiliconFlow / ModelScope）；聚合/中转商预设、返利/来源跟踪参数（`aff=`/`ref=`/`utm_*`/`from=CH_`/邀请码/优惠码）、`isPartner`/`primePartner`/`partnerPromotionKey` 及 `zh.json > providerForm.partnerPromotion` 促销文案已整体清除（2026-07-12，任务 `07-12-ccs-preset-ad-cleanup`）。被保留的官方项若原带渠道参数，一律洗成裸官方链接。`partnerPromotionKey` 由 `ApiKeySection` 以 `{key && t(...)}` 守卫渲染，值移除后不再显示促销；新增预设默认不带任何合作/返利字段，完整 JSON 自定义入口不受影响。
+
 ## 单应用目标
 
 ccs 当前 `APP_IDS`/`SKILLS_APP_IDS`/`MCP_APP_IDS` 覆盖多个客户端（`src/config/appConfig.tsx:17-37`）。目标产品收缩到 Claude 后：
