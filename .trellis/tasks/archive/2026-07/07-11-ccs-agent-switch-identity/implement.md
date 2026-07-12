@@ -107,8 +107,8 @@
   | `pnpm tauri build --no-bundle` | ✅ | release `agent-switch.exe` 已产出（约 29MB，10 条 Unix dead_code 警告为基线） |
 - [x] 对照 AC1–AC11：AC1/2/3/4/7/8/9 静态核验通过；AC5（首启 import-before-seed 未改动，语义保留）；AC6 运行时自称已改、关于页加归属；AC10 门禁不恶化；AC11 未 push/未发版。
 - [x] 记录已知残留：`zh.json > providerForm.partnerPromotion` 促销「CC Switch 用户/合作伙伴」；`transform_codex_chat.rs:3065` issue 链接注释；源码内部注释/格式说明中的 "CC Switch"（非用户可见）；`main` 源图近空壳致重生成图标偏小。
-- [ ] 更新父任务 notes / 本任务 check 结果；**不**在未授权下归档父任务。
-- [ ] 经用户同意后再 commit（每批已提交则只做收尾 commit）。
+- [x] 更新父任务 notes / 本任务 check 结果（父任务 notes 已于 commit 7217f0486 记录身份改造完成状态；**不**在未授权下归档父任务）。
+- [x] 经用户同意后再 commit（L0–L6 已分批提交 9998b7a6f…a61b530d0，trellis/spec 收尾 7217f0486、29b2d1d20）。
 
 ## 10. 验证命令速查
 

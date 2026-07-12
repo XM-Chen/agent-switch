@@ -25,6 +25,6 @@
   ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "2026-07-11: 子任务 07-11-ccs-agent-switch-identity 身份改造实现完成（B0–B7），status=in_progress；全量门禁相对 windows-zh-trim 基线不恶化；未 commit/push/归档。见子任务 implement.md 第 9 节门禁表。",
+  "notes": "2026-07-12: 三个子任务全部实现完成并归档（bootstrap / windows-zh-trim / agent-switch-identity）。身份改造 B0–B7 已分批提交（9998b7a6f…a61b530d0）+ trellis/spec 收尾（7217f0486、29b2d1d20），全量门禁相对 windows-zh-trim 基线不恶化；未 push。父任务保持 planning，待用户单独做集成 review 后归档。",
   "meta": {}
 }
