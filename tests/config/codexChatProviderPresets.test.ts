@@ -113,13 +113,6 @@ const expectedChatPresets = new Map<
     },
   ],
   [
-    "Novita AI",
-    {
-      baseUrl: "https://api.novita.ai/openai/v1",
-      contextWindows: { "zai-org/glm-5.1": 202800 },
-    },
-  ],
-  [
     "Nvidia",
     {
       baseUrl: "https://integrate.api.nvidia.com/v1",
