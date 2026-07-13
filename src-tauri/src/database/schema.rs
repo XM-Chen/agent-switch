@@ -180,6 +180,10 @@ impl Database {
             FOREIGN KEY (provider_id, app_type) REFERENCES providers(id, app_type) ON DELETE CASCADE
         )", []).map_err(|e| AppError::Database(e.to_string()))?;
 
+        // 19. Provider Models 表（上游模型缓存，CC 聚合功能地基）
+        // 与 migrate_v11_to_v12 使用同一句 SQL，保证 create/migrate 两处一致且幂等。
+        Self::create_provider_models_table(conn)?;
+
         // 10. Proxy Request Logs 表
         // pricing_model = 写入时实际用于计价的模型名（pricing_model_source 解析结果），
         // 回填按它重算；NULL 表示 v11 之前的历史行，'' 表示未计价的错误行。
@@ -443,6 +447,13 @@ impl Database {
                         log::info!("迁移数据库从 v10 到 v11（usage_daily_rollups 保留 request_model 维度）");
                         Self::migrate_v10_to_v11(conn)?;
                         Self::set_user_version(conn, 11)?;
+                    }
+                    11 => {
+                        log::info!(
+                            "迁移数据库从 v11 到 v12（新增 provider_models 上游模型缓存表）"
+                        );
+                        Self::migrate_v11_to_v12(conn)?;
+                        Self::set_user_version(conn, 12)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1267,6 +1278,59 @@ impl Database {
         log::info!(
             "v10 -> v11 迁移完成：usage_daily_rollups 已保留 request_model/pricing_model 维度"
         );
+        Ok(())
+    }
+
+    /// 创建 provider_models 表及索引（上游模型缓存，CC 聚合功能地基）。
+    ///
+    /// `create_tables_on_conn` 与 `migrate_v11_to_v12` 共用此函数，确保两处建表
+    /// SQL 完全一致且幂等（`IF NOT EXISTS`）。
+    ///
+    /// - `model_id` 保存上游返回的 id 原文，不做归一化改写；
+    /// - `source` 区分 `fetched`（/v1/models 拉取）与 `manual`（用户手动补录）；
+    /// - 唯一性以 `(provider_id, app_type, model_id)` 为准；
+    /// - 复合外键 + ON DELETE CASCADE：provider 删除时缓存自动清理。
+    fn create_provider_models_table(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS provider_models (
+                provider_id TEXT NOT NULL,
+                app_type    TEXT NOT NULL,
+                model_id    TEXT NOT NULL,
+                source      TEXT NOT NULL,
+                owned_by    TEXT,
+                fetched_at  INTEGER NOT NULL,
+                PRIMARY KEY (provider_id, app_type, model_id),
+                FOREIGN KEY (provider_id, app_type)
+                    REFERENCES providers(id, app_type) ON DELETE CASCADE
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 provider_models 表失败: {e}")))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_provider_models_app_provider
+             ON provider_models(app_type, provider_id)",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 provider_models provider 索引失败: {e}")))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_provider_models_app_source
+             ON provider_models(app_type, source)",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 provider_models source 索引失败: {e}")))?;
+
+        Ok(())
+    }
+
+    /// v11 -> v12 迁移：新增 provider_models 上游模型缓存表（CC 聚合功能地基）。
+    ///
+    /// 与 `create_provider_models_table` 共用同一句幂等 SQL；新表无消费方时删除
+    /// 命令注册即可静默回滚，迁移本身不可逆但无害。
+    fn migrate_v11_to_v12(conn: &Connection) -> Result<(), AppError> {
+        Self::create_provider_models_table(conn)?;
+        log::info!("v11 -> v12 迁移完成：已新增 provider_models 上游模型缓存表");
         Ok(())
     }
 

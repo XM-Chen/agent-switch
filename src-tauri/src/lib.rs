@@ -1050,6 +1050,9 @@ pub fn run() {
                 // 检查 settings 表中的代理状态，自动恢复代理服务
                 restore_proxy_state_on_startup(&state).await;
 
+                // CC 聚合模型缓存调度：防抖增量刷新 + 每日 04:00(上海) 全量 + 启动补跑
+                crate::services::model_cache::start_schedulers(state.db.clone());
+
                 // Periodic backup check (on startup)
                 if let Err(e) = state.db.periodic_backup_if_needed() {
                     log::warn!("Periodic backup failed on startup: {e}");
@@ -1271,6 +1274,11 @@ pub fn run() {
             commands::get_current_prompt_file_content,
             // model list fetch (OpenAI-compatible /v1/models)
             commands::fetch_models_for_config,
+            commands::list_provider_models,
+            commands::add_manual_model,
+            commands::remove_manual_model,
+            commands::refresh_provider_models_now,
+            commands::get_model_cache_status,
             // ours: endpoint speed test + custom endpoint management
             commands::test_api_endpoints,
             commands::get_custom_endpoints,

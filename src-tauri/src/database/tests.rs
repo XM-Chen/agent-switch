@@ -427,6 +427,72 @@ fn migration_v10_to_v11_rebuilds_rollups_with_request_model_dimension() {
 }
 
 #[test]
+fn migration_v11_to_v12_adds_provider_models_table() {
+    let conn = Connection::open_in_memory().expect("open memory db");
+
+    // 模拟 v11 库：建 providers 表（供复合外键引用）+ 设 user_version=11，
+    // 但尚无 provider_models 表。
+    conn.execute_batch(
+        r#"
+        CREATE TABLE providers (
+            id TEXT NOT NULL,
+            app_type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            settings_config TEXT NOT NULL,
+            meta TEXT NOT NULL DEFAULT '{}',
+            is_current BOOLEAN NOT NULL DEFAULT 0,
+            PRIMARY KEY (id, app_type)
+        );
+        INSERT INTO providers (id, app_type, name, settings_config)
+            VALUES ('p1', 'claude', 'P1', '{}');
+        "#,
+    )
+    .expect("seed v11 providers");
+
+    Database::set_user_version(&conn, 11).expect("set user_version=11");
+    Database::apply_schema_migrations_on_conn(&conn).expect("apply migrations");
+
+    assert_eq!(
+        Database::get_user_version(&conn).expect("version after migration"),
+        SCHEMA_VERSION
+    );
+    assert!(
+        Database::table_exists(&conn, "provider_models").expect("check table"),
+        "provider_models table should exist after v11 -> v12"
+    );
+
+    // 列结构：source/fetched_at NOT NULL，owned_by 可空。
+    let source = get_column_info(&conn, "provider_models", "source");
+    assert_eq!(source.r#type, "TEXT");
+    assert_eq!(source.notnull, 1);
+    let fetched_at = get_column_info(&conn, "provider_models", "fetched_at");
+    assert_eq!(fetched_at.r#type, "INTEGER");
+    assert_eq!(fetched_at.notnull, 1);
+    let owned_by = get_column_info(&conn, "provider_models", "owned_by");
+    assert_eq!(owned_by.notnull, 0);
+
+    // 复合外键 ON DELETE CASCADE 生效：删 provider → 缓存清空。
+    conn.execute("PRAGMA foreign_keys = ON;", [])
+        .expect("enable fk");
+    conn.execute(
+        "INSERT INTO provider_models
+            (provider_id, app_type, model_id, source, owned_by, fetched_at)
+         VALUES ('p1', 'claude', 'm1', 'fetched', NULL, 100)",
+        [],
+    )
+    .expect("insert cached model");
+    conn.execute(
+        "DELETE FROM providers WHERE id = 'p1' AND app_type = 'claude'",
+        [],
+    )
+    .expect("delete provider");
+    let remaining: i64 = conn
+        .query_row("SELECT COUNT(*) FROM provider_models", [], |r| r.get(0))
+        .expect("count cached models");
+    assert_eq!(remaining, 0, "CASCADE should clear cached models");
+}
+
+#[test]
 fn schema_create_tables_repairs_legacy_proxy_config_singleton_to_per_app() {
     let conn = Connection::open_in_memory().expect("open memory db");
 
