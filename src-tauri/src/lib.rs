@@ -1279,6 +1279,15 @@ pub fn run() {
             commands::remove_manual_model,
             commands::refresh_provider_models_now,
             commands::get_model_cache_status,
+            // CC 聚合派生 + 自定义聚合（C2）
+            commands::get_aggregates,
+            commands::get_custom_aggregates,
+            commands::create_custom_aggregate,
+            commands::update_custom_aggregate,
+            commands::delete_custom_aggregate,
+            commands::reorder_custom_aggregates,
+            commands::get_cc_aggregate_config,
+            commands::set_cc_aggregate_config,
             // ours: endpoint speed test + custom endpoint management
             commands::test_api_endpoints,
             commands::get_custom_endpoints,

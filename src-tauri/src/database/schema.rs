@@ -184,6 +184,10 @@ impl Database {
         // 与 migrate_v11_to_v12 使用同一句 SQL，保证 create/migrate 两处一致且幂等。
         Self::create_provider_models_table(conn)?;
 
+        // 20. Custom Aggregates 表（自定义聚合定义，CC 聚合功能 C2）
+        // 与 migrate_v11_to_v12 使用同一句 SQL，保证 create/migrate 两处一致且幂等。
+        Self::create_custom_aggregates_table(conn)?;
+
         // 10. Proxy Request Logs 表
         // pricing_model = 写入时实际用于计价的模型名（pricing_model_source 解析结果），
         // 回填按它重算；NULL 表示 v11 之前的历史行，'' 表示未计价的错误行。
@@ -1330,7 +1334,44 @@ impl Database {
     /// 命令注册即可静默回滚，迁移本身不可逆但无害。
     fn migrate_v11_to_v12(conn: &Connection) -> Result<(), AppError> {
         Self::create_provider_models_table(conn)?;
-        log::info!("v11 -> v12 迁移完成：已新增 provider_models 上游模型缓存表");
+        Self::create_custom_aggregates_table(conn)?;
+        log::info!(
+            "v11 -> v12 迁移完成：已新增 provider_models 上游模型缓存表 + custom_aggregates 自定义聚合表"
+        );
+        Ok(())
+    }
+
+    /// 创建 custom_aggregates 表及索引（自定义聚合定义，CC 聚合功能 C2）。
+    ///
+    /// `create_tables_on_conn` 与 `migrate_v11_to_v12` 共用此函数，确保两处建表
+    /// SQL 完全一致且幂等（`IF NOT EXISTS`）。
+    ///
+    /// - 只存**定义**，不存内容（内容由 service 层纯派生）；
+    /// - `ordered_members` 用 JSON TEXT 列（同构 `mcp_servers.tags`），元素 = 自动
+    ///   聚合 key（模型 id 原文）；
+    /// - `sort_index` 控制自定义聚合之间的展示顺序。
+    fn create_custom_aggregates_table(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS custom_aggregates (
+                id              TEXT PRIMARY KEY,
+                app_type        TEXT NOT NULL,
+                name            TEXT NOT NULL,
+                ordered_members TEXT NOT NULL DEFAULT '[]',
+                sort_index      INTEGER,
+                created_at      INTEGER,
+                updated_at      INTEGER
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 custom_aggregates 表失败: {e}")))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_custom_aggregates_app
+             ON custom_aggregates(app_type, sort_index)",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 custom_aggregates 索引失败: {e}")))?;
+
         Ok(())
     }
 
