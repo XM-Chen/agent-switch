@@ -9,6 +9,21 @@ export { usageApi } from "./usage";
 export { subscriptionApi } from "./subscription";
 export { vscodeApi } from "./vscode";
 export { proxyApi } from "./proxy";
+export { aggregationApi } from "./aggregation";
+export type {
+  ProviderModel,
+  ModelSource,
+  RefreshSummary,
+  ProviderCacheStatus,
+  ModelCacheStatus,
+  AggregateMember,
+  AggregateView,
+  CustomAggregateView,
+  AggregateRef,
+  TierSelection,
+  CcAggregateConfig,
+  TierName,
+} from "./aggregation";
 export { openclawApi } from "./openclaw";
 export { sessionsApi } from "./sessions";
 export { workspaceApi } from "./workspace";
