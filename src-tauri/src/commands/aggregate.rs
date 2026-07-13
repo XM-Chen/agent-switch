@@ -7,9 +7,7 @@
 //! 参数键统一 `{ appType }`（D11）；返回结构体 `#[serde(rename_all="camelCase")]`。
 
 use crate::database::CcAggregateConfig;
-use crate::services::aggregate::{
-    self, AggregateView, CustomAggregateView,
-};
+use crate::services::aggregate::{self, AggregateView, CustomAggregateView};
 use crate::store::AppState;
 
 /// 返回全部自动聚合视图（含每个聚合的有序上游候选）。供 C4 列表。

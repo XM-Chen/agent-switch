@@ -274,9 +274,18 @@ mod tests {
             APP,
             "p1",
             &[
-                FetchedModel { id: "glm-4.6".into(), owned_by: None },
-                FetchedModel { id: "zhipu/glm-4.6".into(), owned_by: None },
-                FetchedModel { id: "z-ai/glm-4.6".into(), owned_by: None },
+                FetchedModel {
+                    id: "glm-4.6".into(),
+                    owned_by: None,
+                },
+                FetchedModel {
+                    id: "zhipu/glm-4.6".into(),
+                    owned_by: None,
+                },
+                FetchedModel {
+                    id: "z-ai/glm-4.6".into(),
+                    owned_by: None,
+                },
             ],
             100,
         )
@@ -302,7 +311,10 @@ mod tests {
         let views = build_aggregates(&db, APP).unwrap();
         assert_eq!(views.len(), 1, "大小写不同应归入同一聚合");
         let view = &views[0];
-        assert_eq!(view.key, "GLM-4.6", "display_id 取首次出现原文（p1 的大写）");
+        assert_eq!(
+            view.key, "GLM-4.6",
+            "display_id 取首次出现原文（p1 的大写）"
+        );
         assert_eq!(view.members.len(), 2);
         // 队列序：p1 在前。
         assert_eq!(view.members[0].provider_id, "p1");
@@ -382,14 +394,22 @@ mod tests {
             APP,
             "p3",
             &[
-                FetchedModel { id: "C".into(), owned_by: None },
-                FetchedModel { id: "D".into(), owned_by: None },
+                FetchedModel {
+                    id: "C".into(),
+                    owned_by: None,
+                },
+                FetchedModel {
+                    id: "D".into(),
+                    owned_by: None,
+                },
             ],
             100,
         )
         .unwrap();
 
-        let id = db.create_custom_aggregate(APP, "CCC", &["C".into(), "D".into()]).unwrap();
+        let id = db
+            .create_custom_aggregate(APP, "CCC", &["C".into(), "D".into()])
+            .unwrap();
         let flat = flatten_aggregate_ref(&db, APP, &AggregateRef::Custom(id)).unwrap();
 
         let seq: Vec<(String, String)> = flat
@@ -419,13 +439,21 @@ mod tests {
             APP,
             "p3",
             &[
-                FetchedModel { id: "C".into(), owned_by: None },
-                FetchedModel { id: "D".into(), owned_by: None },
+                FetchedModel {
+                    id: "C".into(),
+                    owned_by: None,
+                },
+                FetchedModel {
+                    id: "D".into(),
+                    owned_by: None,
+                },
             ],
             100,
         )
         .unwrap();
-        let cid = db.create_custom_aggregate(APP, "CCC", &["C".into(), "D".into()]).unwrap();
+        let cid = db
+            .create_custom_aggregate(APP, "CCC", &["C".into(), "D".into()])
+            .unwrap();
 
         // 删 p3：C 只剩 p2，D 归零 → missing_members 含 D。
         db.remove_from_failover_queue(APP, "p3").unwrap();
@@ -457,7 +485,9 @@ mod tests {
         insert_provider(&db, "p1", true, 0);
         fetch(&db, "p1", "C");
         // 自定义聚合成员里重复列同一个 key C。
-        let id = db.create_custom_aggregate(APP, "dup", &["C".into(), "C".into()]).unwrap();
+        let id = db
+            .create_custom_aggregate(APP, "dup", &["C".into(), "C".into()])
+            .unwrap();
         let flat = flatten_aggregate_ref(&db, APP, &AggregateRef::Custom(id)).unwrap();
         assert_eq!(flat.len(), 1, "重复 (p1, C) 应去重");
     }
@@ -484,11 +514,15 @@ mod tests {
         insert_provider(&db, "p1", true, 0);
         fetch(&db, "p1", "C");
 
-        assert!(flatten_aggregate_ref(&db, APP, &AggregateRef::Auto("nope".into()))
-            .unwrap()
-            .is_empty());
-        assert!(flatten_aggregate_ref(&db, APP, &AggregateRef::Custom("missing".into()))
-            .unwrap()
-            .is_empty());
+        assert!(
+            flatten_aggregate_ref(&db, APP, &AggregateRef::Auto("nope".into()))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            flatten_aggregate_ref(&db, APP, &AggregateRef::Custom("missing".into()))
+                .unwrap()
+                .is_empty()
+        );
     }
 }

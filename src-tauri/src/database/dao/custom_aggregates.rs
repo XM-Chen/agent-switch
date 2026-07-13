@@ -73,10 +73,7 @@ pub struct CcAggregateConfig {
 
 impl Database {
     /// 列出某 app_type 的全部自定义聚合定义，按 `sort_index` 稳定排序。
-    pub fn list_custom_aggregates(
-        &self,
-        app_type: &str,
-    ) -> Result<Vec<CustomAggregate>, AppError> {
+    pub fn list_custom_aggregates(&self, app_type: &str) -> Result<Vec<CustomAggregate>, AppError> {
         let conn = lock_conn!(self.conn);
         let mut stmt = conn
             .prepare(
@@ -189,11 +186,8 @@ impl Database {
     /// 删除一个自定义聚合（用户显式删除，非归零自动删除）。
     pub fn delete_custom_aggregate(&self, id: &str) -> Result<(), AppError> {
         let conn = lock_conn!(self.conn);
-        conn.execute(
-            "DELETE FROM custom_aggregates WHERE id = ?1",
-            params![id],
-        )
-        .map_err(|e| AppError::Database(e.to_string()))?;
+        conn.execute("DELETE FROM custom_aggregates WHERE id = ?1", params![id])
+            .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(())
     }
 

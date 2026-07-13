@@ -3,14 +3,37 @@
 //! 负责选择和管理代理目标供应商，实现智能故障转移
 
 use crate::app_config::AppType;
-use crate::database::Database;
+use crate::database::{AggregateRef, Database};
 use crate::error::AppError;
 use crate::provider::Provider;
 use crate::proxy::circuit_breaker::{AllowResult, CircuitBreaker, CircuitBreakerConfig};
+use crate::proxy::model_mapper::{classify_tier, Tier};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+/// 路由层候选（CC 聚合模式路由 C3）。
+///
+/// 每个候选携带**已解析的 Provider 对象**（供 forwarder 直接转发）以及聚合模式下
+/// 要改写成的目标上游模型 id（`target_model`）。
+///
+/// 命名说明（与 C2 的类型区分，避免静默撞名）：
+/// - `crate::services::aggregate::RouteCandidate { provider_id, model_id }` 是 C2 的
+///   **数据层**展平候选，只含字符串 id，来自 DB 派生。
+/// - 本类型是 C3 的**路由层**候选，含完整 `Provider` 与 forwarder 需要的改写目标。
+///   两者语义不同、字段不同，故各自保留，本层在消费 C2 结果时按 provider_id 解析出
+///   `Provider` 并包成本类型。
+#[derive(Debug, Clone)]
+pub struct RouteCandidate {
+    /// 选中的供应商（故障转移链中的一环）。
+    pub provider: Provider,
+    /// 聚合模式下要改写成的上游模型 id（精确聚合 key）。
+    ///
+    /// `None` = 非聚合路由（当前供应商 / 故障转移队列），沿用现有 `model_mapper` 逻辑。
+    /// `Some(id)` = 聚合路由，forward 前把请求体 model 改写为该 id 并跳过 env 二次映射。
+    pub target_model: Option<String>,
+}
 
 /// 供应商路由器
 pub struct ProviderRouter {
@@ -29,13 +52,32 @@ impl ProviderRouter {
         }
     }
 
-    /// 选择可用的供应商（支持故障转移）
+    /// 选择可用的候选（支持聚合模式 / 故障转移）
     ///
-    /// 返回按优先级排序的可用供应商列表：
+    /// 返回按优先级排序的可用路由候选列表，优先级从高到低：
+    /// - **聚合模式开启（D3 互斥接管）**：请求 model 归类 tier → 经 `tier_selection`
+    ///   映射到目标聚合 → 经 C2 展平为有序 `(上游, 模型 id)` 候选序列，逐候选按熔断器
+    ///   过滤。此分支下当前供应商 / 故障转移队列作为路由轴心暂时失效（配置保留不删）。
+    ///   tier 未配置聚合时回退到下面的旧路由（记 warn，不静默失败）。
     /// - 故障转移关闭时：仅返回当前供应商
     /// - 故障转移开启时：仅使用故障转移队列，按队列顺序依次尝试（P1 → P2 → ...）
-    pub async fn select_providers(&self, app_type: &str) -> Result<Vec<Provider>, AppError> {
-        let mut result = Vec::new();
+    ///
+    /// `request_model` 用于聚合模式的 tier 归类；非聚合分支忽略此参数。
+    pub async fn select_providers(
+        &self,
+        app_type: &str,
+        request_model: &str,
+    ) -> Result<Vec<RouteCandidate>, AppError> {
+        // ── 聚合模式分支（最高优先级，D3/D5）────────────────────────────
+        // 仅在 enabled 时进入；默认关 → 行为与现状逐字节一致。
+        if let Some(candidates) = self
+            .select_aggregate_candidates(app_type, request_model)
+            .await?
+        {
+            return Ok(candidates);
+        }
+
+        let mut result: Vec<RouteCandidate> = Vec::new();
         let mut total_providers = 0usize;
         let mut circuit_open_count = 0usize;
 
@@ -71,7 +113,10 @@ impl ProviderRouter {
                 let breaker = self.get_or_create_circuit_breaker(&circuit_key).await;
 
                 if breaker.is_available().await {
-                    result.push(provider);
+                    result.push(RouteCandidate {
+                        provider,
+                        target_model: None,
+                    });
                 } else {
                     circuit_open_count += 1;
                 }
@@ -90,7 +135,10 @@ impl ProviderRouter {
             if let Some(current_id) = current_id {
                 if let Some(current) = self.db.get_provider_by_id(&current_id, app_type)? {
                     total_providers = 1;
-                    result.push(current);
+                    result.push(RouteCandidate {
+                        provider: current,
+                        target_model: None,
+                    });
                 }
             }
         }
@@ -106,6 +154,109 @@ impl ProviderRouter {
         }
 
         Ok(result)
+    }
+
+    /// 聚合模式候选选择（CC 聚合模式路由 C3，D3/D5）。
+    ///
+    /// 返回：
+    /// - `Ok(None)`：聚合模式未开启，或 tier 未配置目标聚合 → 调用方回退旧路由。
+    /// - `Ok(Some(vec))`：聚合模式生效，返回按聚合展平序 + 熔断过滤后的候选。
+    /// - `Err(...)`：全部候选熔断（`AllProvidersCircuitOpen`）或聚合为空
+    ///   （`NoProvidersConfigured`），复用现有故障转移的错误映射。
+    async fn select_aggregate_candidates(
+        &self,
+        app_type: &str,
+        request_model: &str,
+    ) -> Result<Option<Vec<RouteCandidate>>, AppError> {
+        // C3 仅接管 Claude Code；其它应用即使误写同名配置也必须保持旧路由。
+        if app_type != "claude" {
+            return Ok(None);
+        }
+
+        let config = match self.db.get_cc_aggregate_config(app_type) {
+            Ok(config) => config,
+            Err(e) => {
+                // 读配置失败不能吞掉整个转发路径：记 warn 并退回旧路由。
+                log::warn!("[{app_type}] 读取 CC 聚合配置失败: {e}，回退旧路由");
+                return Ok(None);
+            }
+        };
+
+        if !config.enabled {
+            return Ok(None);
+        }
+
+        // tier 归类复用 model_mapper 的 contains 判据（与 Claude Code 官方分类器一致）。
+        let tier = classify_tier(request_model);
+
+        // tier → 目标聚合。fable 未单独配置时降级到 opus 选择，与 map_model 的
+        // fable→opus env 兜底方向一致。
+        let sel = &config.tier_selection;
+        let aggregate_ref: Option<&AggregateRef> = match tier {
+            Tier::Fable => sel.fable.as_ref().or(sel.opus.as_ref()),
+            Tier::Haiku => sel.haiku.as_ref(),
+            Tier::Opus => sel.opus.as_ref(),
+            Tier::Sonnet => sel.sonnet.as_ref(),
+            Tier::Default => sel.default.as_ref(),
+        };
+
+        let Some(aggregate_ref) = aggregate_ref else {
+            // tier 无映射：warn + 回退旧路由（不静默失败）。
+            log::warn!(
+                "[{app_type}] 聚合模式已开启但 tier {tier:?}（model={request_model}）未配置目标聚合，回退旧路由"
+            );
+            return Ok(None);
+        };
+
+        // C2 展平：得到有序 (provider_id, model_id) 候选。
+        let flat =
+            crate::services::aggregate::flatten_aggregate_ref(&self.db, app_type, aggregate_ref)?;
+
+        if flat.is_empty() {
+            // 聚合归零 / 指向已删聚合：候选为空。此时不回退旧路由——聚合模式是
+            // 用户显式接管，退回当前供应商会绕过其意图；返回明确错误由客户端感知。
+            log::warn!("[{app_type}] 聚合模式 tier {tier:?} 的目标聚合为空（无可路由候选）");
+            return Err(AppError::NoProvidersConfigured);
+        }
+
+        // 解析 provider_id → Provider，并按熔断器可用性过滤（key 仍 app_type:provider_id，D12）。
+        let all_providers = self.db.get_all_providers(app_type)?;
+        let total = flat.len();
+        let mut circuit_open_count = 0usize;
+        let mut candidates: Vec<RouteCandidate> = Vec::with_capacity(flat.len());
+
+        for member in flat {
+            let Some(provider) = all_providers.get(&member.provider_id).cloned() else {
+                // 队列成员在 providers 表缺失（理论上不应发生，防御性跳过）。
+                log::warn!(
+                    "[{app_type}] 聚合候选 provider_id={} 在 providers 表中不存在，跳过",
+                    member.provider_id
+                );
+                continue;
+            };
+
+            let circuit_key = format!("{app_type}:{}", provider.id);
+            let breaker = self.get_or_create_circuit_breaker(&circuit_key).await;
+            if breaker.is_available().await {
+                candidates.push(RouteCandidate {
+                    provider,
+                    target_model: Some(member.model_id),
+                });
+            } else {
+                circuit_open_count += 1;
+            }
+        }
+
+        if candidates.is_empty() {
+            if total > 0 && circuit_open_count == total {
+                log::warn!("[{app_type}] [FO-004] 聚合候选全部熔断");
+                return Err(AppError::AllProvidersCircuitOpen);
+            }
+            log::warn!("[{app_type}] [FO-005] 聚合候选无可用上游");
+            return Err(AppError::NoProvidersConfigured);
+        }
+
+        Ok(Some(candidates))
     }
 
     /// 请求执行前获取熔断器“放行许可”
@@ -272,7 +423,8 @@ impl ProviderRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::Database;
+    use crate::database::{AggregateRef, CcAggregateConfig, Database, TierSelection};
+    use crate::services::model_fetch::FetchedModel;
     use serde_json::json;
     use serial_test::serial;
     use std::env;
@@ -354,10 +506,13 @@ mod tests {
         db.add_to_failover_queue("claude", "b").unwrap();
 
         let router = ProviderRouter::new(db.clone());
-        let providers = router.select_providers("claude").await.unwrap();
+        let providers = router
+            .select_providers("claude", "claude-sonnet-4-5")
+            .await
+            .unwrap();
 
         assert_eq!(providers.len(), 1);
-        assert_eq!(providers[0].id, "a");
+        assert_eq!(providers[0].provider.id, "a");
     }
 
     #[tokio::test]
@@ -387,12 +542,15 @@ mod tests {
         db.update_proxy_config_for_app(config).await.unwrap();
 
         let router = ProviderRouter::new(db.clone());
-        let providers = router.select_providers("claude").await.unwrap();
+        let providers = router
+            .select_providers("claude", "claude-sonnet-4-5")
+            .await
+            .unwrap();
 
         assert_eq!(providers.len(), 2);
         // 故障转移开启时：仅按队列顺序选择（忽略当前供应商）
-        assert_eq!(providers[0].id, "b");
-        assert_eq!(providers[1].id, "a");
+        assert_eq!(providers[0].provider.id, "b");
+        assert_eq!(providers[1].provider.id, "a");
     }
 
     #[tokio::test]
@@ -419,10 +577,13 @@ mod tests {
         db.update_proxy_config_for_app(config).await.unwrap();
 
         let router = ProviderRouter::new(db.clone());
-        let providers = router.select_providers("claude").await.unwrap();
+        let providers = router
+            .select_providers("claude", "claude-sonnet-4-5")
+            .await
+            .unwrap();
 
         assert_eq!(providers.len(), 1);
-        assert_eq!(providers[0].id, "b");
+        assert_eq!(providers[0].provider.id, "b");
     }
 
     #[tokio::test]
@@ -462,7 +623,10 @@ mod tests {
             .await
             .unwrap();
 
-        let providers = router.select_providers("claude").await.unwrap();
+        let providers = router
+            .select_providers("claude", "claude-sonnet-4-5")
+            .await
+            .unwrap();
         assert_eq!(providers.len(), 2);
 
         assert!(router.allow_provider_request("b", "claude").await.allowed);
@@ -519,5 +683,330 @@ mod tests {
         let third = router.allow_provider_request("a", "claude").await;
         assert!(third.allowed);
         assert!(third.used_half_open_permit);
+    }
+
+    // ===== 聚合模式路由测试（CC 聚合 C3，D3/D5）=====
+
+    /// 保存 provider 并加入故障转移队列（聚合候选来源严格 = 队列成员，D4/D5）。
+    async fn seed_queue_provider(db: &Database, id: &str, sort_index: usize) {
+        let mut p = Provider::with_id(id.to_string(), id.to_string(), json!({}), None);
+        p.sort_index = Some(sort_index);
+        db.save_provider("claude", &p).unwrap();
+        db.add_to_failover_queue("claude", id).unwrap();
+    }
+
+    fn fetch_model(db: &Database, provider_id: &str, model_id: &str) {
+        db.replace_fetched_models(
+            "claude",
+            provider_id,
+            &[FetchedModel {
+                id: model_id.to_string(),
+                owned_by: None,
+            }],
+            100,
+        )
+        .unwrap();
+    }
+
+    fn enable_aggregate(db: &Database, tier_selection: TierSelection) {
+        db.set_cc_aggregate_config(
+            "claude",
+            &CcAggregateConfig {
+                enabled: true,
+                tier_selection,
+            },
+        )
+        .unwrap();
+    }
+
+    // 开启聚合模式：sonnet 请求 → tier_selection → 自动聚合 → 展平候选，
+    // 路由到队列内首个可用上游并携带正确的 target_model（改写目标）。
+    #[tokio::test]
+    #[serial]
+    async fn aggregate_sonnet_routes_to_auto_aggregate_candidates() {
+        let _home = TempHome::new();
+        let db = Arc::new(Database::memory().unwrap());
+
+        // p1、p2 都提供 glm-4.6（大小写归一同一聚合），队列序 p1→p2。
+        seed_queue_provider(&db, "p1", 0).await;
+        seed_queue_provider(&db, "p2", 1).await;
+        fetch_model(&db, "p1", "glm-4.6");
+        fetch_model(&db, "p2", "glm-4.6");
+
+        enable_aggregate(
+            &db,
+            TierSelection {
+                sonnet: Some(AggregateRef::Auto("glm-4.6".into())),
+                ..Default::default()
+            },
+        );
+
+        let router = ProviderRouter::new(db.clone());
+        let candidates = router
+            .select_providers("claude", "claude-sonnet-4-5-20250929")
+            .await
+            .unwrap();
+
+        assert_eq!(candidates.len(), 2, "聚合展平应含两个上游候选");
+        // 队列序：p1 在前。
+        assert_eq!(candidates[0].provider.id, "p1");
+        assert_eq!(candidates[0].target_model.as_deref(), Some("glm-4.6"));
+        assert_eq!(candidates[1].provider.id, "p2");
+        assert_eq!(candidates[1].target_model.as_deref(), Some("glm-4.6"));
+    }
+
+    // tier_selection 指向自定义聚合（opus→CCC=[C,D]）：按「外层成员序 × 内层上游序」
+    // 展平逐个尝试（R16/D7）。
+    #[tokio::test]
+    #[serial]
+    async fn aggregate_opus_routes_to_custom_aggregate_flatten_order() {
+        let _home = TempHome::new();
+        let db = Arc::new(Database::memory().unwrap());
+
+        seed_queue_provider(&db, "p2", 0).await;
+        seed_queue_provider(&db, "p3", 1).await;
+        // C 由 p2、p3 提供；D 只由 p3 提供。
+        fetch_model(&db, "p2", "C");
+        db.replace_fetched_models(
+            "claude",
+            "p3",
+            &[
+                FetchedModel {
+                    id: "C".into(),
+                    owned_by: None,
+                },
+                FetchedModel {
+                    id: "D".into(),
+                    owned_by: None,
+                },
+            ],
+            100,
+        )
+        .unwrap();
+
+        let ccc = db
+            .create_custom_aggregate("claude", "CCC", &["C".into(), "D".into()])
+            .unwrap();
+        enable_aggregate(
+            &db,
+            TierSelection {
+                opus: Some(AggregateRef::Custom(ccc)),
+                ..Default::default()
+            },
+        );
+
+        let router = ProviderRouter::new(db.clone());
+        let candidates = router
+            .select_providers("claude", "claude-opus-4-5")
+            .await
+            .unwrap();
+
+        let seq: Vec<(String, Option<String>)> = candidates
+            .iter()
+            .map(|c| (c.provider.id.clone(), c.target_model.clone()))
+            .collect();
+        assert_eq!(
+            seq,
+            vec![
+                ("p2".into(), Some("C".into())),
+                ("p3".into(), Some("C".into())),
+                ("p3".into(), Some("D".into())),
+            ],
+            "外层成员序 × 内层上游序"
+        );
+    }
+
+    // 首选上游熔断时，聚合候选序列跳过熔断上游，故障转移到下一个可用上游。
+    #[tokio::test]
+    #[serial]
+    async fn aggregate_skips_circuit_open_candidate() {
+        let _home = TempHome::new();
+        let db = Arc::new(Database::memory().unwrap());
+
+        // 1 次失败即熔断。
+        db.update_circuit_breaker_config(&CircuitBreakerConfig {
+            failure_threshold: 1,
+            timeout_seconds: 60,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+        seed_queue_provider(&db, "p1", 0).await;
+        seed_queue_provider(&db, "p2", 1).await;
+        fetch_model(&db, "p1", "glm-4.6");
+        fetch_model(&db, "p2", "glm-4.6");
+
+        enable_aggregate(
+            &db,
+            TierSelection {
+                sonnet: Some(AggregateRef::Auto("glm-4.6".into())),
+                ..Default::default()
+            },
+        );
+
+        let router = ProviderRouter::new(db.clone());
+        // 熔断 p1。
+        router
+            .record_result("p1", "claude", false, false, Some("fail".into()))
+            .await
+            .unwrap();
+
+        let candidates = router
+            .select_providers("claude", "claude-sonnet-4-5")
+            .await
+            .unwrap();
+
+        assert_eq!(candidates.len(), 1, "p1 已熔断，只剩 p2");
+        assert_eq!(candidates[0].provider.id, "p2");
+        assert_eq!(candidates[0].target_model.as_deref(), Some("glm-4.6"));
+    }
+
+    // 候选全部熔断 → 返回 AllProvidersCircuitOpen（复用现有故障转移错误映射）。
+    #[tokio::test]
+    #[serial]
+    async fn aggregate_all_candidates_circuit_open_errors() {
+        let _home = TempHome::new();
+        let db = Arc::new(Database::memory().unwrap());
+
+        db.update_circuit_breaker_config(&CircuitBreakerConfig {
+            failure_threshold: 1,
+            timeout_seconds: 60,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+        seed_queue_provider(&db, "p1", 0).await;
+        fetch_model(&db, "p1", "glm-4.6");
+
+        enable_aggregate(
+            &db,
+            TierSelection {
+                sonnet: Some(AggregateRef::Auto("glm-4.6".into())),
+                ..Default::default()
+            },
+        );
+
+        let router = ProviderRouter::new(db.clone());
+        router
+            .record_result("p1", "claude", false, false, Some("fail".into()))
+            .await
+            .unwrap();
+
+        let err = router
+            .select_providers("claude", "claude-sonnet-4-5")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::AllProvidersCircuitOpen));
+    }
+
+    // tier 无映射：warn + 回退旧路由（当前供应商），不静默失败。
+    #[tokio::test]
+    #[serial]
+    async fn aggregate_tier_without_mapping_falls_back_to_current_provider() {
+        let _home = TempHome::new();
+        let db = Arc::new(Database::memory().unwrap());
+
+        // 队列/聚合仅配了 sonnet；opus 请求无映射 → 回退旧路由。
+        seed_queue_provider(&db, "p1", 0).await;
+        fetch_model(&db, "p1", "glm-4.6");
+
+        // 另设当前供应商 cur（不在聚合内），用于验证回退。
+        let cur = Provider::with_id("cur".into(), "cur".into(), json!({}), None);
+        db.save_provider("claude", &cur).unwrap();
+        db.set_current_provider("claude", "cur").unwrap();
+
+        enable_aggregate(
+            &db,
+            TierSelection {
+                sonnet: Some(AggregateRef::Auto("glm-4.6".into())),
+                ..Default::default()
+            },
+        );
+
+        let router = ProviderRouter::new(db.clone());
+        let candidates = router
+            .select_providers("claude", "claude-opus-4-5")
+            .await
+            .unwrap();
+
+        assert_eq!(candidates.len(), 1, "opus 无映射 → 回退当前供应商");
+        assert_eq!(candidates[0].provider.id, "cur");
+        assert!(
+            candidates[0].target_model.is_none(),
+            "回退路径候选不带 target_model"
+        );
+    }
+
+    // 关闭聚合模式后路由完全退化为原 ccs 行为（当前供应商），旧配置无损。
+    #[tokio::test]
+    #[serial]
+    async fn aggregate_disabled_restores_current_provider_routing() {
+        let _home = TempHome::new();
+        let db = Arc::new(Database::memory().unwrap());
+
+        seed_queue_provider(&db, "p1", 0).await;
+        fetch_model(&db, "p1", "glm-4.6");
+        let cur = Provider::with_id("cur".into(), "cur".into(), json!({}), None);
+        db.save_provider("claude", &cur).unwrap();
+        db.set_current_provider("claude", "cur").unwrap();
+
+        // 配置存在但 enabled=false（保留 tier_selection，D3 关闭即恢复）。
+        db.set_cc_aggregate_config(
+            "claude",
+            &CcAggregateConfig {
+                enabled: false,
+                tier_selection: TierSelection {
+                    sonnet: Some(AggregateRef::Auto("glm-4.6".into())),
+                    ..Default::default()
+                },
+            },
+        )
+        .unwrap();
+
+        let router = ProviderRouter::new(db.clone());
+        let candidates = router
+            .select_providers("claude", "claude-sonnet-4-5")
+            .await
+            .unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].provider.id, "cur", "聚合关 → 当前供应商");
+        assert!(candidates[0].target_model.is_none());
+    }
+
+    // fable 未单独配置时降级到 opus 选择（与 map_model 的 fable→opus 兜底方向一致）。
+    #[tokio::test]
+    #[serial]
+    async fn aggregate_fable_falls_back_to_opus_selection() {
+        let _home = TempHome::new();
+        let db = Arc::new(Database::memory().unwrap());
+
+        seed_queue_provider(&db, "p1", 0).await;
+        fetch_model(&db, "p1", "opus-agg");
+
+        enable_aggregate(
+            &db,
+            TierSelection {
+                // 只配 opus，不配 fable。
+                opus: Some(AggregateRef::Auto("opus-agg".into())),
+                ..Default::default()
+            },
+        );
+
+        let router = ProviderRouter::new(db.clone());
+        let candidates = router
+            .select_providers("claude", "claude-fable-5")
+            .await
+            .unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].provider.id, "p1");
+        assert_eq!(
+            candidates[0].target_model.as_deref(),
+            Some("opus-agg"),
+            "fable 未配置 → 用 opus 聚合选择"
+        );
     }
 }

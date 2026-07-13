@@ -7,6 +7,7 @@ use crate::provider::Provider;
 use crate::proxy::{
     extract_session_id,
     forwarder::RequestForwarder,
+    provider_router::RouteCandidate,
     server::ProxyState,
     types::{AppProxyConfig, CopilotOptimizerConfig, OptimizerConfig, RectifierConfig},
     ProxyError,
@@ -39,8 +40,14 @@ pub struct RequestContext {
     pub app_config: AppProxyConfig,
     /// 选中的 Provider（故障转移链的第一个）
     pub provider: Provider,
-    /// 完整的 Provider 列表（用于故障转移）
-    providers: Vec<Provider>,
+    /// 完整的路由候选列表（用于故障转移；聚合模式下每个候选携带目标 model）
+    candidates: Vec<RouteCandidate>,
+    /// 聚合模式是否接管本次请求（用于 forwarder 的 max_retries 计算）。
+    ///
+    /// 聚合模式的「逐候选尝试」需要循环遍历完整候选序列；若沿用「故障转移关强制
+    /// max_retries=0」的旧规则，聚合会被限制为单次尝试。此标记让 `create_forwarder`
+    /// 单独把 max_retries 设为「候选数 - 1」。
+    aggregate_mode: bool,
     /// 请求开始时的"当前供应商"（用于判断是否需要同步 UI/托盘）
     ///
     /// 这里使用本地 settings 的设备级 current provider。
@@ -131,9 +138,9 @@ impl RequestContext {
 
         // 使用共享的 ProviderRouter 选择 Provider（熔断器状态跨请求保持）
         // 注意：只在这里调用一次，结果传递给 forwarder，避免重复消耗 HalfOpen 名额
-        let providers = state
+        let candidates = state
             .provider_router
-            .select_providers(app_type_str)
+            .select_providers(app_type_str, &request_model)
             .await
             .map_err(|e| match e {
                 crate::error::AppError::AllProvidersCircuitOpen => {
@@ -143,25 +150,31 @@ impl RequestContext {
                 _ => ProxyError::DatabaseError(e.to_string()),
             })?;
 
-        let provider = providers
+        let provider = candidates
             .first()
-            .cloned()
+            .map(|c| c.provider.clone())
             .ok_or(ProxyError::NoAvailableProvider)?;
 
+        // 候选带 target_model 才是聚合路由；tier 无映射时 router 会回退旧路由，
+        // 此时候选的 target_model 都为 None。
+        let aggregate_mode = candidates.iter().any(|c| c.target_model.is_some());
+
         log::debug!(
-            "[{}] Provider: {}, model: {}, failover chain: {} providers, session: {}",
+            "[{}] Provider: {}, model: {}, failover chain: {} candidates, session: {}, aggregate: {}",
             tag,
             provider.name,
             request_model,
-            providers.len(),
-            session_id
+            candidates.len(),
+            session_id,
+            aggregate_mode
         );
 
         Ok(Self {
             start_time,
             app_config,
             provider,
-            providers,
+            candidates,
+            aggregate_mode,
             current_provider_id,
             request_model,
             outbound_model: None,
@@ -199,25 +212,35 @@ impl RequestContext {
     /// - 故障转移开启：超时配置正常生效（0 表示禁用超时）
     /// - 故障转移关闭：超时配置不生效（全部传入 0）
     pub fn create_forwarder(&self, state: &ProxyState) -> RequestForwarder {
-        let (non_streaming_timeout, first_byte_timeout, idle_timeout) =
-            if self.app_config.auto_failover_enabled {
-                // 故障转移开启：使用配置的值（0 = 禁用超时）
-                (
-                    self.app_config.non_streaming_timeout as u64,
-                    self.app_config.streaming_first_byte_timeout as u64,
-                    self.app_config.streaming_idle_timeout as u64,
-                )
-            } else {
-                // 故障转移关闭：不启用超时配置
-                log::debug!(
-                    "[{}] Failover disabled, timeout configs are bypassed",
-                    self.tag
-                );
-                (0, 0, 0)
-            };
+        // 聚合模式与故障转移共享同一套「逐候选尝试 + 首包边界」机制：都需要启用超时配置
+        // 让 prime_streaming_response 在首字节前有机会切换到下一候选。聚合模式即使
+        // auto_failover 关闭也要启用超时，否则「首字节前可切候选」无法生效。
+        let multi_candidate = self.app_config.auto_failover_enabled || self.aggregate_mode;
 
-        // 故障转移关闭时强制 max_retries=0（仅尝试 1 个 provider），与「不超时 + 不切换」语义一致。
-        let max_retries = if self.app_config.auto_failover_enabled {
+        let (non_streaming_timeout, first_byte_timeout, idle_timeout) = if multi_candidate {
+            // 使用配置的值（0 = 禁用超时）
+            (
+                self.app_config.non_streaming_timeout as u64,
+                self.app_config.streaming_first_byte_timeout as u64,
+                self.app_config.streaming_idle_timeout as u64,
+            )
+        } else {
+            // 故障转移关闭且非聚合模式：不启用超时配置
+            log::debug!(
+                "[{}] Failover disabled, timeout configs are bypassed",
+                self.tag
+            );
+            (0, 0, 0)
+        };
+
+        // max_retries 语义：
+        // - 聚合模式：遍历完整候选序列，max_retries = 候选数 - 1（仍受 max_attempts 保护）。
+        //   若沿用「故障转移关强制 0」的旧规则，聚合的逐候选会被限制为单次尝试。
+        // - 故障转移开启：用用户配置的重试次数。
+        // - 其余（故障转移关 + 非聚合）：强制 0，与「不超时 + 不切换」语义一致。
+        let max_retries = if self.aggregate_mode {
+            self.candidates.len().saturating_sub(1) as u32
+        } else if self.app_config.auto_failover_enabled {
             self.app_config.max_retries
         } else {
             0
@@ -246,9 +269,18 @@ impl RequestContext {
 
     /// 获取 Provider 列表（用于故障转移）
     ///
-    /// 返回在创建上下文时已选择的 providers，避免重复调用 select_providers()
+    /// 返回在创建上下文时已选择的候选的 provider 部分，避免重复调用 select_providers()。
+    /// 向后兼容入口：非聚合路径只需要 provider 列表。
+    #[allow(dead_code)]
     pub fn get_providers(&self) -> Vec<Provider> {
-        self.providers.clone()
+        self.candidates.iter().map(|c| c.provider.clone()).collect()
+    }
+
+    /// 获取完整路由候选列表（聚合模式携带 target_model）。
+    ///
+    /// 聚合模式下 forwarder 需要按候选逐个改写 model，故走此入口拿到完整候选。
+    pub fn get_candidates(&self) -> Vec<RouteCandidate> {
+        self.candidates.clone()
     }
 
     /// 计算请求延迟（毫秒）
@@ -264,14 +296,15 @@ impl RequestContext {
     /// - 故障转移关闭：返回 0（禁用超时检查）
     #[inline]
     pub fn streaming_timeout_config(&self) -> StreamingTimeoutConfig {
-        if self.app_config.auto_failover_enabled {
-            // 故障转移开启：使用配置的值（0 = 禁用超时）
+        // 聚合模式与故障转移一致：启用超时配置（与 create_forwarder 的 multi_candidate 对齐）。
+        if self.app_config.auto_failover_enabled || self.aggregate_mode {
+            // 故障转移开启 / 聚合模式：使用配置的值（0 = 禁用超时）
             StreamingTimeoutConfig {
                 first_byte_timeout: self.app_config.streaming_first_byte_timeout as u64,
                 idle_timeout: self.app_config.streaming_idle_timeout as u64,
             }
         } else {
-            // 故障转移关闭：禁用流式超时检查
+            // 故障转移关闭且非聚合模式：禁用流式超时检查
             StreamingTimeoutConfig {
                 first_byte_timeout: 0,
                 idle_timeout: 0,
