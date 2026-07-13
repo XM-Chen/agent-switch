@@ -4,7 +4,6 @@ import {
   buildTierOptions,
   decodeAggregateRef,
   encodeAggregateRef,
-  reconstructMemberKeys,
   resolveTierRef,
   tierRefToSelectValue,
   formatFetchedAt,
@@ -30,6 +29,7 @@ const customView = (
   id,
   name,
   members: [],
+  orderedMembers: [],
   isEmpty: true,
   missingMembers: [],
   ...overrides,
@@ -129,85 +129,6 @@ describe("resolveTierRef", () => {
     expect(
       resolveTierRef({ type: "custom", value: "gone" }, aggregates, customs),
     ).toEqual({ resolved: false, label: "gone", isEmpty: true });
-  });
-});
-
-describe("reconstructMemberKeys", () => {
-  const aggregates = [autoView("GLM-4.6"), autoView("gpt-5"), autoView("D")];
-
-  it("recovers ordered auto-aggregate keys from flattened members (case-insensitive)", () => {
-    const view = customView("c", "C", {
-      members: [
-        {
-          providerId: "p1",
-          providerName: "P1",
-          modelId: "glm-4.6", // lowercase in candidate, key is GLM-4.6
-          source: "fetched",
-        },
-        {
-          providerId: "p2",
-          providerName: "P2",
-          modelId: "gpt-5",
-          source: "fetched",
-        },
-      ],
-      missingMembers: [],
-      isEmpty: false,
-    });
-    expect(reconstructMemberKeys(view, aggregates)).toEqual([
-      "GLM-4.6",
-      "gpt-5",
-    ]);
-  });
-
-  it("dedupes repeated candidates from the same aggregate", () => {
-    const view = customView("c", "C", {
-      members: [
-        {
-          providerId: "p1",
-          providerName: "P1",
-          modelId: "gpt-5",
-          source: "fetched",
-        },
-        {
-          providerId: "p2",
-          providerName: "P2",
-          modelId: "gpt-5",
-          source: "manual",
-        },
-      ],
-      missingMembers: [],
-      isEmpty: false,
-    });
-    expect(reconstructMemberKeys(view, aggregates)).toEqual(["gpt-5"]);
-  });
-
-  it("appends missing members after resolved ones", () => {
-    const view = customView("c", "C", {
-      members: [
-        {
-          providerId: "p1",
-          providerName: "P1",
-          modelId: "gpt-5",
-          source: "fetched",
-        },
-      ],
-      missingMembers: ["offline-key"],
-      isEmpty: false,
-    });
-    expect(reconstructMemberKeys(view, aggregates)).toEqual([
-      "gpt-5",
-      "offline-key",
-    ]);
-  });
-
-  it("returns only missing members when fully zeroed", () => {
-    const view = customView("c", "C", {
-      members: [],
-      missingMembers: ["a", "b"],
-      isEmpty: true,
-    });
-    expect(reconstructMemberKeys(view, aggregates)).toEqual(["a", "b"]);
   });
 });
 

@@ -33,8 +33,11 @@ export const aggregationKeys = {
 /**
  * 聚合是派生物：任何源变更都要重取聚合 + 自定义聚合 + 模型缓存。
  * 集中一处，避免各 mutation 漏失效。
+ *
+ * 导出供聚合页外的「源」mutation 复用：故障转移队列增删/排序、删除 provider
+ * 等也会改变聚合派生结果，需在其 `onSuccess`/`onSettled` 交叉失效聚合 query。
  */
-function invalidateAggregationSources(
+export function invalidateAggregationSources(
   queryClient: ReturnType<typeof useQueryClient>,
   appType: AppId,
 ) {

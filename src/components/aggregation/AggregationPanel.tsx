@@ -55,7 +55,6 @@ import {
 import {
   buildTierOptions,
   decodeAggregateRef,
-  reconstructMemberKeys,
   resolveTierRef,
   tierRefToSelectValue,
   formatFetchedAt,
@@ -121,10 +120,12 @@ export function AggregationPanel({ appId }: AggregationPanelProps) {
     setDialogOpen(true);
   };
 
-  const editingMemberKeys = useMemo(() => {
-    if (!editing) return [];
-    return reconstructMemberKeys(editing, aggregates);
-  }, [editing, aggregates]);
+  // C2 的 CustomAggregateView 直接回传原始 orderedMembers（含已归零成员，保序），
+  // 编辑对话框据此精确还原成员顺序，无需前端近似重建。
+  const editingMemberKeys = useMemo(
+    () => editing?.orderedMembers ?? [],
+    [editing],
+  );
 
   return (
     <div className="flex flex-1 flex-col gap-4 px-6 pt-4 pb-12">

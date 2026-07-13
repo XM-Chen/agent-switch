@@ -42,6 +42,11 @@ pub struct AggregateView {
 pub struct CustomAggregateView {
     pub id: String,
     pub name: String,
+    /// 定义中的原始成员 key 列表（自动聚合 key 原文，按用户排序）。
+    ///
+    /// 直接透传 `custom_aggregates.ordered_members`，含已归零成员，供前端编辑对话框
+    /// 精确回填成员与顺序（无需从展平候选近似重建）。
+    pub ordered_members: Vec<String>,
     /// 展平后的候选，按 D7「外层成员序 × 内层上游序」排列并去重。
     pub members: Vec<AggregateMember>,
     /// 归零标记（D7：只标记不删）。全部成员归零 → `true`。
@@ -165,6 +170,7 @@ pub fn build_custom_aggregates(
         views.push(CustomAggregateView {
             id: def.id,
             name: def.name,
+            ordered_members: def.ordered_members,
             is_empty: members.is_empty(),
             members,
             missing_members: missing,
@@ -473,6 +479,8 @@ mod tests {
         assert!(views[0].is_empty);
         assert!(views[0].members.is_empty());
         assert_eq!(views[0].missing_members, vec!["C", "D"]);
+        // ordered_members 始终透传原始定义全序（含已归零成员），供前端精确编辑。
+        assert_eq!(views[0].ordered_members, vec!["C", "D"]);
         // 底层定义确实未被删除。
         assert_eq!(db.list_custom_aggregates(APP).unwrap().len(), 1);
         assert_eq!(db.list_custom_aggregates(APP).unwrap()[0].id, cid);
