@@ -25,6 +25,7 @@ import {
   Shield,
   Cpu,
   LayoutDashboard,
+  Boxes,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Provider, VisibleApps } from "@/types";
@@ -94,6 +95,7 @@ import ToolsPanel from "@/components/openclaw/ToolsPanel";
 import AgentsDefaultsPanel from "@/components/openclaw/AgentsDefaultsPanel";
 import OpenClawHealthBanner from "@/components/openclaw/OpenClawHealthBanner";
 import HermesMemoryPanel from "@/components/hermes/HermesMemoryPanel";
+import { AggregationPanel } from "@/components/aggregation";
 
 type View =
   | "providers"
@@ -109,7 +111,8 @@ type View =
   | "openclawEnv"
   | "openclawTools"
   | "openclawAgents"
-  | "hermesMemory";
+  | "hermesMemory"
+  | "aggregation";
 
 interface SyncStatusUpdatedPayload {
   source?: string;
@@ -155,6 +158,7 @@ const VALID_VIEWS: View[] = [
   "openclawTools",
   "openclawAgents",
   "hermesMemory",
+  "aggregation",
 ];
 
 const getInitialView = (): View => {
@@ -229,6 +233,13 @@ function App() {
       setCurrentView("providers");
     }
   }, [sharedFeatureApp, currentView]);
+
+  // 聚合页仅 Claude 可见：切到非 claude app 时回落到供应商页
+  useEffect(() => {
+    if (currentView === "aggregation" && activeApp !== "claude") {
+      setCurrentView("providers");
+    }
+  }, [activeApp, currentView]);
 
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [usageProvider, setUsageProvider] = useState<Provider | null>(null);
@@ -895,6 +906,8 @@ function App() {
           );
         case "hermesMemory":
           return <HermesMemoryPanel />;
+        case "aggregation":
+          return <AggregationPanel appId="claude" />;
         case "skills":
           return (
             <UnifiedSkillsPanel
@@ -1170,6 +1183,8 @@ function App() {
                   {currentView === "openclawAgents" &&
                     t("openclaw.agents.title")}
                   {currentView === "hermesMemory" && t("hermes.memory.title")}
+                  {currentView === "aggregation" &&
+                    t("aggregation.title", { defaultValue: "聚合模型" })}
                 </h1>
               </div>
             ) : (
@@ -1527,6 +1542,19 @@ function App() {
                               >
                                 <McpIcon size={16} />
                               </Button>
+                              {activeApp === "claude" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setCurrentView("aggregation")}
+                                  className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
+                                  title={t("aggregation.title", {
+                                    defaultValue: "聚合模型",
+                                  })}
+                                >
+                                  <Boxes className="w-4 h-4" />
+                                </Button>
+                              )}
                             </>
                           )}
                         </motion.div>

@@ -2875,5 +2875,98 @@
     "expiredHint": "请运行 {{tool}} 命令刷新登录",
     "queryFailed": "查询失败",
     "refresh": "刷新"
+  },
+  "aggregation": {
+    "title": "聚合模型",
+    "tabs": {
+      "overview": "聚合总览",
+      "auto": "自动聚合",
+      "custom": "自定义聚合"
+    },
+    "mode": {
+      "title": "聚合模式",
+      "takeoverRequired": "请先接管 Claude Code 并启动路由服务，再启用聚合模式。",
+      "enabledDesc": "已按 tier→聚合 配置路由；请求会在聚合内候选间按优先级故障转移。",
+      "disabledDesc": "关闭后退化为普通行为（切当前供应商 / 直连），不走聚合路由。",
+      "proxyHint": "聚合路由依赖本地路由服务：请在首页开启「路由服务」并接管 Claude Code 后再启用聚合模式。",
+      "enabled": "聚合模式已启用",
+      "disabled": "聚合模式已关闭",
+      "toggleFailed": "操作失败: {{detail}}"
+    },
+    "tier": {
+      "title": "档位 → 聚合",
+      "hint": "为每个模型档位指定一个聚合",
+      "names": {
+        "opus": "Opus",
+        "sonnet": "Sonnet",
+        "haiku": "Haiku",
+        "fable": "Fable",
+        "default": "默认"
+      },
+      "unset": "未设置",
+      "emptyAggregate": "空聚合",
+      "unsetOption": "（未设置）",
+      "staleOption": "{{label}}（已失效）",
+      "autoGroup": "自动聚合",
+      "customGroup": "自定义聚合",
+      "emptySuffix": "（空）",
+      "unsetConsequence": "未设置：聚合模式下该档位请求不改写，按普通路由处理。",
+      "setFailed": "设置档位失败: {{detail}}"
+    },
+    "refresh": {
+      "title": "模型缓存刷新",
+      "lastRun": "上次全量刷新：{{time}}",
+      "neverRun": "尚未执行过全量刷新",
+      "button": "刷新全部队列上游",
+      "done": "刷新完成：{{refreshed}} 个上游成功，{{skipped}} 个跳过，共 {{total}} 个模型",
+      "failed": "刷新失败: {{detail}}"
+    },
+    "auto": {
+      "empty": "暂无自动聚合。请先在首页把供应商加入故障转移队列，并确保已抓取到模型。",
+      "candidateCount": "{{count}} 个候选"
+    },
+    "custom": {
+      "sectionHint": "自定义聚合由多个自动聚合按顺序组成，路由按成员顺序依次尝试。",
+      "create": "新建",
+      "empty": "暂无自定义聚合。",
+      "emptyTag": "成员已全部下线",
+      "emptyAlert": "该聚合当前所有成员均已归零（不再有候选），但定义保留；恢复成员后自动生效。",
+      "missingMembers": "已归零成员：{{members}}",
+      "deleteTitle": "删除自定义聚合",
+      "deleteMessage": "确定删除自定义聚合「{{name}}」吗？此操作不可撤销。",
+      "createTitle": "新建自定义聚合",
+      "editTitle": "编辑自定义聚合",
+      "dialogDescription": "从现有自动聚合中选择成员并排序，路由将按成员顺序依次尝试。",
+      "nameLabel": "名称",
+      "namePlaceholder": "例如：主力聚合",
+      "membersLabel": "成员（自动聚合）",
+      "noMoreMembers": "无更多可选聚合",
+      "selectMember": "选择要加入的自动聚合",
+      "addMember": "加入",
+      "noMembers": "尚未添加成员。",
+      "nameRequired": "请输入聚合名称",
+      "createFailed": "创建自定义聚合失败: {{detail}}",
+      "updateFailed": "更新自定义聚合失败: {{detail}}",
+      "deleted": "已删除自定义聚合",
+      "deleteFailed": "删除自定义聚合失败: {{detail}}",
+      "reorderFailed": "排序失败: {{detail}}"
+    },
+    "manualModel": {
+      "added": "已添加手动模型",
+      "addFailed": "添加手动模型失败: {{detail}}",
+      "removed": "已删除手动模型",
+      "removeFailed": "删除手动模型失败: {{detail}}",
+      "emptyId": "请输入模型 id",
+      "invalidId": "模型 id 不能包含空格",
+      "duplicate": "该模型 id 已存在",
+      "placeholder": "输入要补录的模型 id",
+      "add": "添加",
+      "hint": "手动模型不受自动刷新删除影响，仅可手动移除。",
+      "empty": "该上游暂无缓存模型，可手动补录或等待自动刷新。",
+      "manualTag": "手动",
+      "fetchedTag": "自动",
+      "remove": "删除手动模型",
+      "manageFor": "手动补录模型到："
+    }
   }
 }
