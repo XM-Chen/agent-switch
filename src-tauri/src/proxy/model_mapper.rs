@@ -130,6 +130,43 @@ pub fn apply_model_mapping(
     (body, original_model, None)
 }
 
+/// Claude Code 的模型档位（CC 聚合模式路由 C3）。
+///
+/// 与 `map_model` 的 `contains` 判据一一对应，供聚合路由把请求 model 归类到
+/// 某个 tier，再经 `tier_selection` 映射到目标聚合。返回枚举而非映射后的模型名，
+/// tier→聚合 的选择交给上层（`provider_router`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tier {
+    Fable,
+    Haiku,
+    Opus,
+    Sonnet,
+    Default,
+}
+
+/// 把请求 model 归类到 Claude Code 档位。
+///
+/// 严格照抄 `map_model` 的 `contains` 判定顺序（fable → haiku → opus → sonnet），
+/// 保证与 Claude Code 官方分类器一致。fable 的「降级到 opus」方向不在此体现——
+/// 分类器只负责识别 `Fable`，降级由 `tier_selection` 解析层决定（fable 未配置时
+/// 回退 opus 选择），与 `map_model` 的 fable→opus env 兜底方向一致。
+pub fn classify_tier(model: &str) -> Tier {
+    let model_lower = model.to_lowercase();
+    if model_lower.contains("fable") {
+        return Tier::Fable;
+    }
+    if model_lower.contains("haiku") {
+        return Tier::Haiku;
+    }
+    if model_lower.contains("opus") {
+        return Tier::Opus;
+    }
+    if model_lower.contains("sonnet") {
+        return Tier::Sonnet;
+    }
+    Tier::Default
+}
+
 /// Claude Code 通过 `[1M]` 后缀声明 100 万上下文能力；上游 API
 /// 通常不接受这个本地能力标记，转发前需要剥离。
 pub fn strip_one_m_suffix_for_upstream(model: &str) -> &str {
@@ -374,5 +411,34 @@ mod tests {
         let body = json!({"model": "deepseek-v4-pro"});
         let result = strip_one_m_suffix_for_upstream_from_body(body);
         assert_eq!(result["model"], "deepseek-v4-pro");
+    }
+
+    #[test]
+    fn classify_tier_sonnet() {
+        assert_eq!(classify_tier("claude-sonnet-4-5-20250929"), Tier::Sonnet);
+        assert_eq!(classify_tier("Claude-SONNET-4-5"), Tier::Sonnet);
+    }
+
+    #[test]
+    fn classify_tier_opus() {
+        assert_eq!(classify_tier("claude-opus-4-5"), Tier::Opus);
+    }
+
+    #[test]
+    fn classify_tier_haiku() {
+        assert_eq!(classify_tier("claude-haiku-4-5"), Tier::Haiku);
+    }
+
+    #[test]
+    fn classify_tier_fable() {
+        // fable 优先于其它 contains 判定（照抄 map_model 顺序）。
+        assert_eq!(classify_tier("claude-fable-5"), Tier::Fable);
+        assert_eq!(classify_tier("claude-fable-5[1m]"), Tier::Fable);
+    }
+
+    #[test]
+    fn classify_tier_default_when_no_keyword() {
+        assert_eq!(classify_tier("some-unknown-model"), Tier::Default);
+        assert_eq!(classify_tier("gpt-5"), Tier::Default);
     }
 }

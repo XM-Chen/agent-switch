@@ -10,7 +10,7 @@ use super::{
     failover_switch::FailoverSwitchManager,
     json_canonical::{canonicalize_value, short_value_hash},
     log_codes::fwd as log_fwd,
-    provider_router::ProviderRouter,
+    provider_router::{ProviderRouter, RouteCandidate},
     providers::{
         codex_chat_history::CodexChatHistoryStore, gemini_shadow::GeminiShadowStore, get_adapter,
         AuthInfo, AuthStrategy, ProviderAdapter, ProviderType,
@@ -334,7 +334,7 @@ impl RequestForwarder {
         body: Value,
         headers: axum::http::HeaderMap,
         extensions: Extensions,
-        providers: Vec<Provider>,
+        candidates: Vec<RouteCandidate>,
     ) -> Result<ForwardResult, ForwardError> {
         let guard = ActiveConnectionGuard::acquire(self.status.clone()).await;
         {
@@ -344,7 +344,7 @@ impl RequestForwarder {
         }
         let result = self
             .forward_with_retry_inner(
-                app_type, method, endpoint, body, headers, extensions, providers,
+                app_type, method, endpoint, body, headers, extensions, candidates,
             )
             .await;
         // 把 guard 注入到 Ok 结果，让它随响应一起流转到 response_processor，
@@ -374,13 +374,13 @@ impl RequestForwarder {
         body: Value,
         headers: axum::http::HeaderMap,
         extensions: Extensions,
-        providers: Vec<Provider>,
+        candidates: Vec<RouteCandidate>,
     ) -> Result<ForwardResult, ForwardError> {
         // 获取适配器
         let adapter = get_adapter(app_type);
         let app_type_str = app_type.as_str();
 
-        if providers.is_empty() {
+        if candidates.is_empty() {
             return Err(ForwardError {
                 error: ProxyError::NoAvailableProvider,
                 provider: None,
@@ -391,11 +391,16 @@ impl RequestForwarder {
         let mut last_provider = None;
         let mut attempted_providers = 0usize;
 
-        // 单 Provider 场景下跳过熔断器检查（故障转移关闭时）
-        let bypass_circuit_breaker = providers.len() == 1;
+        // 单候选场景下跳过熔断器检查（故障转移关闭时；聚合模式单候选同理）
+        let bypass_circuit_breaker = candidates.len() == 1;
+        // 聚合模式只接管逐请求路由，不改写用户保存的「当前供应商」。
+        let aggregate_mode = candidates.iter().any(|c| c.target_model.is_some());
 
-        // 依次尝试每个供应商
-        for provider in providers.iter() {
+        // 依次尝试每个候选
+        for candidate in candidates.iter() {
+            let provider = &candidate.provider;
+            // 聚合模式下该候选要改写成的上游模型 id（None = 沿用现有 model_mapper 逻辑）。
+            let target_model = candidate.target_model.as_deref();
             // 整流器重试标记：每个 provider 独立持有，避免标记跨 provider 短路故障转移
             // —— 首家 provider 整流后被 5xx/timeout 击落时，下家仍能用整流后的请求体走整流流程
             let mut rectifier_retried = false;
@@ -469,6 +474,7 @@ impl RequestForwarder {
                     &headers,
                     &extensions,
                     adapter.as_ref(),
+                    target_model,
                 )
                 .await
             {
@@ -492,8 +498,8 @@ impl RequestForwarder {
                         let mut status = self.status.write().await;
                         status.success_requests += 1;
                         status.last_error = None;
-                        let should_switch =
-                            self.current_provider_id_at_start.as_str() != provider.id.as_str();
+                        let should_switch = !aggregate_mode
+                            && self.current_provider_id_at_start.as_str() != provider.id.as_str();
                         if should_switch {
                             status.failover_count += 1;
 
@@ -568,6 +574,7 @@ impl RequestForwarder {
                                     &headers,
                                     &extensions,
                                     adapter.as_ref(),
+                                    target_model,
                                 )
                                 .await
                             {
@@ -595,8 +602,8 @@ impl RequestForwarder {
                                         let mut status = self.status.write().await;
                                         status.success_requests += 1;
                                         status.last_error = None;
-                                        let should_switch =
-                                            self.current_provider_id_at_start.as_str()
+                                        let should_switch = !aggregate_mode
+                                            && self.current_provider_id_at_start.as_str()
                                                 != provider.id.as_str();
                                         if should_switch {
                                             status.failover_count += 1;
@@ -714,6 +721,7 @@ impl RequestForwarder {
                                         &headers,
                                         &extensions,
                                         adapter.as_ref(),
+                                        target_model,
                                     )
                                     .await
                                 {
@@ -880,6 +888,7 @@ impl RequestForwarder {
                                     &headers,
                                     &extensions,
                                     adapter.as_ref(),
+                                    target_model,
                                 )
                                 .await
                             {
@@ -905,8 +914,8 @@ impl RequestForwarder {
                                         let mut status = self.status.write().await;
                                         status.success_requests += 1;
                                         status.last_error = None;
-                                        let should_switch =
-                                            self.current_provider_id_at_start.as_str()
+                                        let should_switch = !aggregate_mode
+                                            && self.current_provider_id_at_start.as_str()
                                                 != provider.id.as_str();
                                         if should_switch {
                                             status.failover_count += 1;
@@ -1010,7 +1019,7 @@ impl RequestForwarder {
                             let (log_code, log_message) = build_retryable_failure_log(
                                 &provider.name,
                                 attempted_providers,
-                                providers.len(),
+                                candidates.len(),
                                 &e,
                             );
                             log::warn!("[{app_type_str}] [{log_code}] {log_message}");
@@ -1078,7 +1087,7 @@ impl RequestForwarder {
         }
 
         if let Some((log_code, log_message)) =
-            build_terminal_failure_log(attempted_providers, providers.len(), last_error.as_ref())
+            build_terminal_failure_log(attempted_providers, candidates.len(), last_error.as_ref())
         {
             log::warn!("[{app_type_str}] [{log_code}] {log_message}");
         }
@@ -1104,6 +1113,7 @@ impl RequestForwarder {
         headers: &axum::http::HeaderMap,
         extensions: &Extensions,
         adapter: &dyn ProviderAdapter,
+        target_model: Option<&str>,
     ) -> Result<(ProxyResponse, Option<String>, Option<String>), ProxyError> {
         // 使用适配器提取 base_url
         let mut base_url = adapter.extract_base_url(provider)?;
@@ -1123,9 +1133,15 @@ impl RequestForwarder {
             || base_url.contains("githubcopilot.com");
 
         // 应用模型映射（独立于格式转换）
+        // 聚合模式（target_model = Some）：C2 已定好确切的上游模型 id，直接改写 body，
+        // 跳过 provider env 的二次映射（apply_model_mapping），避免聚合选定的模型被 env 覆盖。
         // Claude Desktop proxy 模式必须先把 Desktop 可见的 claude-* route
         // 映射成真实上游模型名，并且未知 route 要直接报错，不能使用默认模型兜底。
-        let mapped_body = if matches!(app_type, AppType::ClaudeDesktop) {
+        let mapped_body = if let Some(target) = target_model {
+            let mut b = body.clone();
+            b["model"] = serde_json::json!(target);
+            b
+        } else if matches!(app_type, AppType::ClaudeDesktop) {
             crate::claude_desktop_config::map_proxy_request_model(body.clone(), provider)
                 .map_err(|e| ProxyError::InvalidRequest(e.to_string()))?
         } else {
