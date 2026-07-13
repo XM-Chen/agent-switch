@@ -2,6 +2,7 @@
 //!
 //! Database access operations for each domain
 
+pub mod custom_aggregates;
 pub mod failover;
 pub mod mcp;
 pub mod prompts;
@@ -20,3 +21,6 @@ pub mod usage_rollup;
 pub use failover::FailoverQueueItem;
 // 导出 ProviderModel 供 service/command 层使用
 pub use provider_models::ProviderModel;
+
+// 导出自定义聚合类型供 service/command 层使用
+pub use custom_aggregates::{AggregateRef, CcAggregateConfig, CustomAggregate, TierSelection};
