@@ -42,7 +42,21 @@ pub async fn add_to_failover_queue(
     state
         .db
         .add_to_failover_queue(&app_type, &provider_id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // CC 聚合模型缓存：仅「移入队列且此前无任何缓存行」的上游触发防抖拉取（C1 / R14）。
+    // 调序、移出、删除路径不触发。has_any_cached 查询失败不阻断加入队列。
+    match state.db.has_any_cached_models(&app_type, &provider_id) {
+        Ok(false) => {
+            crate::services::model_cache::notify_provider_needs_refresh(&app_type, &provider_id);
+        }
+        Ok(true) => {}
+        Err(e) => {
+            log::warn!("[ModelCache] has_any_cached_models check failed for {provider_id}: {e}");
+        }
+    }
+
+    Ok(())
 }
 
 /// 从故障转移队列移除供应商

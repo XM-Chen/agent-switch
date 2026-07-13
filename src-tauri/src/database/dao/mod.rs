@@ -5,6 +5,7 @@
 pub mod failover;
 pub mod mcp;
 pub mod prompts;
+pub mod provider_models;
 pub mod providers;
 pub mod providers_seed;
 pub mod proxy;
@@ -17,3 +18,5 @@ pub mod usage_rollup;
 // 所有 DAO 方法都通过 Database impl 提供，无需单独导出
 // 导出 FailoverQueueItem 供外部使用
 pub use failover::FailoverQueueItem;
+// 导出 ProviderModel 供 service/command 层使用
+pub use provider_models::ProviderModel;
