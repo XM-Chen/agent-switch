@@ -6,6 +6,8 @@ import type { Provider } from "@/types";
 import { useDragSort } from "@/hooks/useDragSort";
 
 const updateSortOrderMock = vi.fn();
+const updateTrayMenuMock = vi.fn();
+const invalidateAggregationSourcesMock = vi.fn();
 const toastSuccessMock = vi.fn();
 const toastErrorMock = vi.fn();
 const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -20,7 +22,13 @@ vi.mock("sonner", () => ({
 vi.mock("@/lib/api", () => ({
   providersApi: {
     updateSortOrder: (...args: unknown[]) => updateSortOrderMock(...args),
+    updateTrayMenu: (...args: unknown[]) => updateTrayMenuMock(...args),
   },
+}));
+
+vi.mock("@/lib/query/aggregation", () => ({
+  invalidateAggregationSources: (...args: unknown[]) =>
+    invalidateAggregationSourcesMock(...args),
 }));
 
 interface WrapperProps {
@@ -63,6 +71,8 @@ const mockProviders: Record<string, Provider> = {
 describe("useDragSort", () => {
   beforeEach(() => {
     updateSortOrderMock.mockReset();
+    updateTrayMenuMock.mockReset().mockResolvedValue(undefined);
+    invalidateAggregationSourcesMock.mockReset();
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
     consoleErrorSpy.mockClear();
@@ -114,6 +124,12 @@ describe("useDragSort", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ["providers", "claude"],
     });
+    expect(invalidateAggregationSourcesMock).toHaveBeenCalledTimes(1);
+    expect(invalidateAggregationSourcesMock).toHaveBeenCalledWith(
+      queryClient,
+      "claude",
+    );
+    expect(updateTrayMenuMock).toHaveBeenCalledTimes(1);
     expect(toastSuccessMock).toHaveBeenCalledTimes(1);
     expect(toastErrorMock).not.toHaveBeenCalled();
   });

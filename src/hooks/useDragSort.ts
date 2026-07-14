@@ -86,9 +86,6 @@ export function useDragSort(providers: Record<string, Provider>, appId: AppId) {
           queryKey: ["failoverQueue", appId],
         });
 
-        // 队列顺序 = 聚合内候选优先级：调序后重取自动/自定义聚合派生结果。
-        invalidateAggregationSources(queryClient, appId);
-
         // 队列顺序决定聚合内候选优先级：调序后重取自动/自定义聚合派生结果。
         invalidateAggregationSources(queryClient, appId);
 
