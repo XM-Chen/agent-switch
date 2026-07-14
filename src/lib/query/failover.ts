@@ -3,6 +3,8 @@ import { failoverApi } from "@/lib/api/failover";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { extractErrorMessage } from "@/utils/errorUtils";
+import { invalidateAggregationSources } from "@/lib/query/aggregation";
+import type { AppId } from "@/lib/api";
 
 // ========== 熔断器 Hooks ==========
 
@@ -137,6 +139,8 @@ export function useAddToFailoverQueue() {
       queryClient.invalidateQueries({
         queryKey: ["providers", variables.appType],
       });
+      // 队列成员是聚合候选来源：入队即改变自动/自定义聚合的派生结果。
+      invalidateAggregationSources(queryClient, variables.appType as AppId);
     },
   });
 }
@@ -165,6 +169,8 @@ export function useRemoveFromFailoverQueue() {
       queryClient.invalidateQueries({
         queryKey: ["providers", variables.appType],
       });
+      // 移出队列即从聚合候选中消失：重取自动/自定义聚合派生结果。
+      invalidateAggregationSources(queryClient, variables.appType as AppId);
       // 清除该供应商的健康状态缓存（退出队列后不再需要健康监控）
       queryClient.invalidateQueries({
         queryKey: ["providerHealth", variables.providerId, variables.appType],

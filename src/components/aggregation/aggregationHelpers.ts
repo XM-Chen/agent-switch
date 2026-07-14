@@ -102,47 +102,6 @@ export function resolveTierRef(
 }
 
 /**
- * 从已展平的自定义聚合视图重建其成员 key 列表（自动聚合 key 的有序去重）。
- *
- * 背景：C2 的 `CustomAggregateView` 只返回展平后的候选 `members`（按上游拆开），
- * 不回传原始 `ordered_members`（自动聚合 key 列表）。编辑对话框需要成员 key 才能
- * 增删/排序，故在前端重建：
- * - 每个候选的 `modelId.toLowerCase()` 唯一对应一个自动聚合（其 `key.toLowerCase()`），
- *   按候选出现顺序收集去重后的自动聚合 key（与后端 ordered_members 中已解析部分同序）；
- * - 归零/缺失成员来自 `missingMembers`，追加在后（其相对顺序后端未保留）。
- *
- * 注意：这是在缺少 `orderedMembers` 命令字段时的近似重建；已归零成员的相对位置会落到
- * 末尾。建议后续在 C2 的 `CustomAggregateView` 直接输出 `orderedMembers` 以精确编辑
- * （见任务报告的命令缺口）。
- */
-export function reconstructMemberKeys(
-  view: Pick<CustomAggregateView, "members" | "missingMembers">,
-  aggregates: AggregateView[],
-): string[] {
-  const keyByLowerModel = new Map<string, string>();
-  for (const agg of aggregates) {
-    keyByLowerModel.set(agg.key.toLowerCase(), agg.key);
-  }
-
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const member of view.members) {
-    const key = keyByLowerModel.get(member.modelId.toLowerCase());
-    if (key && !seen.has(key)) {
-      seen.add(key);
-      result.push(key);
-    }
-  }
-  for (const missing of view.missingMembers) {
-    if (!seen.has(missing)) {
-      seen.add(missing);
-      result.push(missing);
-    }
-  }
-  return result;
-}
-
-/**
  * 毫秒 epoch → 本地日期时间字符串（用于展示上游最近刷新时间）。
  * 0 或非法值返回空串，由调用方决定显示占位。
  */

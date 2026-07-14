@@ -67,6 +67,11 @@ export interface AggregateView {
 export interface CustomAggregateView {
   id: string;
   name: string;
+  /**
+   * 原始成员 key 列表（自动聚合 key），直接透传 ordered_members，含已归零成员，
+   * 顺序即用户保存时的顺序。编辑对话框用它精确回填（无需从展平候选近似重建）。
+   */
+  orderedMembers: string[];
   /** 展平后的候选，按「外层成员序 × 内层上游序」排列并去重（D7）。 */
   members: AggregateMember[];
   /** 归零标记（D7：只标记不删）。全部成员归零 → true。 */
