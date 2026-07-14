@@ -1,0 +1,56 @@
+name: Release
+
+# 打 tag（如 v0.3.1）并推送时触发，在云端 Windows runner 构建 msi 与更新器产物，
+# 生成一个 draft Release 供人工确认后发布。
+on:
+  push:
+    tags:
+      - "v*"
+
+# 允许 workflow 创建 Release / 上传产物
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # minisign 私钥与密码（在仓库 Settings → Secrets 中配置）
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          # tag 已由 push 事件带入，直接复用
+          tagName: ${{ github.ref_name }}
+          releaseName: "Agent-Switch ${{ github.ref_name }}"
+          releaseDraft: true
+          prerelease: false
