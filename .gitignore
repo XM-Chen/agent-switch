@@ -19,7 +19,10 @@ GEMINI.md
 vitest-report.json
 nul
 
-# Trellis 生成的平台适配目录（.trellis/ 本身受版本控制）
+# AI 工作流 / 本地工具目录（不进公开仓库）
+.trellis/
+.trellis-upgrade-audit.json
+session-manager.md
 /.agents
 /.cursor
 /.opencode
