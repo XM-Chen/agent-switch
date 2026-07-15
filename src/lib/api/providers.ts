@@ -46,6 +46,62 @@ export interface ClaudeDesktopDefaultRoute {
   supports1m: boolean;
 }
 
+/** cc-switch 渠道探测项（预览用，不含明文凭据）。 */
+export interface CcsDetectItem {
+  originalId: string;
+  name: string;
+  baseUrl?: string | null;
+  hasApiKey: boolean;
+  model?: string | null;
+  websiteUrl?: string | null;
+  /** base_url 缺失 → false，前端默认不勾选。 */
+  importable: boolean;
+  /** 同步状态：新增 / 更新已导入 / 无变化。 */
+  status: "new" | "update" | "unchanged";
+  /** 落库最终名称（new 且与非 ccs 渠道同名 → 加后缀）。 */
+  importedName: string;
+  /** update/unchanged 时的本地目标 provider id。 */
+  targetProviderId?: string | null;
+  /** 不可导入原因。 */
+  warning?: string | null;
+}
+
+export interface CcsDetectResponse {
+  configPath: string;
+  source: "sqlite" | "config.json" | "none";
+  found: boolean;
+  providers: CcsDetectItem[];
+}
+
+/** 同步请求单项：仅需 original_id + 最终名称。 */
+export interface CcsImportItem {
+  originalId: string;
+  importedName: string;
+}
+
+export interface CcsSyncedProvider {
+  originalId: string;
+  providerId: string;
+  name: string;
+}
+
+export interface CcsSyncSkip {
+  originalId: string;
+  reason: string;
+}
+
+export interface CcsSyncError {
+  originalId: string;
+  message: string;
+}
+
+export interface CcsSyncResponse {
+  created: CcsSyncedProvider[];
+  updated: CcsSyncedProvider[];
+  skipped: CcsSyncSkip[];
+  errors: CcsSyncError[];
+}
+
 export const providersApi = {
   async getAll(appId: AppId): Promise<Record<string, Provider>> {
     return await invoke("get_providers", { app: appId });
@@ -97,6 +153,22 @@ export const providersApi = {
 
   async importClaudeDesktopFromClaude(): Promise<number> {
     return await invoke("import_claude_desktop_providers_from_claude");
+  },
+
+  /**
+   * 探测本机 cc-switch 的 Claude 渠道，返回预览（只读，不落库）。
+   * 三态 status：new（新增）/ update（更新已导入）/ unchanged（无变化）。
+   */
+  async detectCcsChannels(): Promise<CcsDetectResponse> {
+    return await invoke("detect_ccs_channels");
+  },
+
+  /**
+   * 批量同步选中的 cc-switch 渠道到本机 Claude 渠道库。
+   * 逐项独立，单项失败记入 errors，其余继续。不改当前渠道、不写 live。
+   */
+  async syncCcsChannels(items: CcsImportItem[]): Promise<CcsSyncResponse> {
+    return await invoke("sync_ccs_channels", { items });
   },
 
   async ensureClaudeDesktopOfficialProvider(): Promise<boolean> {

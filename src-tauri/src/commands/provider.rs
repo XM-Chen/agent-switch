@@ -151,6 +151,23 @@ pub fn import_default_config(state: State<'_, AppState>, app: String) -> Result<
     import_default_config_internal(&state, app_type).map_err(Into::into)
 }
 
+/// 只读探测本机 cc-switch 中已保存的 Claude Code 渠道并计算同步预览。
+#[tauri::command]
+pub fn detect_ccs_channels(
+    state: State<'_, AppState>,
+) -> Result<crate::services::importers::ccs::DetectResponse, String> {
+    crate::services::importers::ccs::detect(state.inner(), None, None).map_err(Into::into)
+}
+
+/// 将用户勾选的 cc-switch Claude Code 渠道同步到本地渠道库。
+#[tauri::command]
+pub fn sync_ccs_channels(
+    state: State<'_, AppState>,
+    items: Vec<crate::services::importers::ccs::ImportItem>,
+) -> Result<crate::services::importers::ccs::SyncResponse, String> {
+    crate::services::importers::ccs::sync(state.inner(), None, None, items).map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn get_claude_desktop_status(
     state: State<'_, AppState>,

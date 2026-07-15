@@ -499,6 +499,12 @@ pub struct ProviderMeta {
     /// 用于多账号支持，关联到特定的 GitHub 账号
     #[serde(rename = "githubAccountId", skip_serializing_if = "Option::is_none")]
     pub github_account_id: Option<String>,
+    /// 导入来源应用标识（当前仅 "ccs"），用于识别由本机 cc-switch 同步而来的渠道。
+    #[serde(rename = "importedFrom", skip_serializing_if = "Option::is_none")]
+    pub imported_from: Option<String>,
+    /// 来源侧的原始 provider id（如 ccs provider.id），与 imported_from 一起作为幂等关联键。
+    #[serde(rename = "importedOriginalId", skip_serializing_if = "Option::is_none")]
+    pub imported_original_id: Option<String>,
 }
 
 /// 解析 Provider 级自定义 User-Agent 字符串（单一真理来源）。

@@ -62,6 +62,7 @@ import { AppSwitcher } from "@/components/AppSwitcher";
 import { ProviderList } from "@/components/providers/ProviderList";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
 import { EditProviderDialog } from "@/components/providers/EditProviderDialog";
+import { ImportCcsDialog } from "@/components/providers/ImportCcsDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { UpdateBadge } from "@/components/UpdateBadge";
@@ -181,6 +182,7 @@ function App() {
     useState<SkillsPageSource>("repos");
   const [settingsDefaultTab, setSettingsDefaultTab] = useState("general");
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isImportCcsOpen, setIsImportCcsOpen] = useState(false);
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
 
   useEffect(() => {
@@ -1555,6 +1557,19 @@ function App() {
                                   <Boxes className="w-4 h-4" />
                                 </Button>
                               )}
+                              {activeApp === "claude" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setIsImportCcsOpen(true)}
+                                  className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
+                                  title={t("importCcs.buttonTitle", {
+                                    defaultValue: "从 cc-switch 同步渠道",
+                                  })}
+                                >
+                                  <Download className="w-4 h-4" />
+                                </Button>
+                              )}
                             </>
                           )}
                         </motion.div>
@@ -1588,6 +1603,11 @@ function App() {
         onOpenChange={setIsAddOpen}
         appId={activeApp}
         onSubmit={addProvider}
+      />
+
+      <ImportCcsDialog
+        open={isImportCcsOpen}
+        onOpenChange={setIsImportCcsOpen}
       />
 
       <EditProviderDialog
