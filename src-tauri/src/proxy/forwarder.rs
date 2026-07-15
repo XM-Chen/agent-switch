@@ -19,7 +19,10 @@ use super::{
     thinking_rectifier::{
         normalize_thinking_type, rectify_anthropic_request, should_rectify_thinking_signature,
     },
-    types::{CopilotOptimizerConfig, OptimizerConfig, ProxyStatus, RectifierConfig},
+    types::{
+        ClaudeClientProfileConfig, CopilotOptimizerConfig, OptimizerConfig, ProxyStatus,
+        RectifierConfig,
+    },
     ProxyError,
 };
 use crate::commands::{CodexOAuthState, CopilotAuthState};
@@ -118,6 +121,8 @@ pub struct RequestForwarder {
     optimizer_config: OptimizerConfig,
     /// Copilot 优化器配置
     copilot_optimizer_config: CopilotOptimizerConfig,
+    /// Claude 客户端指纹规整配置（L1 header 兼容规整）
+    claude_client_profile_config: ClaudeClientProfileConfig,
     /// 非流式请求超时（秒）
     non_streaming_timeout: std::time::Duration,
     /// 流式请求响应头等待超时（秒）
@@ -194,6 +199,7 @@ impl RequestForwarder {
         rectifier_config: RectifierConfig,
         optimizer_config: OptimizerConfig,
         copilot_optimizer_config: CopilotOptimizerConfig,
+        claude_client_profile_config: ClaudeClientProfileConfig,
         max_retries: u32,
     ) -> Self {
         // max_retries 是「失败后重试次数」语义，attempt 上限 = retries + 1。
@@ -213,6 +219,7 @@ impl RequestForwarder {
             rectifier_config,
             optimizer_config,
             copilot_optimizer_config,
+            claude_client_profile_config,
             non_streaming_timeout: std::time::Duration::from_secs(non_streaming_timeout),
             streaming_first_byte_timeout: std::time::Duration::from_secs(
                 streaming_first_byte_timeout,
@@ -1443,6 +1450,11 @@ impl RequestForwarder {
         let mut codex_oauth_account_id: Option<String> = None;
         let mut should_send_codex_oauth_session_headers = false;
 
+        // 当前候选实际使用的鉴权策略（用于 client profile 的 dangerous header 判据）。
+        // 必须用 enum 显式判据，不能用「出现 Bearer/x-api-key」反推：ClaudeAuth 静态中转
+        // 也走 Bearer，Copilot 等路径还会 iter_mut 改写 auth_headers。
+        let mut resolved_auth_strategy: Option<AuthStrategy> = None;
+
         // 获取认证头（提前准备，用于内联替换）
         let mut auth_headers = if let Some(mut auth) = adapter.extract_auth(provider) {
             // GitHub Copilot 特殊处理：从 CopilotAuthManager 获取真实 token
@@ -1549,6 +1561,10 @@ impl RequestForwarder {
                 }
             }
 
+            // 记录当前候选实际采用的鉴权策略（动态 token 场景已在上面归一为最终 strategy）。
+            // 供 dangerous-direct-browser-access 守卫按 enum 精确判断，
+            // 不用「出现 Bearer/x-api-key」反推。
+            resolved_auth_strategy = Some(auth.strategy);
             adapter.get_auth_headers(&auth)?
         } else {
             Vec::new()
@@ -1647,6 +1663,38 @@ impl RequestForwarder {
 
         let should_send_anthropic_headers = adapter.name() == "Claude"
             && matches!(resolved_claude_api_format.as_deref(), Some("anthropic"));
+
+        // ============================================================
+        // Claude 客户端指纹规整（L1 header 兼容规整）适用守卫
+        // ============================================================
+        // 逐候选计算（D3/D4）：仅当开关开启、当前候选是 Claude adapter 且解析后
+        // api_format=anthropic、且不是 Copilot 时才应用。
+        // - should_send_anthropic_headers 已含「Claude adapter + anthropic 格式」，
+        //   Codex/Google 天然被排除（它们不是 Claude adapter）。
+        // - Copilot 有独立指纹（editor-version 等），额外排除。
+        // 混合聚合请求里，非 native-anthropic 的候选 apply_client_profile=false。
+        let apply_client_profile = self.claude_client_profile_config.enabled
+            && should_send_anthropic_headers
+            && !is_copilot;
+
+        // 仅当 apply_client_profile 时取内置 profile；否则保持现有透传行为。
+        let client_profile = if apply_client_profile {
+            let profile = super::cc_client_profile::active_profile();
+            // 可观测性（R6）：只记录 profile_id，不记录任何认证值或 body。
+            log::debug!(
+                "[{}] 应用 Claude 客户端指纹规整 profile: {}",
+                adapter.name(),
+                profile.profile_id
+            );
+            Some(profile)
+        } else {
+            None
+        };
+
+        // dangerous-direct-browser-access 仅在静态 x-api-key（AuthStrategy::Anthropic）
+        // 候选注入 true（D8）；其它策略清除入站残留且不补。用 enum 精确判据。
+        let inject_dangerous_direct_browser_access =
+            apply_client_profile && matches!(resolved_auth_strategy, Some(AuthStrategy::Anthropic));
 
         // 预计算 anthropic-beta 值（仅 Claude）
         let anthropic_beta_value = if should_send_anthropic_headers {
@@ -1756,15 +1804,30 @@ impl RequestForwarder {
             }
 
             // --- user-agent: provider-level override for local proxy routing ---
+            // 优先级（D7）：customUserAgent 显式配置 > client profile 模板 > 透传入站值。
+            // profile UA（无 custom 时）统一在循环后由 append_client_profile_headers 追加，
+            // 因此这里遇到入站 UA 且 apply_client_profile 时直接丢弃，避免重复。
             if !is_copilot && key_str.eq_ignore_ascii_case("user-agent") {
                 if !saw_user_agent {
                     saw_user_agent = true;
                     if let Some(ref ua) = custom_user_agent {
                         ordered_headers.append(http::header::USER_AGENT, ua.clone());
+                    } else if client_profile.is_some() {
+                        // 丢弃入站 UA；profile UA 循环后追加
                     } else {
                         ordered_headers.append(key.clone(), value.clone());
                     }
                 }
+                continue;
+            }
+
+            // --- client profile 托管头（x-app / x-stainless-* / dangerous） ---
+            // apply_client_profile 时丢弃全部入站同名头，循环后由
+            // append_client_profile_headers 统一写入规范值，避免重复/残留（D7/D8）。
+            if apply_client_profile
+                && (super::cc_client_profile::is_client_profile_managed_header(key_str)
+                    || key_str.eq_ignore_ascii_case("anthropic-dangerous-direct-browser-access"))
+            {
                 continue;
             }
 
@@ -1817,10 +1880,24 @@ impl RequestForwarder {
             );
         }
 
-        if !saw_user_agent {
+        // user-agent：入站缺失时补 customUserAgent（若有）。profile UA 由
+        // append_client_profile_headers 统一处理（含入站缺失补齐），不在此重复。
+        if !saw_user_agent && client_profile.is_none() {
             if let Some(ref ua) = custom_user_agent {
                 ordered_headers.append(http::header::USER_AGENT, ua.clone());
             }
+        }
+
+        // client profile：统一写入 UA / x-app / x-stainless-* 与 dangerous header（D7/D8）。
+        // 入站同名头已在循环内丢弃，这里是唯一写入点，reqwest / hyper 两条发送路径共用
+        // 同一个 ordered_headers，构造上保证两路径等价。
+        if let Some(profile) = client_profile {
+            super::cc_client_profile::append_client_profile_headers(
+                &mut ordered_headers,
+                profile,
+                custom_user_agent.as_ref(),
+                inject_dangerous_direct_browser_access,
+            );
         }
 
         // 如果原始请求中没有 anthropic-beta 且有值需要添加，追加
@@ -2857,6 +2934,7 @@ mod tests {
             rectifier_config: RectifierConfig::default(),
             optimizer_config: OptimizerConfig::default(),
             copilot_optimizer_config: CopilotOptimizerConfig::default(),
+            claude_client_profile_config: ClaudeClientProfileConfig::default(),
             non_streaming_timeout,
             streaming_first_byte_timeout,
             max_attempts: 1,

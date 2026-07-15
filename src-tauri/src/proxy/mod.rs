@@ -4,6 +4,7 @@
 
 pub mod body_filter;
 pub mod cache_injector;
+pub mod cc_client_profile;
 pub mod circuit_breaker;
 pub(crate) mod content_encoding;
 pub mod copilot_optimizer;

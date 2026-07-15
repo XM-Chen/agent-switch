@@ -307,6 +307,32 @@ impl Database {
         self.set_setting("copilot_optimizer_config", &json)
     }
 
+    // --- Claude 客户端指纹规整配置 ---
+
+    /// 获取 Claude 客户端指纹规整配置
+    ///
+    /// 返回配置，如果不存在或解析失败则返回默认值（默认关闭）
+    pub fn get_claude_client_profile_config(
+        &self,
+    ) -> Result<crate::proxy::types::ClaudeClientProfileConfig, AppError> {
+        match self.get_setting("claude_client_profile_config")? {
+            Some(json) => Ok(serde_json::from_str(&json)
+                .unwrap_or_else(|_| crate::proxy::types::ClaudeClientProfileConfig::default())),
+            None => Ok(crate::proxy::types::ClaudeClientProfileConfig::default()),
+        }
+    }
+
+    /// 更新 Claude 客户端指纹规整配置
+    pub fn set_claude_client_profile_config(
+        &self,
+        config: &crate::proxy::types::ClaudeClientProfileConfig,
+    ) -> Result<(), AppError> {
+        let json = serde_json::to_string(config).map_err(|e| {
+            AppError::Database(format!("序列化 Claude 客户端指纹规整配置失败: {e}"))
+        })?;
+        self.set_setting("claude_client_profile_config", &json)
+    }
+
     // --- 日志配置 ---
 
     /// 获取日志配置
@@ -323,5 +349,52 @@ impl Database {
         let json = serde_json::to_string(config)
             .map_err(|e| AppError::Database(format!("序列化日志配置失败: {e}")))?;
         self.set_setting("log_config", &json)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::database::Database;
+
+    #[test]
+    fn claude_client_profile_config_defaults_to_disabled_when_absent() {
+        let db = Database::memory().expect("memory db");
+        // 未写入时返回默认关闭
+        let config = db.get_claude_client_profile_config().expect("get config");
+        assert!(!config.enabled, "缺省应为关闭");
+    }
+
+    #[test]
+    fn claude_client_profile_config_roundtrip() {
+        let db = Database::memory().expect("memory db");
+        let enabled = crate::proxy::types::ClaudeClientProfileConfig { enabled: true };
+        db.set_claude_client_profile_config(&enabled)
+            .expect("set config");
+        assert!(
+            db.get_claude_client_profile_config()
+                .expect("get config")
+                .enabled,
+            "写入 enabled=true 后应读回 true"
+        );
+
+        let disabled = crate::proxy::types::ClaudeClientProfileConfig { enabled: false };
+        db.set_claude_client_profile_config(&disabled)
+            .expect("set config");
+        assert!(
+            !db.get_claude_client_profile_config()
+                .expect("get config")
+                .enabled,
+            "写入 enabled=false 后应读回 false"
+        );
+    }
+
+    #[test]
+    fn claude_client_profile_config_corrupt_json_falls_back_to_default() {
+        let db = Database::memory().expect("memory db");
+        // 写入损坏 JSON，读取应静默回退默认关闭而非报错
+        db.set_setting("claude_client_profile_config", "{not valid json")
+            .expect("set raw");
+        let config = db.get_claude_client_profile_config().expect("get config");
+        assert!(!config.enabled, "解析失败应回退默认关闭");
     }
 }

@@ -1227,6 +1227,8 @@ pub fn run() {
             commands::set_optimizer_config,
             commands::get_copilot_optimizer_config,
             commands::set_copilot_optimizer_config,
+            commands::get_claude_client_profile_config,
+            commands::set_claude_client_profile_config,
             commands::get_log_config,
             commands::set_log_config,
             commands::restart_app,

@@ -324,6 +324,22 @@ pub struct CopilotOptimizerConfig {
     pub strip_thinking: bool,
 }
 
+/// Claude 客户端指纹规整配置（L1 header 兼容规整）
+///
+/// 存储在 settings 表中，key = "claude_client_profile_config"
+/// 仅对 Claude 模块 native Anthropic 候选生效；默认关闭。
+///
+/// 开启后 forwarder 用内置 profile 强制统一出站 `user-agent` / `x-app` /
+/// `x-stainless-*`，避免第三方客户端指纹泄露到上游。
+/// **只规整 header，不修改任何 body 字段**（system/metadata/messages/tools 不受影响）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeClientProfileConfig {
+    /// 总开关（默认关闭，用户需手动启用）
+    #[serde(default)]
+    pub enabled: bool,
+}
+
 fn default_warmup_model() -> String {
     "gpt-5-mini".to_string()
 }
@@ -461,6 +477,28 @@ mod tests {
         assert!(config.enabled);
         assert!(config.request_thinking_signature);
         assert!(config.request_thinking_budget);
+    }
+
+    #[test]
+    fn test_claude_client_profile_config_default_disabled() {
+        // 默认必须关闭（零副作用退化）
+        let config = ClaudeClientProfileConfig::default();
+        assert!(!config.enabled, "客户端指纹规整默认应为关闭");
+    }
+
+    #[test]
+    fn test_claude_client_profile_config_serde_default() {
+        // 缺字段时反序列化为默认关闭
+        let json = "{}";
+        let config: ClaudeClientProfileConfig = serde_json::from_str(json).unwrap();
+        assert!(!config.enabled);
+    }
+
+    #[test]
+    fn test_claude_client_profile_config_serde_enabled() {
+        let json = r#"{"enabled": true}"#;
+        let config: ClaudeClientProfileConfig = serde_json::from_str(json).unwrap();
+        assert!(config.enabled);
     }
 
     #[test]

@@ -299,6 +299,16 @@ export const settingsApi = {
   async setLogConfig(config: LogConfig): Promise<boolean> {
     return await invoke("set_log_config", { config });
   },
+
+  async getClaudeClientProfileConfig(): Promise<ClaudeClientProfileConfig> {
+    return await invoke("get_claude_client_profile_config");
+  },
+
+  async setClaudeClientProfileConfig(
+    config: ClaudeClientProfileConfig,
+  ): Promise<boolean> {
+    return await invoke("set_claude_client_profile_config", { config });
+  },
 };
 
 /** 单处工具安装的诊断信息（多处安装冲突检测）。字段对应后端 ToolInstallation。 */
@@ -339,6 +349,11 @@ export interface OptimizerConfig {
 export interface LogConfig {
   enabled: boolean;
   level: "error" | "warn" | "info" | "debug" | "trace";
+}
+
+/** Claude 客户端指纹规整配置（L1 header 兼容规整）。仅 header，不改 body。 */
+export interface ClaudeClientProfileConfig {
+  enabled: boolean;
 }
 
 export interface BackupEntry {

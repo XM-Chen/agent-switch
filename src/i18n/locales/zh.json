@@ -388,6 +388,15 @@
         "mediaHeuristic": "启发式纯文本模型识别",
         "mediaHeuristicDescription": "发送前按内置模型名列表预测性剥离图片。关闭后仅保留「已声明纯文本」与「上游报错兜底」两条事实驱动路径，避免内置列表把多模态模型误判为纯文本而静默丢图"
       },
+      "claudeClientProfile": {
+        "title": "Claude 客户端指纹规整",
+        "description": "统一 Claude Code 客户端请求头，减少上游对第三方客户端的兼容性拒绝",
+        "enabled": "启用客户端指纹规整",
+        "enabledDescription": "开启后，Claude 模块走本地代理的 native Anthropic 请求会用内置的 Claude Code 客户端 header profile（user-agent / x-app / x-stainless-*）统一出站指纹。默认关闭，需手动启用",
+        "noteScope": "仅影响 Claude 模块走本地代理、解析后为 native Anthropic 的候选；OpenAI/Gemini/Copilot/Codex 等其它渠道不受影响",
+        "noteHeaderOnly": "只规整请求头，不修改 system / metadata / messages / tools 等请求体内容",
+        "noteProviderPriority": "供应商级显式配置优先：customUserAgent 决定最终 User-Agent，本地代理请求头覆盖仍最后生效"
+      },
       "optimizer": {
         "title": "Bedrock 请求优化器",
         "description": "在请求发送前自动优化 Thinking 和 Cache 配置（仅 Bedrock 供应商生效）",

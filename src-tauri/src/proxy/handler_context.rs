@@ -9,7 +9,10 @@ use crate::proxy::{
     forwarder::RequestForwarder,
     provider_router::RouteCandidate,
     server::ProxyState,
-    types::{AppProxyConfig, CopilotOptimizerConfig, OptimizerConfig, RectifierConfig},
+    types::{
+        AppProxyConfig, ClaudeClientProfileConfig, CopilotOptimizerConfig, OptimizerConfig,
+        RectifierConfig,
+    },
     ProxyError,
 };
 use axum::http::HeaderMap;
@@ -77,6 +80,8 @@ pub struct RequestContext {
     pub optimizer_config: OptimizerConfig,
     /// Copilot 优化器配置
     pub copilot_optimizer_config: CopilotOptimizerConfig,
+    /// Claude 客户端指纹规整配置（L1 header 兼容规整）
+    pub claude_client_profile_config: ClaudeClientProfileConfig,
 }
 
 impl RequestContext {
@@ -113,6 +118,10 @@ impl RequestContext {
         let rectifier_config = state.db.get_rectifier_config().unwrap_or_default();
         let optimizer_config = state.db.get_optimizer_config().unwrap_or_default();
         let copilot_optimizer_config = state.db.get_copilot_optimizer_config().unwrap_or_default();
+        let claude_client_profile_config = state
+            .db
+            .get_claude_client_profile_config()
+            .unwrap_or_default();
 
         let current_provider_id =
             crate::settings::get_current_provider(&app_type).unwrap_or_default();
@@ -186,6 +195,7 @@ impl RequestContext {
             rectifier_config,
             optimizer_config,
             copilot_optimizer_config,
+            claude_client_profile_config,
         })
     }
 
@@ -263,6 +273,7 @@ impl RequestContext {
             self.rectifier_config.clone(),
             self.optimizer_config.clone(),
             self.copilot_optimizer_config.clone(),
+            self.claude_client_profile_config.clone(),
             max_retries,
         )
     }

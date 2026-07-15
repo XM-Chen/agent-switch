@@ -247,7 +247,7 @@ pub async fn install_update_and_restart(app: AppHandle) -> Result<bool, String> 
                 "Windows 更新安装失败: {e}。已执行退出前清理，代理或 Live 接管可能已暂停；请重启应用或重新开启代理后再试。"
             )
         })?;
-        return Ok(true);
+        Ok(true)
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -697,6 +697,30 @@ pub async fn set_copilot_optimizer_config(
     state
         .db
         .set_copilot_optimizer_config(&config)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// 获取 Claude 客户端指纹规整配置
+#[tauri::command]
+pub async fn get_claude_client_profile_config(
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<crate::proxy::types::ClaudeClientProfileConfig, String> {
+    state
+        .db
+        .get_claude_client_profile_config()
+        .map_err(|e| e.to_string())
+}
+
+/// 设置 Claude 客户端指纹规整配置
+#[tauri::command]
+pub async fn set_claude_client_profile_config(
+    state: tauri::State<'_, crate::AppState>,
+    config: crate::proxy::types::ClaudeClientProfileConfig,
+) -> Result<bool, String> {
+    state
+        .db
+        .set_claude_client_profile_config(&config)
         .map_err(|e| e.to_string())?;
     Ok(true)
 }
