@@ -1,7 +1,7 @@
 name: Release
 
 # 打 tag（如 v0.3.1）并推送时触发，在云端 Windows runner 构建 msi 与更新器产物，
-# 生成一个 draft Release 供人工确认后发布。
+# 构建成功后自动发布 Release 并设为 latest。
 on:
   push:
     tags:
@@ -52,5 +52,10 @@ jobs:
           # tag 已由 push 事件带入，直接复用
           tagName: ${{ github.ref_name }}
           releaseName: "Agent-Switch ${{ github.ref_name }}"
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
+
+      - name: Mark release as latest
+        run: gh release edit "${{ github.ref_name }}" --latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
