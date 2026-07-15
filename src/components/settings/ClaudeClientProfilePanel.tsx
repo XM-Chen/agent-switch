@@ -12,6 +12,7 @@ export function ClaudeClientProfilePanel() {
   const { t } = useTranslation();
   const [config, setConfig] = useState<ClaudeClientProfileConfig>({
     enabled: false,
+    bodyIdentity: false,
   });
   const [isLoading, setIsLoading] = useState(true);
 
@@ -52,6 +53,30 @@ export function ClaudeClientProfilePanel() {
         <Switch
           checked={config.enabled}
           onCheckedChange={(checked) => handleChange({ enabled: checked })}
+        />
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div className="space-y-0.5">
+          <Label
+            className={config.enabled ? undefined : "text-muted-foreground"}
+          >
+            {t("settings.advanced.claudeClientProfile.bodyIdentity")}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {config.enabled
+              ? t(
+                  "settings.advanced.claudeClientProfile.bodyIdentityDescription",
+                )
+              : t("settings.advanced.claudeClientProfile.bodyIdentityRequiresHeader")}
+          </p>
+        </div>
+        <Switch
+          checked={config.bodyIdentity}
+          disabled={!config.enabled}
+          onCheckedChange={(checked) =>
+            handleChange({ bodyIdentity: checked })
+          }
         />
       </div>
 

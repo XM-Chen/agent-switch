@@ -123,6 +123,8 @@ pub struct RequestForwarder {
     copilot_optimizer_config: CopilotOptimizerConfig,
     /// Claude 客户端指纹规整配置（L1 header 兼容规整）
     claude_client_profile_config: ClaudeClientProfileConfig,
+    /// 持久化的 Claude Code 客户端 device_id（L2 body 身份用，随请求上下文传入）。
+    cc_client_device_id: String,
     /// 非流式请求超时（秒）
     non_streaming_timeout: std::time::Duration,
     /// 流式请求响应头等待超时（秒）
@@ -200,6 +202,7 @@ impl RequestForwarder {
         optimizer_config: OptimizerConfig,
         copilot_optimizer_config: CopilotOptimizerConfig,
         claude_client_profile_config: ClaudeClientProfileConfig,
+        cc_client_device_id: String,
         max_retries: u32,
     ) -> Self {
         // max_retries 是「失败后重试次数」语义，attempt 上限 = retries + 1。
@@ -220,6 +223,7 @@ impl RequestForwarder {
             optimizer_config,
             copilot_optimizer_config,
             claude_client_profile_config,
+            cc_client_device_id,
             non_streaming_timeout: std::time::Duration::from_secs(non_streaming_timeout),
             streaming_first_byte_timeout: std::time::Duration::from_secs(
                 streaming_first_byte_timeout,
@@ -1317,6 +1321,37 @@ impl RequestForwarder {
                     api_format,
                 );
                 self.apply_media_prevention(&mut mapped_body, provider);
+
+                // ============================================================
+                // L2：Claude Code 客户端身份模拟（body 两件套）
+                // ============================================================
+                // 守卫与 L1 的 apply_client_profile 等价，但 L1 的守卫在下方（header
+                // 循环处）才计算，这里 body 改写块更早，故就地复算四条件：
+                //   header 总闸 enabled + body 子开关 body_identity
+                //   + api_format=anthropic（本 if 已保证）+ !is_copilot。
+                // 逐候选自然满足：非 native-anthropic / Copilot 候选不进本路径。
+                // body_identity=false（默认）时零行为变化。
+                let apply_body_identity = self.claude_client_profile_config.enabled
+                    && self.claude_client_profile_config.body_identity
+                    && api_format == "anthropic"
+                    && !is_copilot;
+                if apply_body_identity {
+                    let session_arg = if self.session_client_provided {
+                        Some(self.session_id.as_str())
+                    } else {
+                        None
+                    };
+                    super::cc_client_profile::apply_body_identity(
+                        &mut mapped_body,
+                        super::cc_client_profile::active_profile(),
+                        &self.cc_client_device_id,
+                        session_arg,
+                    );
+                    log::debug!(
+                        "[{}] 应用 Claude 客户端 body 身份模拟（L2）",
+                        adapter.name()
+                    );
+                }
             }
         }
         let needs_transform = match resolved_claude_api_format.as_deref() {
@@ -2935,6 +2970,7 @@ mod tests {
             optimizer_config: OptimizerConfig::default(),
             copilot_optimizer_config: CopilotOptimizerConfig::default(),
             claude_client_profile_config: ClaudeClientProfileConfig::default(),
+            cc_client_device_id: String::new(),
             non_streaming_timeout,
             streaming_first_byte_timeout,
             max_attempts: 1,

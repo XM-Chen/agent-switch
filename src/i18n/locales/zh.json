@@ -393,8 +393,11 @@
         "description": "统一 Claude Code 客户端请求头，减少上游对第三方客户端的兼容性拒绝",
         "enabled": "启用客户端指纹规整",
         "enabledDescription": "开启后，Claude 模块走本地代理的 native Anthropic 请求会用内置的 Claude Code 客户端 header profile（user-agent / x-app / x-stainless-*）统一出站指纹。默认关闭，需手动启用",
+        "bodyIdentity": "启用 body 身份模拟（L2）",
+        "bodyIdentityDescription": "在 header 规整基础上，进一步把请求体伪装成 Claude Code：system 换成 Claude Code 身份块（原有 system 指令搬到对话最前不丢弃），并注入 Claude Code 格式的 metadata.user_id。默认关闭。不做任何计费伪造；使用者仍须遵守上游服务条款",
+        "bodyIdentityRequiresHeader": "需先开启上方「客户端指纹规整」（header 规整）才能启用",
         "noteScope": "仅影响 Claude 模块走本地代理、解析后为 native Anthropic 的候选；OpenAI/Gemini/Copilot/Codex 等其它渠道不受影响",
-        "noteHeaderOnly": "只规整请求头，不修改 system / metadata / messages / tools 等请求体内容",
+        "noteHeaderOnly": "header 规整只改请求头；body 身份模拟（L2）另需单独开启，且仅改 system / metadata.user_id，不改 tools",
         "noteProviderPriority": "供应商级显式配置优先：customUserAgent 决定最终 User-Agent，本地代理请求头覆盖仍最后生效"
       },
       "optimizer": {

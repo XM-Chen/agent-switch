@@ -351,9 +351,12 @@ export interface LogConfig {
   level: "error" | "warn" | "info" | "debug" | "trace";
 }
 
-/** Claude 客户端指纹规整配置（L1 header 兼容规整）。仅 header，不改 body。 */
+/** Claude 客户端指纹规整配置（L1 header 规整 + L2 body 身份）。 */
 export interface ClaudeClientProfileConfig {
+  /** L1 总开关：header 规整（user-agent / x-app / x-stainless-*）。 */
   enabled: boolean;
+  /** L2 子开关：body 身份两件套（system 身份块搬运 + metadata.user_id）。需 enabled=true。 */
+  bodyIdentity: boolean;
 }
 
 export interface BackupEntry {

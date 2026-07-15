@@ -82,6 +82,11 @@ pub struct RequestContext {
     pub copilot_optimizer_config: CopilotOptimizerConfig,
     /// Claude 客户端指纹规整配置（L1 header 兼容规整）
     pub claude_client_profile_config: ClaudeClientProfileConfig,
+    /// 持久化的 Claude Code 客户端 device_id（L2 body 身份用）。
+    ///
+    /// 每请求从 settings 读一次 `get_or_create_cc_client_device_id`（无副作用、
+    /// 与既有 config 读取同模式），仅在 `body_identity` 开启时才被消费。
+    pub cc_client_device_id: String,
 }
 
 impl RequestContext {
@@ -121,6 +126,12 @@ impl RequestContext {
         let claude_client_profile_config = state
             .db
             .get_claude_client_profile_config()
+            .unwrap_or_default();
+        // L2 body 身份用的持久化 device_id（每请求读一次，与既有 config 读取模式一致）。
+        // 读取无副作用；即使 body_identity 关闭也读，保持传递路径统一。
+        let cc_client_device_id = state
+            .db
+            .get_or_create_cc_client_device_id()
             .unwrap_or_default();
 
         let current_provider_id =
@@ -196,6 +207,7 @@ impl RequestContext {
             optimizer_config,
             copilot_optimizer_config,
             claude_client_profile_config,
+            cc_client_device_id,
         })
     }
 
@@ -274,6 +286,7 @@ impl RequestContext {
             self.optimizer_config.clone(),
             self.copilot_optimizer_config.clone(),
             self.claude_client_profile_config.clone(),
+            self.cc_client_device_id.clone(),
             max_retries,
         )
     }

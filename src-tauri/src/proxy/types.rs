@@ -331,13 +331,19 @@ pub struct CopilotOptimizerConfig {
 ///
 /// 开启后 forwarder 用内置 profile 强制统一出站 `user-agent` / `x-app` /
 /// `x-stainless-*`，避免第三方客户端指纹泄露到上游。
-/// **只规整 header，不修改任何 body 字段**（system/metadata/messages/tools 不受影响）。
+/// **`enabled` 只规整 header**；body 改写由 L2 的 `body_identity` 子开关控制。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeClientProfileConfig {
-    /// 总开关（默认关闭，用户需手动启用）
+    /// L1 总开关：header 规整（默认关闭，用户需手动启用）。
     #[serde(default)]
     pub enabled: bool,
+    /// L2 子开关：body 身份两件套（system 身份块搬运 + metadata.user_id）。
+    ///
+    /// 需 `enabled=true` 前提才生效（守卫 `apply_body_identity = apply_client_profile
+    /// && body_identity`）。默认关闭。开启后仅对 native Anthropic 候选改写 body。
+    #[serde(default)]
+    pub body_identity: bool,
 }
 
 fn default_warmup_model() -> String {
@@ -499,6 +505,29 @@ mod tests {
         let json = r#"{"enabled": true}"#;
         let config: ClaudeClientProfileConfig = serde_json::from_str(json).unwrap();
         assert!(config.enabled);
+    }
+
+    #[test]
+    fn test_claude_client_profile_config_body_identity_default_false() {
+        // L2 子开关默认关闭，且旧配置（只有 enabled）反序列化后 body_identity=false。
+        let config = ClaudeClientProfileConfig::default();
+        assert!(!config.body_identity, "body_identity 默认应为关闭");
+
+        let legacy = r#"{"enabled": true}"#;
+        let config: ClaudeClientProfileConfig = serde_json::from_str(legacy).unwrap();
+        assert!(config.enabled);
+        assert!(
+            !config.body_identity,
+            "旧配置缺 bodyIdentity 时应回退默认 false"
+        );
+    }
+
+    #[test]
+    fn test_claude_client_profile_config_body_identity_serde() {
+        let json = r#"{"enabled": true, "bodyIdentity": true}"#;
+        let config: ClaudeClientProfileConfig = serde_json::from_str(json).unwrap();
+        assert!(config.enabled);
+        assert!(config.body_identity);
     }
 
     #[test]

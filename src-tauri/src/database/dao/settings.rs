@@ -333,6 +333,33 @@ impl Database {
         self.set_setting("claude_client_profile_config", &json)
     }
 
+    /// 获取或创建持久化的 Claude Code 客户端 device_id（L2 body 身份用）。
+    ///
+    /// 模拟真实 CC 的持久 device_id（真实 CC 为 `crypto.randomBytes(32).toString("hex")`
+    /// 首次生成后持久化复用）。这里首次调用生成随机 64-hex（复用项目既有 `uuid`
+    /// 依赖，拼两个 v4 UUID 的 simple hex，各 32 hex → 64 hex），写入 settings 并返回；
+    /// 后续调用直接返回已存值，保证跨请求/重启稳定。
+    ///
+    /// key = `"cc_client_device_id"`（与 profile config 分开：这是运行时生成的稳定
+    /// 身份，不是用户配置，故不提供 set 命令）。
+    pub fn get_or_create_cc_client_device_id(&self) -> Result<String, AppError> {
+        const KEY: &str = "cc_client_device_id";
+        // 已存在且格式合法（64 hex）→ 直接复用。
+        if let Some(existing) = self.get_setting(KEY)? {
+            if existing.len() == 64 && existing.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Ok(existing.to_ascii_lowercase());
+            }
+        }
+        // 首次或非法值：生成随机 64-hex 并持久化。
+        let device_id = format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        );
+        self.set_setting(KEY, &device_id)?;
+        Ok(device_id)
+    }
+
     // --- 日志配置 ---
 
     /// 获取日志配置
@@ -367,7 +394,10 @@ mod tests {
     #[test]
     fn claude_client_profile_config_roundtrip() {
         let db = Database::memory().expect("memory db");
-        let enabled = crate::proxy::types::ClaudeClientProfileConfig { enabled: true };
+        let enabled = crate::proxy::types::ClaudeClientProfileConfig {
+            enabled: true,
+            ..Default::default()
+        };
         db.set_claude_client_profile_config(&enabled)
             .expect("set config");
         assert!(
@@ -377,7 +407,10 @@ mod tests {
             "写入 enabled=true 后应读回 true"
         );
 
-        let disabled = crate::proxy::types::ClaudeClientProfileConfig { enabled: false };
+        let disabled = crate::proxy::types::ClaudeClientProfileConfig {
+            enabled: false,
+            ..Default::default()
+        };
         db.set_claude_client_profile_config(&disabled)
             .expect("set config");
         assert!(
@@ -386,6 +419,39 @@ mod tests {
                 .enabled,
             "写入 enabled=false 后应读回 false"
         );
+    }
+
+    #[test]
+    fn claude_client_profile_config_body_identity_roundtrip() {
+        let db = Database::memory().expect("memory db");
+        let cfg = crate::proxy::types::ClaudeClientProfileConfig {
+            enabled: true,
+            body_identity: true,
+        };
+        db.set_claude_client_profile_config(&cfg)
+            .expect("set config");
+        let got = db.get_claude_client_profile_config().expect("get config");
+        assert!(got.enabled);
+        assert!(got.body_identity, "body_identity 应读回 true");
+    }
+
+    #[test]
+    fn cc_client_device_id_generated_and_persisted() {
+        let db = Database::memory().expect("memory db");
+        let first = db
+            .get_or_create_cc_client_device_id()
+            .expect("first device_id");
+        // 首次生成 64-hex
+        assert_eq!(first.len(), 64, "device_id 应为 64 字符");
+        assert!(
+            first.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            "device_id 应为小写 hex"
+        );
+        // 二次调用返回同值（持久化）
+        let second = db
+            .get_or_create_cc_client_device_id()
+            .expect("second device_id");
+        assert_eq!(first, second, "device_id 跨调用应稳定");
     }
 
     #[test]
