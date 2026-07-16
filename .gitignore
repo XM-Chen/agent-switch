@@ -20,7 +20,9 @@ vitest-report.json
 nul
 
 # AI 工作流 / 本地工具目录（不进公开仓库）
-.trellis/
+.trellis/*
+!.trellis/spec/
+!.trellis/spec/**
 .trellis-upgrade-audit.json
 session-manager.md
 /.agents
