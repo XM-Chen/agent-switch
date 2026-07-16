@@ -1388,7 +1388,7 @@ base_url = "https://aihubmix.example/v1"
             "model_provider = \"openai\"\n"
         ));
         assert!(!codex_config_text_routes_custom(
-            "base_url = \"http://127.0.0.1:15721/codex\"\n"
+            "base_url = \"http://127.0.0.1:42567/codex\"\n"
         ));
         assert!(!codex_config_text_routes_custom(""));
         assert!(!codex_config_text_routes_custom("not toml ["));
@@ -2185,7 +2185,8 @@ base_url = "https://proxy.example/v1"
         let env_sqlite_home = dir.path().join("env-sqlite-home");
         let config_sqlite_home = dir.path().join("config-sqlite-home");
         let _guard = EnvVarGuard::set("CODEX_SQLITE_HOME", &env_sqlite_home);
-        let config_text = format!("sqlite_home = \"{}\"\n", config_sqlite_home.display());
+        // TOML literal strings keep Windows backslashes intact.
+        let config_text = format!("sqlite_home = '{}'\n", config_sqlite_home.display());
 
         let paths = codex_state_db_paths(&codex_dir, &config_text);
 

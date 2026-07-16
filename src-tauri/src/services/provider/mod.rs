@@ -1001,7 +1001,7 @@ command = "legacy-cmd"
             &get_claude_settings_path(),
             &json!({
                 "env": {
-                    "ANTHROPIC_BASE_URL": "http://127.0.0.1:15721",
+                    "ANTHROPIC_BASE_URL": "http://127.0.0.1:42567",
                     "ANTHROPIC_API_KEY": "PROXY_MANAGED",
                     "ANTHROPIC_MODEL": "stale-model"
                 },
@@ -1179,7 +1179,7 @@ command = "legacy-cmd"
         let profile: Value = read_json_file(&profile_path).expect("read desktop profile");
         assert_eq!(
             profile["inferenceGatewayBaseUrl"],
-            json!("http://127.0.0.1:15721/claude-desktop"),
+            json!("http://127.0.0.1:42567/claude-desktop"),
             "desktop profile should stay pointed at the local gateway during takeover"
         );
         assert_eq!(profile["inferenceGatewayAuthScheme"], json!("bearer"));

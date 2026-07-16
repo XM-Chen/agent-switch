@@ -1213,7 +1213,7 @@ impl ProxyService {
             // 跳过已被代理接管的 Live：避免把代理占位符当作"原始 Live"存进备份槽。
             // 否则下次 start_with_takeover 在异常历史状态下（Live 已是占位符）再次
             // 调用本函数，会用代理配置覆盖一个原本正常的备份；之后 stop 恢复时
-            // 即便走到备份路径也会把代理占位符再写回 Live，永久卡在 127.0.0.1:15721。
+            // 即便走到备份路径也会把代理占位符再写回 Live，永久卡在 127.0.0.1:42567。
             if Self::live_has_proxy_placeholder_for_app(&AppType::Claude, &config) {
                 log::warn!("claude Live 已被代理接管，不备份（避免把代理配置固化进备份槽）；下次 stop 会从 SSOT 重建 Live");
             } else {
@@ -1625,7 +1625,7 @@ impl ProxyService {
 
             // 备份若是代理占位符（异常历史：上次 stop 失败导致 Live 留在了代理状态，
             // 下次接管时又被错误地备份成"原始 Live"），不能直接用 — 否则 stop 后
-            // Live 永远卡在 127.0.0.1:15721。落到下面的 SSOT 兜底重建。
+            // Live 永远卡在 127.0.0.1:42567。落到下面的 SSOT 兜底重建。
             if Self::live_has_proxy_placeholder_for_app(app_type, &config) {
                 log::warn!(
                     "{app_type_str} 备份本身已是代理占位符（异常历史状态），跳过备份，改走 SSOT 重建 Live"
@@ -3050,7 +3050,7 @@ mod tests {
         });
         ProxyService::apply_claude_takeover_fields_for_provider(
             &mut live_config,
-            "http://127.0.0.1:15721",
+            "http://127.0.0.1:42567",
             &provider,
         );
 
@@ -3103,7 +3103,7 @@ mod tests {
         let mut live_config = provider.settings_config.clone();
         ProxyService::apply_claude_takeover_fields_for_provider(
             &mut live_config,
-            "http://127.0.0.1:15721",
+            "http://127.0.0.1:42567",
             &provider,
         );
 
@@ -3135,7 +3135,7 @@ mod tests {
         let mut live_config = provider.settings_config.clone();
         ProxyService::apply_claude_takeover_fields_for_provider(
             &mut live_config,
-            "http://127.0.0.1:15721",
+            "http://127.0.0.1:42567",
             &provider,
         );
 
@@ -3174,7 +3174,7 @@ mod tests {
         });
         ProxyService::apply_claude_takeover_fields_for_provider(
             &mut live_config,
-            "http://127.0.0.1:15721",
+            "http://127.0.0.1:42567",
             &provider,
         );
 
@@ -3211,7 +3211,7 @@ mod tests {
         });
         ProxyService::apply_claude_takeover_fields_for_provider(
             &mut live_config,
-            "http://127.0.0.1:15721",
+            "http://127.0.0.1:42567",
             &provider,
         );
 
@@ -3232,7 +3232,7 @@ mod tests {
             }
         });
 
-        ProxyService::apply_claude_takeover_fields(&mut live_config, "http://127.0.0.1:15721");
+        ProxyService::apply_claude_takeover_fields(&mut live_config, "http://127.0.0.1:42567");
 
         assert_eq!(
             live_config
@@ -3374,7 +3374,7 @@ model = "gpt-5-codex"
 
 [model_providers.rightcode]
 name = "RightCode"
-base_url = "http://127.0.0.1:15721/v1"
+base_url = "http://127.0.0.1:42567/v1"
 wire_api = "responses"
 "#
         });
@@ -4137,7 +4137,7 @@ model = "deepseek-v4-flash"
 
 [model_providers.deepseek]
 name = "DeepSeek"
-base_url = "http://127.0.0.1:15721/v1"
+base_url = "http://127.0.0.1:42567/v1"
 wire_api = "responses"
 experimental_bearer_token = "PROXY_MANAGED"
 "#,
@@ -4169,7 +4169,7 @@ experimental_bearer_token = "PROXY_MANAGED"
             "cleanup should remove config.toml proxy bearer placeholder"
         );
         assert!(
-            !live_config.contains("http://127.0.0.1:15721"),
+            !live_config.contains("http://127.0.0.1:42567"),
             "cleanup should remove local proxy base_url"
         );
     }
@@ -4233,7 +4233,7 @@ model = "gpt-5-codex"
 
 [model_providers.rightcode]
 name = "RightCode"
-base_url = "http://127.0.0.1:15721/v1"
+base_url = "http://127.0.0.1:42567/v1"
 wire_api = "responses"
 "#
         });
@@ -4722,7 +4722,7 @@ model = "gpt-5.1-codex"
         service
             .write_claude_live(&json!({
                 "env": {
-                    "ANTHROPIC_BASE_URL": "http://127.0.0.1:15721",
+                    "ANTHROPIC_BASE_URL": "http://127.0.0.1:42567",
                     "ANTHROPIC_API_KEY": PROXY_TOKEN_PLACEHOLDER,
                     "ANTHROPIC_MODEL": "stale-model",
                     "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "Stale Sonnet",
@@ -4754,7 +4754,7 @@ model = "gpt-5.1-codex"
             live.get("env")
                 .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
                 .and_then(|v| v.as_str()),
-            Some("http://127.0.0.1:15721"),
+            Some("http://127.0.0.1:42567"),
             "takeover proxy URL should remain active"
         );
         assert!(
@@ -5267,7 +5267,7 @@ model = "gpt-5.4"
 
 [model_providers.rightcode]
 name = "RightCode"
-base_url = "http://127.0.0.1:15721/v1"
+base_url = "http://127.0.0.1:42567/v1"
 wire_api = "responses"
 requires_openai_auth = true
 "#
@@ -5337,7 +5337,7 @@ requires_openai_auth = true
                 .and_then(|v| v.get("aihubmix"))
                 .and_then(|v| v.get("base_url"))
                 .and_then(|v| v.as_str()),
-            Some("http://127.0.0.1:15721/v1"),
+            Some("http://127.0.0.1:42567/v1"),
             "taken-over live config should stay pointed at the local proxy"
         );
 
@@ -5442,7 +5442,7 @@ model = "responses-model"
 
 [model_providers.stable]
 name = "Stable"
-base_url = "http://127.0.0.1:15721/v1"
+base_url = "http://127.0.0.1:42567/v1"
 wire_api = "responses"
 requires_openai_auth = true
 "#
@@ -5479,7 +5479,7 @@ requires_openai_auth = true
                 .and_then(|v| v.get("deepseek"))
                 .and_then(|v| v.get("base_url"))
                 .and_then(|v| v.as_str()),
-            Some("http://127.0.0.1:15721/v1")
+            Some("http://127.0.0.1:42567/v1")
         );
         assert_eq!(
             parsed_live.get("model").and_then(|v| v.as_str()),
@@ -6072,7 +6072,7 @@ requires_openai_auth = true
         let corrupted_backup = serde_json::to_string(&json!({
             "env": {
                 "ANTHROPIC_AUTH_TOKEN": PROXY_TOKEN_PLACEHOLDER,
-                "ANTHROPIC_BASE_URL": "http://127.0.0.1:15721"
+                "ANTHROPIC_BASE_URL": "http://127.0.0.1:42567"
             }
         }))
         .expect("serialize corrupted backup");
@@ -6085,7 +6085,7 @@ requires_openai_auth = true
             .write_claude_live(&json!({
                 "env": {
                     "ANTHROPIC_AUTH_TOKEN": PROXY_TOKEN_PLACEHOLDER,
-                    "ANTHROPIC_BASE_URL": "http://127.0.0.1:15721"
+                    "ANTHROPIC_BASE_URL": "http://127.0.0.1:42567"
                 }
             }))
             .expect("seed taken-over live file");
@@ -6167,7 +6167,7 @@ requires_openai_auth = true
             .write_claude_live(&json!({
                 "env": {
                     "ANTHROPIC_AUTH_TOKEN": PROXY_TOKEN_PLACEHOLDER,
-                    "ANTHROPIC_BASE_URL": "http://127.0.0.1:15721"
+                    "ANTHROPIC_BASE_URL": "http://127.0.0.1:42567"
                 }
             }))
             .expect("seed taken-over live file");
@@ -6235,7 +6235,7 @@ requires_openai_auth = true
             .write_claude_live(&json!({
                 "env": {
                     "ANTHROPIC_AUTH_TOKEN": PROXY_TOKEN_PLACEHOLDER,
-                    "ANTHROPIC_BASE_URL": "http://127.0.0.1:15721"
+                    "ANTHROPIC_BASE_URL": "http://127.0.0.1:42567"
                 }
             }))
             .expect("seed claude live");
@@ -6247,7 +6247,7 @@ requires_openai_auth = true
 
 [model_providers.custom]
 name = "Custom"
-base_url = "http://127.0.0.1:15721/v1"
+base_url = "http://127.0.0.1:42567/v1"
 wire_api = "chat"
 experimental_bearer_token = "PROXY_MANAGED"
 "#,

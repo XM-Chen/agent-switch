@@ -444,7 +444,9 @@ mod tests {
         // 首次生成 64-hex
         assert_eq!(first.len(), 64, "device_id 应为 64 字符");
         assert!(
-            first.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            first
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
             "device_id 应为小写 hex"
         );
         // 二次调用返回同值（持久化）
