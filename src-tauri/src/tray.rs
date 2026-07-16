@@ -20,7 +20,10 @@ const W_TIER_NAMES: &[&str] = &[
     crate::services::subscription::TIER_SEVEN_DAY_SONNET,
 ];
 // 火山方舟 Agent/Coding Plan 的月窗口（5h/周/月 三档）。
-const M_TIER_NAMES: &[&str] = &[crate::services::subscription::TIER_MONTHLY];
+const M_TIER_NAMES: &[&str] = &[
+    crate::services::subscription::TIER_MONTHLY,
+    crate::services::subscription::TIER_THIRTY_DAY,
+];
 const GEMINI_PRO_TIER_NAMES: &[&str] = &[crate::services::subscription::TIER_GEMINI_PRO];
 const GEMINI_FLASH_TIER_NAMES: &[&str] = &[crate::services::subscription::TIER_GEMINI_FLASH];
 const GEMINI_FLASH_LITE_TIER_NAMES: &[&str] =
@@ -885,7 +888,7 @@ mod tests {
     use crate::services::subscription::{
         CredentialStatus, QuotaTier, SubscriptionQuota, TIER_FIVE_HOUR, TIER_GEMINI_FLASH,
         TIER_GEMINI_FLASH_LITE, TIER_GEMINI_PRO, TIER_MONTHLY, TIER_SEVEN_DAY, TIER_SEVEN_DAY_OPUS,
-        TIER_SEVEN_DAY_SONNET, TIER_WEEKLY_LIMIT,
+        TIER_SEVEN_DAY_SONNET, TIER_THIRTY_DAY, TIER_WEEKLY_LIMIT,
     };
 
     #[test]
@@ -939,6 +942,13 @@ mod tests {
         let s = format_subscription_summary(&quota).expect("should format");
         assert!(s.contains("p15%"), "expected p15% in {s}");
         assert!(s.contains("f42%"), "expected f42% in {s}");
+    }
+
+    #[test]
+    fn codex_summary_thirty_day_only_still_renders() {
+        let quota = make_quota("codex", true, vec![tier(TIER_THIRTY_DAY, 85.0)]);
+        let summary = format_subscription_summary(&quota).expect("should format");
+        assert!(summary.contains("m85%"), "expected m85% in {summary}");
     }
 
     #[test]

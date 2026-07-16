@@ -27,6 +27,7 @@ export const TIER_I18N_KEYS: Record<string, string> = {
   seven_day: "subscription.sevenDay",
   seven_day_opus: "subscription.sevenDayOpus",
   seven_day_sonnet: "subscription.sevenDaySonnet",
+  "30_day": "subscription.thirtyDay",
   // Gemini 模型分类
   gemini_pro: "subscription.geminiPro",
   gemini_flash: "subscription.geminiFlash",

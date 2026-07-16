@@ -312,6 +312,9 @@ pub const TIER_WEEKLY_LIMIT: &str = "weekly_limit";
 /// 映射到 `subscription.monthly`。
 pub const TIER_MONTHLY: &str = "monthly";
 
+/// Codex free-plan rolling monthly window.
+pub const TIER_THIRTY_DAY: &str = "30_day";
+
 /// Gemini 用量分组名称（按模型而非时间窗口）。`classify_gemini_model` 输出。
 pub const TIER_GEMINI_PRO: &str = "gemini_pro";
 pub const TIER_GEMINI_FLASH: &str = "gemini_flash";
@@ -632,8 +635,9 @@ struct CodexUsageResponse {
 /// 根据窗口秒数映射到 tier 名称（与 Claude 的命名兼容以复用前端 i18n）
 fn window_seconds_to_tier_name(secs: i64) -> String {
     match secs {
-        18000 => "five_hour".to_string(),
-        604800 => "seven_day".to_string(),
+        18000 => TIER_FIVE_HOUR.to_string(),
+        604800 => TIER_SEVEN_DAY.to_string(),
+        2_592_000 => TIER_THIRTY_DAY.to_string(),
         s => {
             let hours = s / 3600;
             if hours >= 24 {
@@ -1339,4 +1343,18 @@ fn now_millis() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn window_seconds_map_to_expected_tier_names() {
+        assert_eq!(window_seconds_to_tier_name(18000), TIER_FIVE_HOUR);
+        assert_eq!(window_seconds_to_tier_name(604800), TIER_SEVEN_DAY);
+        assert_eq!(window_seconds_to_tier_name(2_592_000), TIER_THIRTY_DAY);
+        assert_eq!(window_seconds_to_tier_name(3600), "1_hour");
+        assert_eq!(window_seconds_to_tier_name(86400), "1_day");
+    }
 }

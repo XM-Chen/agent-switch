@@ -352,6 +352,10 @@ async fn query_zhipu(base_url: &str, api_key: &str) -> SubscriptionQuota {
         Err(e) => return make_error(format!("Failed to parse response: {e}")),
     };
 
+    zhipu_quota_from_body(&body)
+}
+
+fn zhipu_quota_from_body(body: &serde_json::Value) -> SubscriptionQuota {
     // 检查业务级别错误
     if body.get("success").and_then(|v| v.as_bool()) == Some(false) {
         let msg = body
@@ -383,6 +387,61 @@ async fn query_zhipu(base_url: &str, api_key: &str) -> SubscriptionQuota {
         extra_usage: None,
         error: None,
         queried_at: Some(now_millis()),
+    }
+}
+
+const ZHIPU_TEAM_QUOTA_URL: &str = "https://open.bigmodel.cn/api/monitor/usage/quota/limit";
+
+async fn query_zhipu_team(
+    api_key: &str,
+    organization_id: &str,
+    project_id: &str,
+) -> SubscriptionQuota {
+    query_zhipu_team_at(ZHIPU_TEAM_QUOTA_URL, api_key, organization_id, project_id).await
+}
+
+async fn query_zhipu_team_at(
+    quota_url_base: &str,
+    api_key: &str,
+    organization_id: &str,
+    project_id: &str,
+) -> SubscriptionQuota {
+    let client = crate::proxy::http_client::get();
+    let response = client
+        .get(format!("{quota_url_base}?type=2"))
+        .header("Authorization", api_key)
+        .header("bigmodel-organization", organization_id)
+        .header("bigmodel-project", project_id)
+        .header("Content-Type", "application/json")
+        .header("Accept-Language", "en-US,en")
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await;
+
+    let response = match response {
+        Ok(response) => response,
+        Err(error) => return make_error(format!("Network error: {error}")),
+    };
+    let status = response.status();
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        return SubscriptionQuota {
+            tool: "coding_plan".to_string(),
+            credential_status: CredentialStatus::Expired,
+            credential_message: Some("Invalid API key".to_string()),
+            success: false,
+            tiers: vec![],
+            extra_usage: None,
+            error: Some(format!("Authentication failed (HTTP {status})")),
+            queried_at: Some(now_millis()),
+        };
+    }
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return make_error(format!("API error (HTTP {status}): {body}"));
+    }
+    match response.json::<serde_json::Value>().await {
+        Ok(body) => zhipu_quota_from_body(&body),
+        Err(error) => make_error(format!("Failed to parse response: {error}")),
     }
 }
 
@@ -1148,7 +1207,21 @@ pub async fn get_coding_plan_quota(
     api_key: &str,
     access_key_id: Option<&str>,
     secret_access_key: Option<&str>,
+    coding_plan_provider: Option<&str>,
+    team_organization_id: Option<&str>,
+    team_project_id: Option<&str>,
 ) -> Result<SubscriptionQuota, String> {
+    if coding_plan_provider.is_some_and(|provider| provider.eq_ignore_ascii_case("zhipu_team")) {
+        let organization_id = team_organization_id.unwrap_or("").trim();
+        let project_id = team_project_id.unwrap_or("").trim();
+        if api_key.trim().is_empty() || organization_id.is_empty() || project_id.is_empty() {
+            return Ok(coding_plan_not_found(
+                "Zhipu team plan needs the API key + organization ID + project ID",
+            ));
+        }
+        return Ok(query_zhipu_team(api_key, organization_id, project_id).await);
+    }
+
     let provider = match detect_provider(base_url) {
         Some(p) => p,
         // 域名未命中已知套餐供应商（如第三方中转站）：给出明确错误而非静默失败
@@ -1195,11 +1268,64 @@ pub async fn get_coding_plan_quota(
 mod tests {
     use super::{
         parse_afp_tiers, parse_coding_plan_tiers, parse_minimax_tiers, parse_zhipu_token_tiers,
-        volcengine_canonical_query, volcengine_is_auth_error_code, volcengine_region,
-        volcengine_response_error, volcengine_sign, zhipu_quota_base, TIER_FIVE_HOUR, TIER_MONTHLY,
-        TIER_WEEKLY_LIMIT,
+        query_zhipu_team_at, volcengine_canonical_query, volcengine_is_auth_error_code,
+        volcengine_region, volcengine_response_error, volcengine_sign, zhipu_quota_base,
+        CredentialStatus, TIER_FIVE_HOUR, TIER_MONTHLY, TIER_WEEKLY_LIMIT,
     };
     use serde_json::json;
+
+    #[tokio::test]
+    async fn zhipu_team_missing_creds_returns_not_found() {
+        let quota = super::get_coding_plan_quota(
+            "https://open.bigmodel.cn/api/coding",
+            "key",
+            None,
+            None,
+            Some("Zhipu_Team"),
+            Some("org"),
+            None,
+        )
+        .await
+        .expect("missing credentials are deterministic");
+        assert!(!quota.success);
+        assert!(matches!(
+            quota.credential_status,
+            CredentialStatus::NotFound
+        ));
+    }
+
+    #[tokio::test]
+    async fn zhipu_team_request_carries_type2_and_org_project_headers() {
+        use std::io::{Read, Write};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}/team", listener.local_addr().expect("addr"));
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut buffer = [0_u8; 4096];
+            let read = stream.read(&mut buffer).expect("read");
+            let request = String::from_utf8_lossy(&buffer[..read]).to_lowercase();
+            assert!(request.contains("get /team?type=2 "));
+            assert!(request.contains("authorization: team-key"));
+            assert!(request.contains("bigmodel-organization: org-id"));
+            assert!(request.contains("bigmodel-project: project-id"));
+
+            let body = r#"{"success":true,"data":{"limits":[{"type":"TOKENS_LIMIT","unit":3,"percentage":26}]}}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .expect("respond");
+        });
+
+        let quota = query_zhipu_team_at(&url, "team-key", "org-id", "project-id").await;
+        server.join().expect("server");
+        assert!(quota.success);
+        assert_eq!(quota.tiers.len(), 1);
+        assert_eq!(quota.tiers[0].name, TIER_FIVE_HOUR);
+    }
 
     #[test]
     fn zhipu_new_plan_two_tiers_sorted_by_reset_time() {
