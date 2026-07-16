@@ -492,6 +492,144 @@ fn migration_v11_to_v12_adds_provider_models_table() {
     assert_eq!(remaining, 0, "CASCADE should clear cached models");
 }
 
+/// M2：干净 ags v12 库（已含 provider_models + custom_aggregates）升级到 v14 后，
+/// profiles 表与两处 input_token_semantics 列就位，且 ags 聚合表完好无损。
+#[test]
+fn migration_v12_to_v14_adds_profiles_and_input_token_semantics() {
+    let conn = Connection::open_in_memory().expect("open memory db");
+
+    // 模拟 ags v12 库形状：provider_models + custom_aggregates 已建，
+    // proxy_request_logs / usage_daily_rollups 为 v12 形状（无语义列），
+    // user_version=12，但尚无 profiles 表。
+    conn.execute_batch(
+        r#"
+        CREATE TABLE provider_models (
+            provider_id TEXT NOT NULL,
+            app_type    TEXT NOT NULL,
+            model_id    TEXT NOT NULL,
+            source      TEXT NOT NULL,
+            owned_by    TEXT,
+            fetched_at  INTEGER NOT NULL,
+            PRIMARY KEY (provider_id, app_type, model_id)
+        );
+        CREATE TABLE custom_aggregates (
+            id              TEXT PRIMARY KEY,
+            app_type        TEXT NOT NULL,
+            name            TEXT NOT NULL,
+            ordered_members TEXT NOT NULL DEFAULT '[]',
+            sort_index      INTEGER,
+            created_at      INTEGER,
+            updated_at      INTEGER
+        );
+        INSERT INTO custom_aggregates (id, app_type, name, ordered_members)
+            VALUES ('agg1', 'claude', 'My Aggregate', '["glm-4.6","gpt-5"]');
+        CREATE TABLE proxy_request_logs (
+            request_id TEXT PRIMARY KEY,
+            app_type TEXT NOT NULL,
+            model TEXT NOT NULL,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+            status_code INTEGER NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        INSERT INTO proxy_request_logs
+            (request_id, app_type, model, input_tokens, output_tokens,
+             cache_read_tokens, cache_creation_tokens, status_code, created_at)
+            VALUES ('hist-1', 'codex', 'gpt-5.5', 1000, 200, 300, 0, 200, 1000);
+        CREATE TABLE usage_daily_rollups (
+            date TEXT NOT NULL,
+            app_type TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            request_model TEXT NOT NULL DEFAULT '',
+            pricing_model TEXT NOT NULL DEFAULT '',
+            request_count INTEGER NOT NULL DEFAULT 0,
+            success_count INTEGER NOT NULL DEFAULT 0,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+            total_cost_usd TEXT NOT NULL DEFAULT '0',
+            avg_latency_ms INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (date, app_type, provider_id, model, request_model, pricing_model)
+        );
+        "#,
+    )
+    .expect("seed ags v12 tables");
+
+    Database::set_user_version(&conn, 12).expect("set user_version=12");
+    Database::apply_schema_migrations_on_conn(&conn).expect("apply migrations");
+
+    // 最终版本达到 SCHEMA_VERSION（=14）。
+    assert_eq!(
+        Database::get_user_version(&conn).expect("version after migration"),
+        SCHEMA_VERSION
+    );
+
+    // v13：profiles 表就位，列结构正确。
+    assert!(
+        Database::table_exists(&conn, "profiles").expect("check profiles"),
+        "profiles table should exist after v12 -> v13"
+    );
+    let payload = get_column_info(&conn, "profiles", "payload");
+    assert_eq!(payload.r#type, "TEXT");
+    assert_eq!(payload.notnull, 1);
+    let sort_order = get_column_info(&conn, "profiles", "sort_order");
+    assert_eq!(sort_order.notnull, 0);
+
+    // v14：两处 input_token_semantics 列就位，NOT NULL DEFAULT 0。
+    for table in ["proxy_request_logs", "usage_daily_rollups"] {
+        let col = get_column_info(&conn, table, "input_token_semantics");
+        assert_eq!(col.r#type, "INTEGER", "{table}.input_token_semantics type");
+        assert_eq!(col.notnull, 1, "{table}.input_token_semantics NOT NULL");
+    }
+
+    // 历史行的语义列回填为默认 0（LEGACY）。
+    let hist_semantics: i64 = conn
+        .query_row(
+            "SELECT input_token_semantics FROM proxy_request_logs WHERE request_id = 'hist-1'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("historical semantics");
+    assert_eq!(hist_semantics, 0, "历史行默认 LEGACY(0)");
+
+    // ags 聚合表完好：provider_models 仍在，custom_aggregates 数据未丢。
+    assert!(
+        Database::table_exists(&conn, "provider_models").expect("check provider_models"),
+        "provider_models must survive v12 -> v14"
+    );
+    let agg_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM custom_aggregates", [], |r| r.get(0))
+        .expect("count custom_aggregates");
+    assert_eq!(agg_count, 1, "custom_aggregates 数据必须完好");
+}
+
+/// M2：全新库（create_tables 直建）也拥有 profiles 表与两处语义列，
+/// 证明 create path 与 upgrade path 同构。
+#[test]
+fn fresh_create_tables_include_profiles_and_input_token_semantics() {
+    let db = Database::memory().expect("memory db");
+    db.apply_schema_migrations().expect("apply migrations");
+    let conn = db.conn.lock().expect("lock");
+
+    assert_eq!(
+        Database::get_user_version(&conn).expect("version"),
+        SCHEMA_VERSION
+    );
+    assert!(
+        Database::table_exists(&conn, "profiles").expect("check profiles"),
+        "fresh create must include profiles table"
+    );
+    for table in ["proxy_request_logs", "usage_daily_rollups"] {
+        let col = get_column_info(&conn, table, "input_token_semantics");
+        assert_eq!(col.r#type, "INTEGER", "{table}.input_token_semantics type");
+        assert_eq!(col.notnull, 1, "{table}.input_token_semantics NOT NULL");
+    }
+}
+
 #[test]
 fn schema_create_tables_repairs_legacy_proxy_config_singleton_to_per_app() {
     let conn = Connection::open_in_memory().expect("open memory db");

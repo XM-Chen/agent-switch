@@ -188,6 +188,10 @@ impl Database {
         // 与 migrate_v11_to_v12 使用同一句 SQL，保证 create/migrate 两处一致且幂等。
         Self::create_custom_aggregates_table(conn)?;
 
+        // 21. Profiles 表（项目档案，M1 Project Profiles 地基；此处仅建表保证 create/upgrade 同构）
+        // 与 migrate_v12_to_v13 使用同一句 SQL，保证 create/migrate 两处一致且幂等。
+        Self::create_profiles_table(conn)?;
+
         // 10. Proxy Request Logs 表
         // pricing_model = 写入时实际用于计价的模型名（pricing_model_source 解析结果），
         // 回填按它重算；NULL 表示 v11 之前的历史行，'' 表示未计价的错误行。
@@ -203,7 +207,8 @@ impl Database {
             duration_ms INTEGER, status_code INTEGER NOT NULL, error_message TEXT, session_id TEXT,
             provider_type TEXT, is_streaming INTEGER NOT NULL DEFAULT 0,
             cost_multiplier TEXT NOT NULL DEFAULT '1.0', created_at INTEGER NOT NULL,
-            data_source TEXT NOT NULL DEFAULT 'proxy'
+            data_source TEXT NOT NULL DEFAULT 'proxy',
+            input_token_semantics INTEGER NOT NULL DEFAULT 0
         )", []).map_err(|e| AppError::Database(e.to_string()))?;
 
         conn.execute("CREATE INDEX IF NOT EXISTS idx_request_logs_provider ON proxy_request_logs(provider_id, app_type)", [])
@@ -285,6 +290,7 @@ impl Database {
                 cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
                 total_cost_usd TEXT NOT NULL DEFAULT '0',
                 avg_latency_ms INTEGER NOT NULL DEFAULT 0,
+                input_token_semantics INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (date, app_type, provider_id, model, request_model, pricing_model)
             )",
             [],
@@ -458,6 +464,18 @@ impl Database {
                         );
                         Self::migrate_v11_to_v12(conn)?;
                         Self::set_user_version(conn, 12)?;
+                    }
+                    12 => {
+                        log::info!("迁移数据库从 v12 到 v13（新增 profiles 项目预设表）");
+                        Self::migrate_v12_to_v13(conn)?;
+                        Self::set_user_version(conn, 13)?;
+                    }
+                    13 => {
+                        log::info!(
+                            "迁移数据库从 v13 到 v14（proxy_request_logs / usage_daily_rollups 新增 input_token_semantics 列）"
+                        );
+                        Self::migrate_v13_to_v14(conn)?;
+                        Self::set_user_version(conn, 14)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1372,6 +1390,75 @@ impl Database {
         )
         .map_err(|e| AppError::Database(format!("创建 custom_aggregates 索引失败: {e}")))?;
 
+        Ok(())
+    }
+
+    /// 创建 profiles 表（项目预设/项目档案，M1 Project Profiles 地基）。
+    ///
+    /// `create_tables_on_conn` 与 `migrate_v12_to_v13` 共用此函数，确保 create/upgrade
+    /// 两处建表 SQL 完全一致且幂等（`IF NOT EXISTS`）。
+    ///
+    /// - `payload` 存 Profile 引用集合的 JSON（provider/MCP/skill/prompt id + ags 聚合快照），
+    ///   不深拷贝配置正文；具体结构由 M1 service 层定义。
+    /// - current profile 指针不落此表，存于 settings 表 `current_profile_id_<scope>`。
+    /// - 无指向其他实体的外键：引用完整性由 service 层 apply 时校验（best-effort）。
+    fn create_profiles_table(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS profiles (
+                id         TEXT PRIMARY KEY,
+                name       TEXT NOT NULL,
+                payload    TEXT NOT NULL,
+                sort_order INTEGER,
+                created_at INTEGER,
+                updated_at INTEGER
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 profiles 表失败: {e}")))?;
+
+        Ok(())
+    }
+
+    /// v12 -> v13 迁移：新增 profiles 项目预设表（M1 Project Profiles 地基）。
+    ///
+    /// 与 `create_profiles_table` 共用同一句幂等 SQL；新表无消费方（M1 前）时删除
+    /// 命令注册即可静默回滚，迁移本身不可逆但无害。
+    ///
+    /// 注意：不照搬上游 ccs 的 v11→v12 编号——ags v12 已被 provider_models +
+    /// custom_aggregates 占用，profiles 在 ags 线是 v13。
+    fn migrate_v12_to_v13(conn: &Connection) -> Result<(), AppError> {
+        Self::create_profiles_table(conn)?;
+        log::info!("v12 -> v13 迁移完成：已新增 profiles 项目预设表");
+        Ok(())
+    }
+
+    /// v13 -> v14 迁移：为 proxy_request_logs 与 usage_daily_rollups 新增
+    /// `input_token_semantics` 列（三态输入 token 语义：0=LEGACY / 1=TOTAL / 2=FRESH）。
+    ///
+    /// 幂等：`add_column_if_missing` 已存在则跳过。历史行默认 0（LEGACY），其语义与
+    /// ags 现有两态归一化逻辑（Codex/Gemini 扣 cache_read）一致，迁移后行为不变。
+    ///
+    /// 注意：不照搬上游 ccs 的 v12→v13 编号——在 ags 线这是 v14。
+    fn migrate_v13_to_v14(conn: &Connection) -> Result<(), AppError> {
+        if Self::table_exists(conn, "proxy_request_logs")? {
+            Self::add_column_if_missing(
+                conn,
+                "proxy_request_logs",
+                "input_token_semantics",
+                "INTEGER NOT NULL DEFAULT 0",
+            )?;
+        }
+        if Self::table_exists(conn, "usage_daily_rollups")? {
+            Self::add_column_if_missing(
+                conn,
+                "usage_daily_rollups",
+                "input_token_semantics",
+                "INTEGER NOT NULL DEFAULT 0",
+            )?;
+        }
+        log::info!(
+            "v13 -> v14 迁移完成：proxy_request_logs / usage_daily_rollups 已新增 input_token_semantics 列"
+        );
         Ok(())
     }
 
