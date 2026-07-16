@@ -272,6 +272,7 @@ fn known_text_only_model(model: &str) -> bool {
         "kat-coder-pro-v1",
         "kat-coder-pro-v2",
         "ling-2.5-1t",
+        "longcat-2.0",
         "longcat-flash-chat",
         "mimo-v2.5-pro",
         "us.deepseek.r1-v1",
@@ -756,6 +757,13 @@ mod tests {
         assert!(known_text_only_model("zai-org/GLM-5.2"));
         // 未来视觉版（智谱 4v/5v 命名惯例）不能被误判为纯文本。
         assert!(!known_text_only_model("glm-5.2v"));
+    }
+
+    #[test]
+    fn longcat_models_are_classified_text_only() {
+        assert!(known_text_only_model("LongCat-2.0"));
+        assert!(known_text_only_model("longcat/LongCat-2.0"));
+        assert!(known_text_only_model("LongCat-Flash-Chat"));
     }
 
     #[test]

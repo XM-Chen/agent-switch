@@ -13,6 +13,89 @@ struct LegacySkillMigrationRow {
     app_type: String,
 }
 
+#[cfg(test)]
+mod pricing_tests {
+    use super::Database;
+    use rusqlite::Connection;
+
+    fn pricing(conn: &Connection, model: &str) -> (String, String, String, String) {
+        conn.query_row(
+            "SELECT input_cost_per_million, output_cost_per_million, \
+                    cache_read_cost_per_million, cache_creation_cost_per_million \
+             FROM model_pricing WHERE model_id = ?1",
+            [model],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap()
+    }
+
+    fn cost(
+        input: &str,
+        output: &str,
+        read: &str,
+        write: &str,
+    ) -> (String, String, String, String) {
+        (input.into(), output.into(), read.into(), write.into())
+    }
+
+    #[test]
+    fn current_m9_pricing_is_seeded_and_repairs_only_old_gpt_56_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE model_pricing (
+                model_id TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                input_cost_per_million TEXT NOT NULL,
+                output_cost_per_million TEXT NOT NULL,
+                cache_read_cost_per_million TEXT NOT NULL,
+                cache_creation_cost_per_million TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+
+        Database::seed_model_pricing(&conn).unwrap();
+        assert_eq!(pricing(&conn, "gpt-5.6"), cost("5", "30", "0.50", "6.25"));
+        assert_eq!(
+            pricing(&conn, "gpt-5.6-terra"),
+            cost("2.50", "15", "0.25", "3.125")
+        );
+        assert_eq!(
+            pricing(&conn, "gpt-5.6-luna"),
+            cost("1", "6", "0.10", "1.25")
+        );
+        assert_eq!(
+            pricing(&conn, "hunyuan-hy3"),
+            cost("0.14", "0.56", "0.035", "0")
+        );
+        assert_eq!(pricing(&conn, "hy3"), pricing(&conn, "hunyuan-hy3"));
+        assert_eq!(
+            pricing(&conn, "claude-sonnet-5"),
+            cost("3", "15", "0.30", "3.75")
+        );
+        assert_eq!(pricing(&conn, "glm-5.2"), cost("1.4", "4.4", "0.26", "0"));
+        assert_eq!(
+            pricing(&conn, "doubao-seed-2-1-pro"),
+            cost("0.84", "4.2", "0.17", "0")
+        );
+
+        conn.execute(
+            "UPDATE model_pricing SET cache_creation_cost_per_million = '0' WHERE model_id = 'gpt-5.6-sol'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE model_pricing SET input_cost_per_million = '9', cache_creation_cost_per_million = '0' WHERE model_id = 'gpt-5.6-terra'",
+            [],
+        )
+        .unwrap();
+        Database::repair_current_model_pricing(&conn).unwrap();
+
+        assert_eq!(pricing(&conn, "gpt-5.6-sol").3, "6.25");
+        assert_eq!(pricing(&conn, "gpt-5.6-terra").0, "9");
+        assert_eq!(pricing(&conn, "gpt-5.6-terra").3, "0");
+    }
+}
+
 impl Database {
     /// 创建所有数据库表
     pub(crate) fn create_tables(&self) -> Result<(), AppError> {
@@ -1595,6 +1678,24 @@ impl Database {
                 "0.30",
                 "3.75",
             ),
+            // GPT-5.6 家族起 cache write 按输入价 1.25 倍计费。
+            ("gpt-5.6-sol", "GPT-5.6 Sol", "5", "30", "0.50", "6.25"),
+            (
+                "gpt-5.6-terra",
+                "GPT-5.6 Terra",
+                "2.50",
+                "15",
+                "0.25",
+                "3.125",
+            ),
+            ("gpt-5.6-luna", "GPT-5.6 Luna", "1", "6", "0.10", "1.25"),
+            // 裸名是 Sol 的官方别名；effort 后缀与现有 GPT 记账形态一致。
+            ("gpt-5.6", "GPT-5.6 Sol", "5", "30", "0.50", "6.25"),
+            ("gpt-5.6-low", "GPT-5.6 Sol", "5", "30", "0.50", "6.25"),
+            ("gpt-5.6-medium", "GPT-5.6 Sol", "5", "30", "0.50", "6.25"),
+            ("gpt-5.6-high", "GPT-5.6 Sol", "5", "30", "0.50", "6.25"),
+            ("gpt-5.6-xhigh", "GPT-5.6 Sol", "5", "30", "0.50", "6.25"),
+            ("gpt-5.6-minimal", "GPT-5.6 Sol", "5", "30", "0.50", "6.25"),
             // GPT-5.5 系列
             ("gpt-5.5", "GPT-5.5", "5", "30", "0.50", "0"),
             ("gpt-5.5-low", "GPT-5.5", "5", "30", "0.50", "0"),
@@ -2075,6 +2176,9 @@ impl Database {
             ("glm-5", "GLM-5", "1", "3.2", "0.2", "0"),
             ("glm-5.1", "GLM-5.1", "1.4", "4.4", "0.26", "0"),
             ("glm-5.2", "GLM-5.2", "1.4", "4.4", "0.26", "0"),
+            // 腾讯混元（Hy3 阶梯计价暂取官方最低档，保留两个常见账单 ID）
+            ("hunyuan-hy3", "Hunyuan Hy3", "0.14", "0.56", "0.035", "0"),
+            ("hy3", "Hunyuan Hy3", "0.14", "0.56", "0.035", "0"),
             // MiMo (小米)
             (
                 "mimo-v2-flash",
@@ -2327,6 +2431,43 @@ impl Database {
 
     fn repair_current_model_pricing(conn: &Connection) -> Result<(), AppError> {
         let pricing_fixes = [
+            // 仅修复早期内置的零 cache-write 值；用户自定义价格不会命中。
+            (
+                "gpt-5.6-sol",
+                "GPT-5.6 Sol",
+                "5",
+                "30",
+                "0.50",
+                "6.25",
+                "5",
+                "30",
+                "0.50",
+                "0",
+            ),
+            (
+                "gpt-5.6-terra",
+                "GPT-5.6 Terra",
+                "2.50",
+                "15",
+                "0.25",
+                "3.125",
+                "2.50",
+                "15",
+                "0.25",
+                "0",
+            ),
+            (
+                "gpt-5.6-luna",
+                "GPT-5.6 Luna",
+                "1",
+                "6",
+                "0.10",
+                "1.25",
+                "1",
+                "6",
+                "0.10",
+                "0",
+            ),
             // 2026-06-10 全量核价（厂商官方 list 价；CNY 按 ~7.14 折算）
             // GLM 4.6/4.7：旧值是中转/OpenRouter 折扣价，统一到 Z.ai 官方（与 glm-5/5.1 一致）
             (
