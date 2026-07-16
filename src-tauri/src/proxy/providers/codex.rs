@@ -84,6 +84,61 @@ pub fn should_convert_codex_responses_to_chat(provider: &Provider, endpoint: &st
     ) && codex_provider_uses_chat_completions(provider)
 }
 
+/// Whether this Codex provider's real upstream speaks native Anthropic Messages.
+/// This is explicit-only because compatible gateway URLs cannot be inferred safely.
+pub fn codex_provider_uses_anthropic(provider: &Provider) -> bool {
+    if let Some(api_format) = provider
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.api_format.as_deref())
+        .or_else(|| {
+            provider
+                .settings_config
+                .get("api_format")
+                .and_then(|v| v.as_str())
+        })
+        .or_else(|| {
+            provider
+                .settings_config
+                .get("apiFormat")
+                .and_then(|v| v.as_str())
+        })
+    {
+        return is_anthropic_wire_api(api_format);
+    }
+
+    provider
+        .settings_config
+        .get("config")
+        .and_then(|v| v.as_str())
+        .and_then(extract_codex_wire_api_from_toml)
+        .map(|wire_api| is_anthropic_wire_api(&wire_api))
+        .unwrap_or(false)
+}
+
+pub fn should_convert_codex_responses_to_anthropic(provider: &Provider, endpoint: &str) -> bool {
+    let path = endpoint
+        .split_once('?')
+        .map_or(endpoint, |(path, _query)| path);
+
+    matches!(
+        path,
+        "/responses" | "/v1/responses" | "/responses/compact" | "/v1/responses/compact"
+    ) && codex_provider_uses_anthropic(provider)
+}
+
+pub fn resolve_codex_catalog_tool_profile(
+    provider: &Provider,
+) -> crate::codex_config::CodexCatalogToolProfile {
+    use crate::codex_config::CodexCatalogToolProfile;
+    if codex_provider_uses_anthropic(provider) {
+        return CodexCatalogToolProfile::Anthropic;
+    }
+    CodexCatalogToolProfile::from_api_format(
+        provider.meta.as_ref().and_then(|m| m.api_format.as_deref()),
+    )
+}
+
 /// Whether a converted Codex Responses request may send `prompt_cache_key` to
 /// its Chat Completions upstream. Unknown OpenAI-compatible gateways default to
 /// false because many reject unsupported request fields with HTTP 400.
@@ -204,7 +259,10 @@ pub fn apply_codex_chat_upstream_model(
     if !codex_provider_uses_chat_completions(provider) {
         return None;
     }
+    apply_codex_upstream_model(provider, body)
+}
 
+pub fn apply_codex_upstream_model(provider: &Provider, body: &mut JsonValue) -> Option<String> {
     let catalog_model_ids = codex_provider_catalog_model_ids(provider);
     if let Some(request_model) = body
         .get("model")
@@ -420,6 +478,13 @@ fn is_chat_wire_api(value: &str) -> bool {
     )
 }
 
+fn is_anthropic_wire_api(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "anthropic" | "anthropic_messages" | "anthropic-messages" | "claude" | "messages"
+    )
+}
+
 fn is_chat_completions_url(value: &str) -> bool {
     value
         .trim_end_matches('/')
@@ -602,8 +667,23 @@ impl ProviderAdapter for CodexAdapter {
     }
 
     fn extract_auth(&self, provider: &Provider) -> Option<AuthInfo> {
+        let strategy = if codex_provider_uses_anthropic(provider) {
+            let uses_x_api_key = provider
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.api_key_field.as_deref())
+                .map(|field| field.eq_ignore_ascii_case("ANTHROPIC_API_KEY"))
+                .unwrap_or(false);
+            if uses_x_api_key {
+                AuthStrategy::Anthropic
+            } else {
+                AuthStrategy::Bearer
+            }
+        } else {
+            AuthStrategy::Bearer
+        };
         self.extract_key(provider)
-            .map(|key| AuthInfo::new(key, AuthStrategy::Bearer))
+            .map(|key| AuthInfo::new(key, strategy))
     }
 
     fn build_url(&self, base_url: &str, endpoint: &str) -> String {
@@ -644,6 +724,12 @@ impl ProviderAdapter for CodexAdapter {
     ) -> Result<Vec<(http::HeaderName, http::HeaderValue)>, ProxyError> {
         use super::adapter::auth_header_value;
         let bearer = format!("Bearer {}", auth.api_key);
+        if auth.strategy == AuthStrategy::Anthropic {
+            return Ok(vec![(
+                http::HeaderName::from_static("x-api-key"),
+                auth_header_value(&auth.api_key)?,
+            )]);
+        }
         Ok(vec![(
             http::HeaderName::from_static("authorization"),
             auth_header_value(&bearer)?,
@@ -814,6 +900,63 @@ wire_api = "chat"
             &provider,
             "/chat/completions"
         ));
+    }
+
+    #[test]
+    fn anthropic_format_detection_and_path_guard() {
+        let mut provider = create_provider(json!({ "apiFormat": "anthropic" }));
+        assert!(codex_provider_uses_anthropic(&provider));
+        assert!(should_convert_codex_responses_to_anthropic(
+            &provider,
+            "/responses?stream=true"
+        ));
+        assert!(!should_convert_codex_responses_to_anthropic(
+            &provider,
+            "/chat/completions"
+        ));
+
+        provider.settings_config = json!({
+            "config": "model_provider = 'custom'\n[model_providers.custom]\nwire_api = 'messages'\n"
+        });
+        assert!(codex_provider_uses_anthropic(&provider));
+    }
+
+    #[test]
+    fn anthropic_auth_headers_are_mutually_exclusive() {
+        let adapter = CodexAdapter::new();
+        let mut provider = create_provider(json!({
+            "apiFormat": "anthropic",
+            "auth": { "OPENAI_API_KEY": "sk-test" }
+        }));
+
+        let bearer = adapter.extract_auth(&provider).unwrap();
+        assert_eq!(bearer.strategy, AuthStrategy::Bearer);
+        assert_eq!(
+            adapter.get_auth_headers(&bearer).unwrap()[0].0,
+            "authorization"
+        );
+
+        provider.meta = Some(crate::provider::ProviderMeta {
+            api_format: Some("anthropic".to_string()),
+            api_key_field: Some("ANTHROPIC_API_KEY".to_string()),
+            ..Default::default()
+        });
+        let api_key = adapter.extract_auth(&provider).unwrap();
+        assert_eq!(api_key.strategy, AuthStrategy::Anthropic);
+        let headers = adapter.get_auth_headers(&api_key).unwrap();
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0].0, "x-api-key");
+    }
+
+    #[test]
+    fn anthropic_catalog_profile_matches_router() {
+        let provider = create_provider(json!({
+            "config": "model_provider = 'custom'\n[model_providers.custom]\nwire_api = 'anthropic'\n"
+        }));
+        assert_eq!(
+            resolve_codex_catalog_tool_profile(&provider),
+            crate::codex_config::CodexCatalogToolProfile::Anthropic
+        );
     }
 
     #[test]

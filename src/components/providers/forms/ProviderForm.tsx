@@ -61,6 +61,7 @@ import {
 } from "@/utils/providerConfigUtils";
 import { mergeProviderMeta } from "@/utils/providerMetaUtils";
 import {
+  codexApiFormatFromWireApi,
   extractCodexWireApi,
   setCodexWireApi,
   extractCodexModelName,
@@ -131,25 +132,6 @@ type PresetEntry = {
     | OpenCodeProviderPreset
     | OpenClawProviderPreset
     | HermesProviderPreset;
-};
-
-const codexApiFormatFromWireApi = (
-  wireApi: string | undefined,
-): CodexApiFormat | undefined => {
-  switch (wireApi?.trim().toLowerCase()) {
-    case "chat":
-    case "chat_completions":
-    case "chat-completions":
-    case "openai_chat":
-    case "openai-chat":
-      return "openai_chat";
-    case "responses":
-    case "openai_responses":
-    case "openai-responses":
-      return "openai_responses";
-    default:
-      return undefined;
-  }
 };
 
 export const normalizeCodexCatalogModelsForSave = (
@@ -381,6 +363,17 @@ function ProviderFormFull({
       ),
     });
     setCodexChatReasoning(initialData?.meta?.codexChatReasoning ?? {});
+    setLocalCodexAnthropicAuthField(
+      initialData?.meta?.apiKeyField === "ANTHROPIC_API_KEY"
+        ? "ANTHROPIC_API_KEY"
+        : "ANTHROPIC_AUTH_TOKEN",
+    );
+    setLocalCodexMaxOutputTokens(
+      typeof initialData?.meta?.maxOutputTokens === "number" &&
+        initialData.meta.maxOutputTokens > 0
+        ? String(initialData.meta.maxOutputTokens)
+        : "",
+    );
     setPromptCacheRouting(initialData?.meta?.promptCacheRouting ?? "auto");
     setCustomUserAgent(initialData?.meta?.customUserAgent ?? "");
     setLocalProxyHeadersOverride(
@@ -595,18 +588,34 @@ function ProviderFormFull({
   const initialCodexApiFormat: CodexApiFormat =
     initialData?.meta?.apiFormat === "openai_chat"
       ? "openai_chat"
-      : initialData?.meta?.apiFormat === "openai_responses"
-        ? "openai_responses"
-        : (codexApiFormatFromWireApi(
-            extractCodexWireApi(
-              typeof initialData?.settingsConfig?.config === "string"
-                ? initialData.settingsConfig.config
-                : "",
-            ),
-          ) ?? "openai_responses");
+      : initialData?.meta?.apiFormat === "anthropic"
+        ? "anthropic"
+        : initialData?.meta?.apiFormat === "openai_responses"
+          ? "openai_responses"
+          : (codexApiFormatFromWireApi(
+              extractCodexWireApi(
+                typeof initialData?.settingsConfig?.config === "string"
+                  ? initialData.settingsConfig.config
+                  : "",
+              ),
+            ) ?? "openai_responses");
 
   const [localCodexApiFormat, setLocalCodexApiFormat] =
     useState<CodexApiFormat>(initialCodexApiFormat);
+
+  const [localCodexAnthropicAuthField, setLocalCodexAnthropicAuthField] =
+    useState<ClaudeApiKeyField>(
+      initialData?.meta?.apiKeyField === "ANTHROPIC_API_KEY"
+        ? "ANTHROPIC_API_KEY"
+        : "ANTHROPIC_AUTH_TOKEN",
+    );
+  const [localCodexMaxOutputTokens, setLocalCodexMaxOutputTokens] =
+    useState<string>(
+      typeof initialData?.meta?.maxOutputTokens === "number" &&
+        initialData.meta.maxOutputTokens > 0
+        ? String(initialData.meta.maxOutputTokens)
+        : "",
+    );
 
   const { configError: codexConfigError, debouncedValidate } =
     useCodexTomlValidation();
@@ -1522,6 +1531,19 @@ function ProviderFormFull({
         category !== "official" &&
         localApiKeyField !== "ANTHROPIC_AUTH_TOKEN"
           ? localApiKeyField
+          : appId === "codex" &&
+              category !== "official" &&
+              localCodexApiFormat === "anthropic" &&
+              localCodexAnthropicAuthField !== "ANTHROPIC_AUTH_TOKEN"
+            ? localCodexAnthropicAuthField
+            : undefined,
+      maxOutputTokens:
+        appId === "codex" &&
+        category !== "official" &&
+        localCodexApiFormat === "anthropic" &&
+        localCodexMaxOutputTokens.trim() !== "" &&
+        Number(localCodexMaxOutputTokens) > 0
+          ? Number(localCodexMaxOutputTokens)
           : undefined,
       isFullUrl:
         supportsFullUrl && category !== "official" && localIsFullUrl
@@ -2166,6 +2188,10 @@ function ProviderFormFull({
               onModelChange={handleCodexModelChange}
               apiFormat={localCodexApiFormat}
               onApiFormatChange={handleCodexApiFormatChange}
+              anthropicAuthField={localCodexAnthropicAuthField}
+              onAnthropicAuthFieldChange={setLocalCodexAnthropicAuthField}
+              maxOutputTokens={localCodexMaxOutputTokens}
+              onMaxOutputTokensChange={setLocalCodexMaxOutputTokens}
               codexChatReasoning={codexChatReasoning}
               onCodexChatReasoningChange={setCodexChatReasoning}
               promptCacheRouting={promptCacheRouting}

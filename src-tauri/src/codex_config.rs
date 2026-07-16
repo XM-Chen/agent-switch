@@ -108,6 +108,7 @@ const CODEX_MODEL_CATALOG_TEMPLATE_SLUG: &str = "gpt-5.5";
 pub enum CodexCatalogToolProfile {
     ProxyChat,
     NativeResponses,
+    Anthropic,
 }
 
 impl CodexCatalogToolProfile {
@@ -116,6 +117,7 @@ impl CodexCatalogToolProfile {
     /// tool; everything else keeps the proxy-chat behavior.
     pub fn from_api_format(api_format: Option<&str>) -> Self {
         match api_format {
+            Some("anthropic") => CodexCatalogToolProfile::Anthropic,
             Some("openai_responses") => CodexCatalogToolProfile::NativeResponses,
             _ => CodexCatalogToolProfile::ProxyChat,
         }
@@ -440,7 +442,7 @@ fn codex_catalog_model_entry(
     entry_obj.insert("availability_nux".to_string(), Value::Null);
     entry_obj.insert("upgrade".to_string(), Value::Null);
 
-    if profile == CodexCatalogToolProfile::NativeResponses {
+    if profile != CodexCatalogToolProfile::ProxyChat {
         // Native `/responses` gateways reject Codex's freeform `apply_patch`
         // (type=="custom") tool. Strip any key that would make Codex emit a
         // custom/freeform tool, and rely on shell_type="shell_command" for
@@ -870,7 +872,9 @@ fn codex_model_catalog_from_settings(
     // no cache dependency); proxy-chat providers keep cloning Codex's gpt-5.5
     // entry so the proxy can rewrite custom<->function tools as before.
     let template = match profile {
-        CodexCatalogToolProfile::NativeResponses => load_codex_native_responses_template(),
+        CodexCatalogToolProfile::NativeResponses | CodexCatalogToolProfile::Anthropic => {
+            load_codex_native_responses_template()
+        }
         CodexCatalogToolProfile::ProxyChat => load_codex_model_catalog_template()?,
     };
     Ok(Some(codex_model_catalog_from_specs(
@@ -954,14 +958,22 @@ pub fn prepare_codex_config_text_with_model_catalog(
         // (MiMo/LongCat/MiniMax by host or model brand; Qwen3-Coder by model).
         // Everything else — relays, DouBao, web-search-capable Qwen models,
         // unknown providers — keeps Codex's default.
-        let disable_web_search = profile == CodexCatalogToolProfile::NativeResponses
-            && codex_native_gateway_rejects_web_search(&config_text);
+        let disable_web_search = match profile {
+            CodexCatalogToolProfile::Anthropic => true,
+            CodexCatalogToolProfile::NativeResponses => {
+                codex_native_gateway_rejects_web_search(&config_text)
+            }
+            CodexCatalogToolProfile::ProxyChat => false,
+        };
         let config_text = set_codex_native_web_search_field(&config_text, disable_web_search)?;
         write_json_file(&catalog_path, &catalog)?;
         Ok(config_text)
     } else {
         let config_text = set_codex_model_catalog_json_field(config_text, None)?;
-        set_codex_native_web_search_field(&config_text, false)
+        set_codex_native_web_search_field(
+            &config_text,
+            profile == CodexCatalogToolProfile::Anthropic,
+        )
     }
 }
 

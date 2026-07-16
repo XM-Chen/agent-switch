@@ -912,9 +912,7 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
             // Native (direct) Responses providers must suppress Codex's freeform
             // apply_patch custom tool via the generated catalog; chat/proxy
             // providers keep the default tool set. Keyed on provider.meta.apiFormat.
-            let profile = crate::codex_config::CodexCatalogToolProfile::from_api_format(
-                provider.meta.as_ref().and_then(|m| m.api_format.as_deref()),
-            );
+            let profile = crate::proxy::providers::resolve_codex_catalog_tool_profile(provider);
 
             crate::codex_config::write_codex_provider_live_with_catalog(
                 &provider.settings_config,

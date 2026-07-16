@@ -36,6 +36,7 @@ import { CustomUserAgentField } from "./CustomUserAgentField";
 import { LocalProxyRequestOverridesField } from "./LocalProxyRequestOverridesField";
 import { cn } from "@/lib/utils";
 import type {
+  ClaudeApiKeyField,
   CodexApiFormat,
   CodexCatalogModel,
   CodexChatReasoning,
@@ -77,6 +78,10 @@ interface CodexFormFieldsProps {
   // Note: wire_api is always "responses" for Codex; apiFormat controls proxy-layer conversion
   apiFormat: CodexApiFormat;
   onApiFormatChange: (format: CodexApiFormat) => void;
+  anthropicAuthField: ClaudeApiKeyField;
+  onAnthropicAuthFieldChange: (value: ClaudeApiKeyField) => void;
+  maxOutputTokens: string;
+  onMaxOutputTokensChange: (value: string) => void;
   codexChatReasoning?: CodexChatReasoning;
   onCodexChatReasoningChange?: (value: CodexChatReasoning) => void;
   promptCacheRouting: PromptCacheRoutingMode;
@@ -166,6 +171,10 @@ export function CodexFormFields({
   onModelChange,
   apiFormat,
   onApiFormatChange,
+  anthropicAuthField,
+  onAnthropicAuthFieldChange,
+  maxOutputTokens,
+  onMaxOutputTokensChange,
   codexChatReasoning = {},
   onCodexChatReasoningChange,
   promptCacheRouting,
@@ -193,6 +202,7 @@ export function CodexFormFields({
   // 思考能力随 Chat 格式显示（仅 Chat Completions 转换路径用得上）；模型映射常驻
   //（填了才生成 catalog）。两者都已与「路由接管」概念解耦。
   const isChatFormat = apiFormat === "openai_chat";
+  const isAnthropicFormat = apiFormat === "anthropic";
   const canEditCatalog = Boolean(onCatalogModelsChange);
   const canEditReasoning = Boolean(onCodexChatReasoningChange);
   const supportsThinking =
@@ -210,9 +220,11 @@ export function CodexFormFields({
     hasRequestOverrides ||
     catalogModels.length > 0 ||
     apiFormat === "openai_responses" ||
+    isAnthropicFormat ||
     supportsThinking ||
     supportsEffort ||
-    promptCacheRouting !== "auto";
+    promptCacheRouting !== "auto" ||
+    !!maxOutputTokens;
   const [advancedExpanded, setAdvancedExpanded] = useState(hasAnyAdvancedValue);
 
   // 预设/编辑加载填充高级值后自动展开（仅从折叠→展开，不会自动折叠）
@@ -566,6 +578,9 @@ export function CodexFormFields({
                           defaultValue: "Responses（原生）",
                         })}
                       </SelectItem>
+                      <SelectItem value="anthropic">
+                        {t("codexConfig.upstreamFormatAnthropic")}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs leading-relaxed text-muted-foreground">
@@ -575,6 +590,62 @@ export function CodexFormFields({
                     })}
                   </p>
                 </div>
+
+                {isAnthropicFormat && (
+                  <div className="space-y-1.5">
+                    <FormLabel htmlFor="codex-anthropic-auth-field">
+                      {t("codexConfig.anthropicAuthFieldLabel")}
+                    </FormLabel>
+                    <Select
+                      value={anthropicAuthField}
+                      onValueChange={(value) =>
+                        onAnthropicAuthFieldChange(value as ClaudeApiKeyField)
+                      }
+                    >
+                      <SelectTrigger
+                        id="codex-anthropic-auth-field"
+                        className="w-full"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ANTHROPIC_AUTH_TOKEN">
+                          {t("codexConfig.anthropicAuthFieldAuthToken")}
+                        </SelectItem>
+                        <SelectItem value="ANTHROPIC_API_KEY">
+                          {t("codexConfig.anthropicAuthFieldApiKey")}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {t("codexConfig.anthropicAuthFieldHint")}
+                    </p>
+                  </div>
+                )}
+
+                {isAnthropicFormat && (
+                  <div className="space-y-1.5 border-t border-border-default pt-3">
+                    <FormLabel htmlFor="codex-anthropic-max-output-tokens">
+                      {t("codexConfig.maxOutputTokensLabel")}
+                    </FormLabel>
+                    <Input
+                      id="codex-anthropic-max-output-tokens"
+                      type="number"
+                      min={1}
+                      inputMode="numeric"
+                      value={maxOutputTokens}
+                      onChange={(event) =>
+                        onMaxOutputTokensChange(
+                          event.target.value.replace(/[^\d]/g, ""),
+                        )
+                      }
+                      placeholder={t("codexConfig.maxOutputTokensPlaceholder")}
+                    />
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {t("codexConfig.maxOutputTokensHint")}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 

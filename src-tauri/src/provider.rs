@@ -490,6 +490,9 @@ pub struct ProviderMeta {
     /// Codex Responses -> Chat Completions reasoning capability metadata.
     #[serde(rename = "codexChatReasoning", skip_serializing_if = "Option::is_none")]
     pub codex_chat_reasoning: Option<CodexChatReasoningConfig>,
+    /// Codex -> Anthropic path: override the Anthropic output token ceiling.
+    #[serde(rename = "maxOutputTokens", skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u64>,
     /// Custom User-Agent for local proxy routing.
     #[serde(rename = "customUserAgent", skip_serializing_if = "Option::is_none")]
     pub custom_user_agent: Option<String>,
@@ -976,6 +979,22 @@ mod tests {
     };
     use serde_json::json;
     use std::collections::HashMap;
+
+    #[test]
+    fn provider_meta_roundtrips_max_output_tokens() {
+        let meta = ProviderMeta {
+            max_output_tokens: Some(64000),
+            ..ProviderMeta::default()
+        };
+        let value = serde_json::to_value(&meta).expect("serialize ProviderMeta");
+        assert_eq!(
+            value.get("maxOutputTokens").and_then(|item| item.as_u64()),
+            Some(64000)
+        );
+        assert!(value.get("max_output_tokens").is_none());
+        let parsed: ProviderMeta = serde_json::from_value(value).expect("deserialize ProviderMeta");
+        assert_eq!(parsed.max_output_tokens, Some(64000));
+    }
 
     #[test]
     fn provider_meta_serializes_pricing_model_source() {

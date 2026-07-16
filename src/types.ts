@@ -229,6 +229,8 @@ export interface ProviderMeta {
   codexFastMode?: boolean;
   // Codex Responses -> Chat Completions reasoning capability metadata
   codexChatReasoning?: CodexChatReasoning;
+  // Codex -> Anthropic path: override the Anthropic output token ceiling.
+  maxOutputTokens?: number;
   // Custom User-Agent for local proxy routing. Only applied by the local proxy.
   customUserAgent?: string;
   // Local proxy request overrides. Only applied by the local proxy after route transforms.
@@ -259,7 +261,7 @@ export type ClaudeApiFormat =
 // Codex API 格式类型
 // - "openai_responses": OpenAI Responses API 格式，直接透传
 // - "openai_chat": OpenAI Chat Completions 格式，需要本地路由转换
-export type CodexApiFormat = "openai_responses" | "openai_chat";
+export type CodexApiFormat = "openai_responses" | "openai_chat" | "anthropic";
 
 export interface CodexCatalogModel {
   model: string;
