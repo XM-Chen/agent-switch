@@ -7,11 +7,20 @@ use serde_json::{json, Value};
 
 /// 在请求体关键位置注入 cache_control 断点
 pub fn inject(body: &mut Value, config: &OptimizerConfig) {
-    if !config.cache_injection {
+    if !config.enabled || !config.cache_injection {
         return;
     }
 
     let existing = count_existing(body);
+
+    if existing > 4 {
+        // Existing markers are caller-owned. Do not silently delete or reorder
+        // them; surface the invalid/unsupported total and leave validation to
+        // the upstream provider.
+        log::warn!(
+            "[OPT] cache: existing breakpoint count {existing} exceeds the supported total of 4; preserving caller input"
+        );
+    }
 
     // 升级已有断点的 TTL
     upgrade_existing_ttl(body, &config.cache_ttl);
@@ -76,32 +85,28 @@ pub fn inject(body: &mut Value, config: &OptimizerConfig) {
         }
     }
 
-    // (c) 最后一条 assistant 消息的最后一个非 thinking block
+    // (c) 最新消息的最后一个非 thinking block
     if budget > 0 {
         if let Some(messages) = body.get_mut("messages").and_then(|m| m.as_array_mut()) {
-            if let Some(assistant_msg) = messages
-                .iter_mut()
-                .rev()
-                .find(|m| m.get("role").and_then(|r| r.as_str()) == Some("assistant"))
-            {
-                if let Some(content) = assistant_msg
-                    .get_mut("content")
-                    .and_then(|c| c.as_array_mut())
-                {
-                    // 逆序找最后一个非 thinking/redacted_thinking block
-                    if let Some(block) = content.iter_mut().rev().find(|b| {
-                        let bt = b.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                        bt != "thinking" && bt != "redacted_thinking"
-                    }) {
-                        if block.get("cache_control").is_none() {
-                            if let Some(o) = block.as_object_mut() {
-                                o.insert(
-                                    "cache_control".to_string(),
-                                    make_cache_control(&config.cache_ttl),
-                                );
-                            }
-                            injected.push("msgs");
+            for message in messages.iter_mut().rev() {
+                if inject_message_breakpoint(message, &config.cache_ttl) {
+                    budget -= 1;
+                    injected.push("msgs-latest");
+                    break;
+                }
+            }
+            if budget > 0 && messages.len() >= 4 {
+                let mut user_count = 0;
+                for message in messages.iter_mut().rev() {
+                    if message.get("role").and_then(Value::as_str) != Some("user") {
+                        continue;
+                    }
+                    user_count += 1;
+                    if user_count == 2 {
+                        if inject_message_breakpoint(message, &config.cache_ttl) {
+                            injected.push("msgs-prior-user");
                         }
+                        break;
                     }
                 }
             }
@@ -114,6 +119,28 @@ pub fn inject(body: &mut Value, config: &OptimizerConfig) {
         injected.join("+"),
         config.cache_ttl,
     );
+}
+
+fn inject_message_breakpoint(message: &mut Value, ttl: &str) -> bool {
+    let Some(content) = message.get_mut("content").and_then(Value::as_array_mut) else {
+        return false;
+    };
+    let Some(block) = content.iter_mut().rev().find(|block| {
+        !matches!(
+            block.get("type").and_then(Value::as_str),
+            Some("thinking" | "redacted_thinking")
+        )
+    }) else {
+        return false;
+    };
+    if block.get("cache_control").is_some() {
+        return false;
+    }
+    let Some(object) = block.as_object_mut() else {
+        return false;
+    };
+    object.insert("cache_control".to_string(), make_cache_control(ttl));
+    true
 }
 
 fn make_cache_control(ttl: &str) -> Value {
@@ -204,12 +231,12 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_body_no_injection() {
+    fn test_user_only_body_marks_latest_message() {
         let mut body = json!({"model": "test", "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]});
-        let original = body.clone();
         inject(&mut body, &default_config());
-        // No tools, no system, no assistant → no injection
-        assert_eq!(body, original);
+        assert!(body["messages"][0]["content"][0]
+            .get("cache_control")
+            .is_some());
     }
 
     #[test]
@@ -293,6 +320,32 @@ mod tests {
     }
 
     #[test]
+    fn test_more_than_four_existing_breakpoints_are_preserved() {
+        let mut body = json!({
+            "model": "test",
+            "tools": [
+                {"name": "t1", "cache_control": {"type": "ephemeral"}},
+                {"name": "t2", "cache_control": {"type": "ephemeral"}}
+            ],
+            "system": [
+                {"type": "text", "text": "s1", "cache_control": {"type": "ephemeral"}},
+                {"type": "text", "text": "s2", "cache_control": {"type": "ephemeral"}}
+            ],
+            "messages": [{"role": "user", "content": [
+                {"type": "text", "text": "m1", "cache_control": {"type": "ephemeral"}},
+                {"type": "text", "text": "m2"}
+            ]}]
+        });
+
+        inject(&mut body, &default_config());
+
+        assert_eq!(count_existing(&body), 5);
+        assert!(body["messages"][0]["content"][1]
+            .get("cache_control")
+            .is_none());
+    }
+
+    #[test]
     fn test_system_string_converted_to_array() {
         let mut body = json!({
             "model": "test",
@@ -346,6 +399,41 @@ mod tests {
         inject(&mut body, &config);
 
         assert_eq!(body, original);
+    }
+
+    #[test]
+    fn test_optimizer_disabled_no_change() {
+        let config = OptimizerConfig {
+            enabled: false,
+            cache_injection: true,
+            ..default_config()
+        };
+        let mut body = json!({
+            "tools":[{"name":"tool1"}],
+            "messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]
+        });
+        let original = body.clone();
+        inject(&mut body, &config);
+        assert_eq!(body, original);
+    }
+
+    #[test]
+    fn test_long_history_uses_prior_user_breakpoint() {
+        let mut body = json!({
+            "tools":[{"name":"tool1"}],
+            "system":[{"type":"text","text":"sys"}],
+            "messages":[
+                {"role":"user","content":[{"type":"text","text":"first"}]},
+                {"role":"assistant","content":[{"type":"text","text":"answer"}]},
+                {"role":"user","content":[{"type":"tool_result","tool_use_id":"c1","content":"result"}]},
+                {"role":"assistant","content":[{"type":"text","text":"latest"}]}
+            ]
+        });
+        inject(&mut body, &default_config());
+        assert_eq!(count_existing(&body), 4);
+        assert!(body["messages"][0]["content"][0]
+            .get("cache_control")
+            .is_some());
     }
 
     #[test]

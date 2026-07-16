@@ -39,6 +39,7 @@ import type {
   CodexApiFormat,
   CodexCatalogModel,
   CodexChatReasoning,
+  PromptCacheRoutingMode,
   ProviderCategory,
 } from "@/types";
 
@@ -78,6 +79,8 @@ interface CodexFormFieldsProps {
   onApiFormatChange: (format: CodexApiFormat) => void;
   codexChatReasoning?: CodexChatReasoning;
   onCodexChatReasoningChange?: (value: CodexChatReasoning) => void;
+  promptCacheRouting: PromptCacheRoutingMode;
+  onPromptCacheRoutingChange: (value: PromptCacheRoutingMode) => void;
 
   // Model Catalog
   catalogModels?: CodexCatalogModel[];
@@ -165,6 +168,8 @@ export function CodexFormFields({
   onApiFormatChange,
   codexChatReasoning = {},
   onCodexChatReasoningChange,
+  promptCacheRouting,
+  onPromptCacheRoutingChange,
   catalogModels = [],
   onCatalogModelsChange,
   speedTestEndpoints,
@@ -206,7 +211,8 @@ export function CodexFormFields({
     catalogModels.length > 0 ||
     apiFormat === "openai_responses" ||
     supportsThinking ||
-    supportsEffort;
+    supportsEffort ||
+    promptCacheRouting !== "auto";
   const [advancedExpanded, setAdvancedExpanded] = useState(hasAnyAdvancedValue);
 
   // 预设/编辑加载填充高级值后自动展开（仅从折叠→展开，不会自动折叠）
@@ -579,6 +585,38 @@ export function CodexFormFields({
                   shouldShowSpeedTest && "border-t border-border-default pt-3",
                 )}
               >
+                <div className="space-y-2">
+                  <FormLabel>
+                    {t("codexConfig.promptCacheRoutingLabel")}
+                  </FormLabel>
+                  <Select
+                    value={promptCacheRouting}
+                    onValueChange={(value) =>
+                      onPromptCacheRoutingChange(
+                        value as PromptCacheRoutingMode,
+                      )
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">
+                        {t("codexConfig.promptCacheRoutingAuto")}
+                      </SelectItem>
+                      <SelectItem value="enabled">
+                        {t("codexConfig.promptCacheRoutingEnabled")}
+                      </SelectItem>
+                      <SelectItem value="disabled">
+                        {t("codexConfig.promptCacheRoutingDisabled")}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {t("codexConfig.promptCacheRoutingHint")}
+                  </p>
+                </div>
+
                 <div className="space-y-1">
                   <FormLabel>
                     {t("codexConfig.reasoningGroupTitle", {
