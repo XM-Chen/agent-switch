@@ -21,6 +21,105 @@ use super::gemini_auth::{
 };
 use super::normalize_claude_models_in_value;
 
+const CODEX_OAUTH_CLAUDE_CONTEXT_TOKENS: &str = "372000";
+const CODEX_OAUTH_MODEL_ENV_KEYS: [&str; 6] = [
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL",
+    "CLAUDE_CODE_SUBAGENT_MODEL",
+];
+
+fn provider_env_targets_gpt56(provider_env: Option<&serde_json::Map<String, Value>>) -> bool {
+    let Some(env) = provider_env else {
+        return false;
+    };
+    let mut saw_model = false;
+    for key in CODEX_OAUTH_MODEL_ENV_KEYS {
+        let Some(value) = env.get(key) else { continue };
+        let Some(model) = value.as_str() else {
+            return false;
+        };
+        let model = model.trim();
+        if model.is_empty() {
+            continue;
+        }
+        saw_model = true;
+        if !model.to_ascii_lowercase().starts_with("gpt-5.6") {
+            return false;
+        }
+    }
+    saw_model
+}
+
+fn apply_codex_oauth_claude_context_defaults(settings: &mut Value, provider: &Provider) {
+    if !provider.is_codex_oauth() {
+        return;
+    }
+    let provider_env = provider
+        .settings_config
+        .get("env")
+        .and_then(Value::as_object);
+    let Some(root) = settings.as_object_mut() else {
+        return;
+    };
+    let Some(env) = root
+        .entry("env".to_string())
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+    else {
+        return;
+    };
+    let inject_defaults = provider_env_targets_gpt56(provider_env);
+    for key in [
+        "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+        "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+    ] {
+        match provider_env.and_then(|source| source.get(key)) {
+            Some(value) => {
+                env.insert(key.to_string(), value.clone());
+            }
+            None if inject_defaults => {
+                env.insert(
+                    key.to_string(),
+                    Value::String(CODEX_OAUTH_CLAUDE_CONTEXT_TOKENS.to_string()),
+                );
+            }
+            None => {
+                env.remove(key);
+            }
+        }
+    }
+}
+
+fn strip_injected_codex_oauth_context_defaults(settings: &mut Value, provider: &Provider) {
+    if !provider.is_codex_oauth() {
+        return;
+    }
+    let provider_env = provider
+        .settings_config
+        .get("env")
+        .and_then(Value::as_object);
+    if !provider_env_targets_gpt56(provider_env) {
+        return;
+    }
+    let Some(env) = settings.get_mut("env").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for key in [
+        "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+        "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+    ] {
+        if provider_env.is_some_and(|source| source.contains_key(key)) {
+            continue;
+        }
+        if env.get(key).and_then(Value::as_str) == Some(CODEX_OAUTH_CLAUDE_CONTEXT_TOKENS) {
+            env.remove(key);
+        }
+    }
+}
+
 pub(crate) fn sanitize_claude_settings_for_live(settings: &Value) -> Value {
     let mut v = settings.clone();
     if let Some(obj) = v.as_object_mut() {
@@ -503,6 +602,10 @@ pub(crate) fn build_effective_settings_with_common_config(
         }
     }
 
+    if matches!(app_type, AppType::Claude) {
+        apply_codex_oauth_claude_context_defaults(&mut effective_settings, provider);
+    }
+
     Ok(effective_settings)
 }
 
@@ -575,6 +678,11 @@ fn restore_live_settings_for_provider_backfill(
     provider: &Provider,
     live_settings: Value,
 ) -> Value {
+    if matches!(app_type, AppType::Claude) {
+        let mut settings = live_settings;
+        strip_injected_codex_oauth_context_defaults(&mut settings, provider);
+        return settings;
+    }
     if !matches!(app_type, AppType::Codex) {
         return live_settings;
     }
@@ -1607,6 +1715,57 @@ pub fn remove_openclaw_provider_from_live(provider_id: &str) -> Result<(), AppEr
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn codex_oauth_gpt56_live_settings_get_372k_defaults() {
+        let db = Database::memory().expect("create memory db");
+        let mut provider = Provider::with_id(
+            "codex-oauth".to_string(),
+            "Codex".to_string(),
+            json!({ "env": { "ANTHROPIC_MODEL": "gpt-5.6" } }),
+            None,
+        );
+        provider.meta = Some(crate::provider::ProviderMeta {
+            provider_type: Some("codex_oauth".to_string()),
+            ..Default::default()
+        });
+        let settings =
+            build_effective_settings_with_common_config(&db, &AppType::Claude, &provider)
+                .expect("effective settings");
+        assert_eq!(settings["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "372000");
+        assert_eq!(settings["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "372000");
+    }
+
+    #[test]
+    fn codex_oauth_backfill_removes_only_injected_defaults() {
+        let db = Database::memory().expect("create memory db");
+        let mut provider = Provider::with_id(
+            "codex-oauth".to_string(),
+            "Codex".to_string(),
+            json!({ "env": { "ANTHROPIC_MODEL": "gpt-5.6" } }),
+            None,
+        );
+        provider.meta = Some(crate::provider::ProviderMeta {
+            provider_type: Some("codex_oauth".to_string()),
+            ..Default::default()
+        });
+        let live = json!({
+            "env": {
+                "ANTHROPIC_MODEL": "gpt-5.6",
+                "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "372000",
+                "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "300000"
+            }
+        });
+        let backfilled =
+            strip_common_config_from_live_settings(&db, &AppType::Claude, &provider, live);
+        assert!(backfilled["env"]
+            .get("CLAUDE_CODE_MAX_CONTEXT_TOKENS")
+            .is_none());
+        assert_eq!(
+            backfilled["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"],
+            "300000"
+        );
+    }
 
     #[test]
     fn claude_common_config_apply_and_remove_roundtrip_for_non_overlapping_fields() {

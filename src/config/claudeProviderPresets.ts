@@ -294,15 +294,8 @@ export const providerPresets: ProviderPreset[] = [
       env: {
         ANTHROPIC_BASE_URL: "https://api.kimi.com/coding/",
         ANTHROPIC_AUTH_TOKEN: "",
-        CLAUDE_CODE_AUTO_COMPACT_WINDOW: "${CLAUDE_CODE_AUTO_COMPACT_WINDOW}",
-      },
-    },
-    templateValues: {
-      CLAUDE_CODE_AUTO_COMPACT_WINDOW: {
-        label: "Auto Compact Window",
-        placeholder: "262144",
-        defaultValue: "262144",
-        editorValue: "262144",
+        CLAUDE_CODE_MAX_CONTEXT_TOKENS: "262144",
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW: "262144",
       },
     },
     category: "cn_official",
@@ -554,10 +547,18 @@ export const providerPresets: ProviderPreset[] = [
         // base_url 由代理后端强制重写为 chatgpt.com/backend-api/codex
         // 用户无需配置
         ANTHROPIC_BASE_URL: "https://chatgpt.com/backend-api/codex",
-        ANTHROPIC_MODEL: "gpt-5.5",
-        ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.4-mini",
-        ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.5",
-        ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.5",
+        ANTHROPIC_MODEL: "gpt-5.6",
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.6-luna",
+        ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.6",
+        ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.6",
+        // Claude Code falls back to a 200K context window for unrecognized
+        // non-Claude model ids. The ChatGPT Codex backend catalogs gpt-5.6
+        // at a 372K window with a ~353K effective budget (openai/codex#31860),
+        // not the 1.05M API window. Declare 372K for both knobs: Claude Code's
+        // built-in output reserve and compact buffer already keep the compact
+        // trigger below the effective budget.
+        CLAUDE_CODE_MAX_CONTEXT_TOKENS: "372000",
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW: "372000",
       },
     },
     category: "third_party",

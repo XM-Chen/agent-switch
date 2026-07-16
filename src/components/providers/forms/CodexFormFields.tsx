@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { FormLabel } from "@/components/ui/form";
@@ -68,6 +68,9 @@ interface CodexFormFieldsProps {
   onCustomEndpointsChange?: (endpoints: string[]) => void;
   autoSelect: boolean;
   onAutoSelectChange: (checked: boolean) => void;
+
+  codexModel?: string;
+  onModelChange?: (model: string) => void;
 
   // API Format
   // Note: wire_api is always "responses" for Codex; apiFormat controls proxy-layer conversion
@@ -156,6 +159,8 @@ export function CodexFormFields({
   onCustomEndpointsChange,
   autoSelect,
   onAutoSelectChange,
+  codexModel = "",
+  onModelChange,
   apiFormat,
   onApiFormatChange,
   codexChatReasoning = {},
@@ -174,6 +179,12 @@ export function CodexFormFields({
 
   const [fetchedModels, setFetchedModels] = useState<FetchedModel[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const fetchModelsSeqRef = useRef(0);
+
+  useEffect(() => {
+    fetchModelsSeqRef.current += 1;
+    setFetchedModels((prev) => (prev.length === 0 ? prev : []));
+  }, [codexBaseUrl, isFullUrl, codexApiKey, customUserAgent]);
   // 思考能力随 Chat 格式显示（仅 Chat Completions 转换路径用得上）；模型映射常驻
   //（填了才生成 catalog）。两者都已与「路由接管」概念解耦。
   const isChatFormat = apiFormat === "openai_chat";
@@ -271,6 +282,7 @@ export function CodexFormFields({
       });
       return;
     }
+    const seq = ++fetchModelsSeqRef.current;
     setIsFetchingModels(true);
     fetchModelsForConfig(
       codexBaseUrl,
@@ -280,6 +292,7 @@ export function CodexFormFields({
       customUserAgent,
     )
       .then((models) => {
+        if (seq !== fetchModelsSeqRef.current) return;
         setFetchedModels(models);
         if (models.length === 0) {
           toast.info(t("providerForm.fetchModelsEmpty"));
@@ -290,6 +303,7 @@ export function CodexFormFields({
         }
       })
       .catch((err) => {
+        if (seq !== fetchModelsSeqRef.current) return;
         console.warn("[ModelFetch] Failed:", err);
         showFetchModelsError(err, t);
       })
@@ -313,6 +327,40 @@ export function CodexFormFields({
   const handleRemoveCatalogRow = useCallback((index: number) => {
     setCatalogRows((current) => current.filter((_, i) => i !== index));
   }, []);
+
+  const defaultModelSuggestions = useMemo<FetchedModel[]>(() => {
+    const seen = new Set<string>();
+    const suggestions: FetchedModel[] = [];
+    for (const row of catalogRows) {
+      const id = row.model.trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      suggestions.push({ id, ownedBy: "模型映射" });
+    }
+    for (const model of fetchedModels) {
+      if (seen.has(model.id)) continue;
+      seen.add(model.id);
+      suggestions.push(model);
+    }
+    return suggestions;
+  }, [catalogRows, fetchedModels]);
+
+  const trimmedDefaultModel = codexModel.trim();
+  const isDefaultModelOutsideCatalog =
+    catalogRows.length > 0 &&
+    !!trimmedDefaultModel &&
+    !catalogRows.some((row) => row.model.trim() === trimmedDefaultModel);
+
+  const handleAddDefaultModelToCatalog = useCallback(() => {
+    if (!onCatalogModelsChange || !trimmedDefaultModel) return;
+    setCatalogRows((current) => [
+      ...current,
+      createCatalogRow({
+        model: trimmedDefaultModel,
+        displayName: trimmedDefaultModel,
+      }),
+    ]);
+  }, [onCatalogModelsChange, trimmedDefaultModel]);
 
   const renderCatalogActionButtons = (onAdd: () => void, addLabel: string) => (
     <div className="flex gap-1">
@@ -381,6 +429,69 @@ export function CodexFormFields({
           onFullUrlChange={onFullUrlChange}
           onManageClick={() => onEndpointModalToggle(true)}
         />
+      )}
+
+      {category !== "official" && onModelChange && (
+        <div className="space-y-1.5">
+          <FormLabel htmlFor="codexDefaultModel">
+            {t("codexConfig.defaultModelLabel", { defaultValue: "默认模型" })}
+          </FormLabel>
+          <div className="flex gap-1">
+            <Input
+              id="codexDefaultModel"
+              value={codexModel}
+              onChange={(event) => onModelChange(event.target.value)}
+              placeholder={t("codexConfig.defaultModelPlaceholder", {
+                defaultValue: "例如: gpt-5.6",
+              })}
+              className="flex-1"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={handleFetchModels}
+              disabled={isFetchingModels}
+              className="shrink-0"
+            >
+              {isFetchingModels ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+            </Button>
+            {defaultModelSuggestions.length > 0 && (
+              <ModelDropdown
+                models={defaultModelSuggestions}
+                onSelect={(id) => onModelChange(id)}
+              />
+            )}
+          </div>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {t("codexConfig.defaultModelHint", {
+              defaultValue:
+                "Codex 默认请求的模型；留空且配置了模型映射时使用映射第一行。",
+            })}
+          </p>
+          {isDefaultModelOutsideCatalog && (
+            <p className="flex flex-wrap items-center gap-x-2 text-xs leading-relaxed text-muted-foreground">
+              {t("codexConfig.defaultModelNotInCatalog", {
+                defaultValue: "该模型不在模型映射中，直接请求仍然有效。",
+              })}
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto p-0 text-xs"
+                onClick={handleAddDefaultModelToCatalog}
+              >
+                {t("codexConfig.addToModelMapping", {
+                  defaultValue: "加入映射",
+                })}
+              </Button>
+            </p>
+          )}
+        </div>
       )}
 
       {/* 高级选项 —— 上游格式/模型映射/思考能力/自定义 UA；预设供应商通常无需展开 */}
