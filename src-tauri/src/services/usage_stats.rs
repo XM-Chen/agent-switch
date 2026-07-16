@@ -5,7 +5,10 @@
 use crate::database::{lock_conn, Database};
 use crate::error::AppError;
 use crate::proxy::usage::calculator::ModelPricing;
-use crate::services::sql_helpers::fresh_input_sql;
+use crate::services::sql_helpers::{
+    fresh_input_sql, INPUT_TOKEN_SEMANTICS_FRESH, INPUT_TOKEN_SEMANTICS_LEGACY,
+    INPUT_TOKEN_SEMANTICS_TOTAL,
+};
 use chrono::{Local, NaiveDate, TimeZone, Timelike};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -135,6 +138,8 @@ pub struct RequestLogDetail {
     pub output_tokens: u32,
     pub cache_read_tokens: u32,
     pub cache_creation_tokens: u32,
+    #[serde(skip_serializing)]
+    pub input_token_semantics: i64,
     pub input_cost_usd: String,
     pub output_cost_usd: String,
     pub cache_read_cost_usd: String,
@@ -154,7 +159,7 @@ pub struct RequestLogDetail {
     pub pricing_model: Option<String>,
 }
 
-/// 把 25 列的查询结果映射为 `RequestLogDetail`。
+/// 把 26 列的查询结果映射为 `RequestLogDetail`。
 ///
 /// 调用方的 SELECT **必须**按以下顺序返回 25 列：
 /// `request_id, provider_id, provider_name, app_type, model, request_model,
@@ -162,7 +167,7 @@ pub struct RequestLogDetail {
 ///  cache_creation_tokens, input_cost_usd, output_cost_usd, cache_read_cost_usd,
 ///  cache_creation_cost_usd, total_cost_usd, is_streaming, latency_ms,
 ///  first_token_ms, duration_ms, status_code, error_message, created_at,
-///  data_source, pricing_model`
+///  data_source, pricing_model, input_token_semantics`
 ///
 /// 不需要 provider_name 时（如 backfill）SELECT `NULL AS provider_name` 占位即可。
 fn row_to_request_log_detail(row: &rusqlite::Row<'_>) -> rusqlite::Result<RequestLogDetail> {
@@ -185,6 +190,7 @@ fn row_to_request_log_detail(row: &rusqlite::Row<'_>) -> rusqlite::Result<Reques
         cache_read_cost_usd: row.get(13)?,
         cache_creation_cost_usd: row.get(14)?,
         total_cost_usd: row.get(15)?,
+        input_token_semantics: row.get(25)?,
         is_streaming: row.get::<_, i64>(16)? != 0,
         latency_ms: row.get::<_, i64>(17)? as u64,
         first_token_ms: row.get::<_, Option<i64>>(18)?.map(|v| v as u64),
@@ -1526,7 +1532,8 @@ impl Database {
                     l.input_tokens, l.output_tokens, l.cache_read_tokens, l.cache_creation_tokens,
                     l.input_cost_usd, l.output_cost_usd, l.cache_read_cost_usd, l.cache_creation_cost_usd, l.total_cost_usd,
                     l.is_streaming, l.latency_ms, l.first_token_ms, l.duration_ms,
-                    l.status_code, l.error_message, l.created_at, l.data_source, l.pricing_model
+                    l.status_code, l.error_message, l.created_at, l.data_source, l.pricing_model,
+                    l.input_token_semantics
              FROM proxy_request_logs l
              LEFT JOIN providers p ON l.provider_id = p.id AND l.app_type = p.app_type
              {where_clause}
@@ -1569,7 +1576,8 @@ impl Database {
                     input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
                     input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd, total_cost_usd,
                     is_streaming, latency_ms, first_token_ms, duration_ms,
-                    status_code, error_message, created_at, l.data_source, l.pricing_model
+                    status_code, error_message, created_at, l.data_source, l.pricing_model,
+                    l.input_token_semantics
              FROM proxy_request_logs l
              LEFT JOIN providers p ON l.provider_id = p.id AND l.app_type = p.app_type
              WHERE l.request_id = ?"
@@ -1725,7 +1733,7 @@ impl Database {
                         input_cost_usd, output_cost_usd, cache_read_cost_usd,
                         cache_creation_cost_usd, total_cost_usd, is_streaming, latency_ms,
                         first_token_ms, duration_ms, status_code, error_message, created_at,
-                        data_source, pricing_model
+                        data_source, pricing_model, input_token_semantics
              FROM proxy_request_logs
              WHERE CAST(total_cost_usd AS REAL) <= 0
                AND (input_tokens > 0 OR output_tokens > 0
@@ -1805,15 +1813,23 @@ impl Database {
 
         let million = rust_decimal::Decimal::from(1_000_000u64);
 
-        // 与 CostCalculator::calculate_for_app 保持一致的计算逻辑：
-        // 1. Codex/Gemini 的 input_tokens 包含 cache_read_tokens，需要扣除后按输入价计费
-        // 2. Claude/Anthropic 的 input_tokens 已经是 fresh input，不能再次扣减
+        // 与 CostCalculator::calculate_for_app 保持一致的三态计算逻辑：
+        // LEGACY 沿用旧的 app_type 推断；TOTAL 同时扣除 cache read/write；
+        // FRESH 已是 fresh input，不再扣缓存。
         // 3. 各项成本是基础成本（不含倍率），倍率只作用于最终总价
         let input_includes_cache_read = matches!(log.app_type.as_str(), "codex" | "gemini");
-        let billable_input_tokens = if input_includes_cache_read {
-            (log.input_tokens as u64).saturating_sub(log.cache_read_tokens as u64)
-        } else {
-            log.input_tokens as u64
+        let billable_input_tokens = match log.input_token_semantics {
+            INPUT_TOKEN_SEMANTICS_FRESH => log.input_tokens as u64,
+            INPUT_TOKEN_SEMANTICS_TOTAL => (log.input_tokens as u64)
+                .saturating_sub(log.cache_read_tokens as u64)
+                .saturating_sub(log.cache_creation_tokens as u64),
+            INPUT_TOKEN_SEMANTICS_LEGACY if input_includes_cache_read => {
+                (log.input_tokens as u64).saturating_sub(log.cache_read_tokens as u64)
+            }
+            _ if input_includes_cache_read => {
+                (log.input_tokens as u64).saturating_sub(log.cache_read_tokens as u64)
+            }
+            _ => log.input_tokens as u64,
         };
         let input_cost =
             rust_decimal::Decimal::from(billable_input_tokens) * pricing.input / million;
@@ -4063,6 +4079,74 @@ mod tests {
         let result = find_model_pricing_row(&conn, "unknown-model-123")?;
         assert!(result.is_none(), "不应该匹配不存在的模型");
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_backfill_distinguishes_legacy_and_total_cache_semantics() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        {
+            let conn = lock_conn!(db.conn);
+            conn.execute(
+                "INSERT INTO model_pricing (model_id, display_name, input_cost_per_million,
+                    output_cost_per_million, cache_read_cost_per_million,
+                    cache_creation_cost_per_million)
+                 VALUES ('semantics-backfill', 'Semantics Backfill', '1', '0', '0', '0')",
+                [],
+            )?;
+            insert_usage_log(
+                &conn,
+                "semantics-legacy",
+                "codex",
+                "p1",
+                "semantics-backfill",
+                "proxy",
+                100,
+                100,
+                0,
+                10,
+                20,
+                200,
+                "0",
+            )?;
+            insert_usage_log(
+                &conn,
+                "semantics-total",
+                "codex",
+                "p1",
+                "semantics-backfill",
+                "proxy",
+                101,
+                100,
+                0,
+                10,
+                20,
+                200,
+                "0",
+            )?;
+            conn.execute(
+                "UPDATE proxy_request_logs SET input_token_semantics = 1
+                 WHERE request_id = 'semantics-total'",
+                [],
+            )?;
+        }
+
+        assert_eq!(db.backfill_missing_usage_costs()?, 2);
+        let conn = lock_conn!(db.conn);
+        let rows: Vec<(String, String)> = conn
+            .prepare(
+                "SELECT request_id, input_cost_usd FROM proxy_request_logs
+                 WHERE request_id LIKE 'semantics-%' ORDER BY request_id",
+            )?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        assert_eq!(
+            rows,
+            vec![
+                ("semantics-legacy".to_string(), "0.000090".to_string()),
+                ("semantics-total".to_string(), "0.000070".to_string()),
+            ]
+        );
         Ok(())
     }
 }

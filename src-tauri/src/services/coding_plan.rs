@@ -99,7 +99,7 @@ fn make_error(msg: String) -> SubscriptionQuota {
 
 // ── Kimi For Coding ─────────────────────────────────────────
 
-async fn query_kimi(api_key: &str) -> SubscriptionQuota {
+async fn query_kimi(api_key: &str) -> Result<SubscriptionQuota, String> {
     let client = crate::proxy::http_client::get();
 
     let resp = client
@@ -112,12 +112,12 @@ async fn query_kimi(api_key: &str) -> SubscriptionQuota {
 
     let resp = match resp {
         Ok(r) => r,
-        Err(e) => return make_error(format!("Network error: {e}")),
+        Err(e) => return Err(format!("Network error: {e}")),
     };
 
     let status = resp.status();
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-        return SubscriptionQuota {
+        return Ok(SubscriptionQuota {
             tool: "coding_plan".to_string(),
             credential_status: CredentialStatus::Expired,
             credential_message: Some("Invalid API key".to_string()),
@@ -126,17 +126,23 @@ async fn query_kimi(api_key: &str) -> SubscriptionQuota {
             extra_usage: None,
             error: Some(format!("Authentication failed (HTTP {status})")),
             queried_at: Some(now_millis()),
-        };
+        });
     }
 
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return make_error(format!("API error (HTTP {status}): {body}"));
+        return Ok(make_error(format!("API error (HTTP {status}): {body}")));
     }
 
-    let body: serde_json::Value = match resp.json().await {
+    // 先 bytes() 再解析：读体失败（超时/连接中断）是瞬时 → Err；拿到完整响应体
+    // 后解析失败才是确定性。reqwest 的 json() 把读体错误也包成 decode，无法区分。
+    let raw = match resp.bytes().await {
+        Ok(b) => b,
+        Err(e) => return Err(format!("Failed to read response: {e}")),
+    };
+    let body: serde_json::Value = match serde_json::from_slice(&raw) {
         Ok(v) => v,
-        Err(e) => return make_error(format!("Failed to parse response: {e}")),
+        Err(e) => return Ok(make_error(format!("Failed to parse response: {e}"))),
     };
 
     let mut tiers = Vec::new();
@@ -187,7 +193,7 @@ async fn query_kimi(api_key: &str) -> SubscriptionQuota {
         });
     }
 
-    SubscriptionQuota {
+    Ok(SubscriptionQuota {
         tool: "coding_plan".to_string(),
         credential_status: CredentialStatus::Valid,
         credential_message: None,
@@ -196,7 +202,7 @@ async fn query_kimi(api_key: &str) -> SubscriptionQuota {
         extra_usage: None,
         error: None,
         queried_at: Some(now_millis()),
-    }
+    })
 }
 
 // ── 智谱 GLM ────────────────────────────────────────────────
@@ -307,7 +313,7 @@ fn zhipu_quota_base(base_url: &str) -> &'static str {
     }
 }
 
-async fn query_zhipu(base_url: &str, api_key: &str) -> SubscriptionQuota {
+async fn query_zhipu(base_url: &str, api_key: &str) -> Result<SubscriptionQuota, String> {
     let client = crate::proxy::http_client::get();
     let url = format!(
         "{}/api/monitor/usage/quota/limit",
@@ -325,12 +331,12 @@ async fn query_zhipu(base_url: &str, api_key: &str) -> SubscriptionQuota {
 
     let resp = match resp {
         Ok(r) => r,
-        Err(e) => return make_error(format!("Network error: {e}")),
+        Err(e) => return Err(format!("Network error: {e}")),
     };
 
     let status = resp.status();
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-        return SubscriptionQuota {
+        return Ok(SubscriptionQuota {
             tool: "coding_plan".to_string(),
             credential_status: CredentialStatus::Expired,
             credential_message: Some("Invalid API key".to_string()),
@@ -339,20 +345,24 @@ async fn query_zhipu(base_url: &str, api_key: &str) -> SubscriptionQuota {
             extra_usage: None,
             error: Some(format!("Authentication failed (HTTP {status})")),
             queried_at: Some(now_millis()),
-        };
+        });
     }
 
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return make_error(format!("API error (HTTP {status}): {body}"));
+        return Ok(make_error(format!("API error (HTTP {status}): {body}")));
     }
 
-    let body: serde_json::Value = match resp.json().await {
+    let raw = match resp.bytes().await {
+        Ok(bytes) => bytes,
+        Err(error) => return Err(format!("Failed to read response: {error}")),
+    };
+    let body: serde_json::Value = match serde_json::from_slice(&raw) {
         Ok(v) => v,
-        Err(e) => return make_error(format!("Failed to parse response: {e}")),
+        Err(e) => return Ok(make_error(format!("Failed to parse response: {e}"))),
     };
 
-    zhipu_quota_from_body(&body)
+    Ok(zhipu_quota_from_body(&body))
 }
 
 fn zhipu_quota_from_body(body: &serde_json::Value) -> SubscriptionQuota {
@@ -447,7 +457,7 @@ async fn query_zhipu_team_at(
 
 // ── MiniMax ─────────────────────────────────────────────────
 
-async fn query_minimax(api_key: &str, is_cn: bool) -> SubscriptionQuota {
+async fn query_minimax(api_key: &str, is_cn: bool) -> Result<SubscriptionQuota, String> {
     let client = crate::proxy::http_client::get();
 
     let api_domain = if is_cn {
@@ -467,12 +477,12 @@ async fn query_minimax(api_key: &str, is_cn: bool) -> SubscriptionQuota {
 
     let resp = match resp {
         Ok(r) => r,
-        Err(e) => return make_error(format!("Network error: {e}")),
+        Err(e) => return Err(format!("Network error: {e}")),
     };
 
     let status = resp.status();
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-        return SubscriptionQuota {
+        return Ok(SubscriptionQuota {
             tool: "coding_plan".to_string(),
             credential_status: CredentialStatus::Expired,
             credential_message: Some("Invalid API key".to_string()),
@@ -481,17 +491,23 @@ async fn query_minimax(api_key: &str, is_cn: bool) -> SubscriptionQuota {
             extra_usage: None,
             error: Some(format!("Authentication failed (HTTP {status})")),
             queried_at: Some(now_millis()),
-        };
+        });
     }
 
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return make_error(format!("API error (HTTP {status}): {body}"));
+        return Ok(make_error(format!("API error (HTTP {status}): {body}")));
     }
 
-    let body: serde_json::Value = match resp.json().await {
+    // 先 bytes() 再解析：读体失败（超时/连接中断）是瞬时 → Err；拿到完整响应体
+    // 后解析失败才是确定性。reqwest 的 json() 把读体错误也包成 decode，无法区分。
+    let raw = match resp.bytes().await {
+        Ok(b) => b,
+        Err(e) => return Err(format!("Failed to read response: {e}")),
+    };
+    let body: serde_json::Value = match serde_json::from_slice(&raw) {
         Ok(v) => v,
-        Err(e) => return make_error(format!("Failed to parse response: {e}")),
+        Err(e) => return Ok(make_error(format!("Failed to parse response: {e}"))),
     };
 
     // 检查业务级别错误
@@ -505,14 +521,14 @@ async fn query_minimax(api_key: &str, is_cn: bool) -> SubscriptionQuota {
                 .get("status_msg")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown error");
-            return make_error(format!("API error (code {status_code}): {msg}"));
+            return Ok(make_error(format!("API error (code {status_code}): {msg}")));
         }
     }
 
     // 提取纯函数便于无 mock 单元测试;新接口直接给"剩余百分比",反转为已用百分比
     let tiers = parse_minimax_tiers(&body);
 
-    SubscriptionQuota {
+    Ok(SubscriptionQuota {
         tool: "coding_plan".to_string(),
         credential_status: CredentialStatus::Valid,
         credential_message: None,
@@ -521,12 +537,12 @@ async fn query_minimax(api_key: &str, is_cn: bool) -> SubscriptionQuota {
         extra_usage: None,
         error: None,
         queried_at: Some(now_millis()),
-    }
+    })
 }
 
 // ── ZenMux ──────────────────────────────────────────────────
 
-async fn query_zenmux(base_url: &str, api_key: &str) -> SubscriptionQuota {
+async fn query_zenmux(base_url: &str, api_key: &str) -> Result<SubscriptionQuota, String> {
     let client = crate::proxy::http_client::get();
 
     let resp = client
@@ -539,12 +555,12 @@ async fn query_zenmux(base_url: &str, api_key: &str) -> SubscriptionQuota {
 
     let resp = match resp {
         Ok(r) => r,
-        Err(e) => return make_error(format!("Network error: {e}")),
+        Err(e) => return Err(format!("Network error: {e}")),
     };
 
     let status = resp.status();
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-        return SubscriptionQuota {
+        return Ok(SubscriptionQuota {
             tool: "coding_plan".to_string(),
             credential_status: CredentialStatus::Expired,
             credential_message: Some("Invalid API key".to_string()),
@@ -553,17 +569,23 @@ async fn query_zenmux(base_url: &str, api_key: &str) -> SubscriptionQuota {
             extra_usage: None,
             error: Some(format!("Authentication failed (HTTP {status})")),
             queried_at: Some(now_millis()),
-        };
+        });
     }
 
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return make_error(format!("API error (HTTP {status}): {body}"));
+        return Ok(make_error(format!("API error (HTTP {status}): {body}")));
     }
 
-    let body: serde_json::Value = match resp.json().await {
+    // 先 bytes() 再解析：读体失败（超时/连接中断）是瞬时 → Err；拿到完整响应体
+    // 后解析失败才是确定性。reqwest 的 json() 把读体错误也包成 decode，无法区分。
+    let raw = match resp.bytes().await {
+        Ok(b) => b,
+        Err(e) => return Err(format!("Failed to read response: {e}")),
+    };
+    let body: serde_json::Value = match serde_json::from_slice(&raw) {
         Ok(v) => v,
-        Err(e) => return make_error(format!("Failed to parse response: {e}")),
+        Err(e) => return Ok(make_error(format!("Failed to parse response: {e}"))),
     };
 
     // 检查业务级别错误
@@ -572,12 +594,12 @@ async fn query_zenmux(base_url: &str, api_key: &str) -> SubscriptionQuota {
             .get("message")
             .and_then(|v| v.as_str())
             .unwrap_or("Unknown error");
-        return make_error(format!("API error: {msg}"));
+        return Ok(make_error(format!("API error: {msg}")));
     }
 
     let data = match body.get("data") {
         Some(d) => d,
-        None => return make_error("Missing 'data' field in response".to_string()),
+        None => return Ok(make_error("Missing 'data' field in response".to_string())),
     };
 
     let mut tiers = Vec::new();
@@ -640,7 +662,7 @@ async fn query_zenmux(base_url: &str, api_key: &str) -> SubscriptionQuota {
         String::new()
     };
 
-    SubscriptionQuota {
+    Ok(SubscriptionQuota {
         tool: "coding_plan".to_string(),
         credential_status: CredentialStatus::Valid,
         credential_message: if plan_info.is_empty() {
@@ -653,7 +675,7 @@ async fn query_zenmux(base_url: &str, api_key: &str) -> SubscriptionQuota {
         extra_usage: None,
         error: None,
         queried_at: Some(now_millis()),
-    }
+    })
 }
 
 /// 从 `/coding_plan/remains` 响应中解析 MiniMax 编程套餐的额度 tier。
@@ -749,8 +771,11 @@ enum VolcCall {
     /// 硬鉴权失败（HTTP 401/403 或 AccessDenied/Signature 等错误码）——两个 plan
     /// 共用凭据，命中即停。
     Auth(String),
-    /// 网络 / 非鉴权 HTTP 错误 / 解析失败——记录后可继续尝试另一个 plan。
+    /// 非鉴权 HTTP 错误 / 响应体非法 JSON——记录后可继续尝试另一个 plan。
     Soft(String),
+    /// 瞬时传输失败（网络/超时/读体中断）——同 host 的另一个 plan 大概率同样
+    /// 失败，调用方应立即以 `Err` 传播（前端 reject → retry + 保留上次成功值）。
+    Transient(String),
 }
 
 /// 从数据面 base_url 提取控制面 OpenAPI 所需的 Region（如
@@ -948,7 +973,7 @@ async fn volcengine_openapi_call(
 
     let resp = match resp {
         Ok(r) => r,
-        Err(e) => return VolcCall::Soft(format!("Network error: {e}")),
+        Err(e) => return VolcCall::Transient(format!("Network error: {e}")),
     };
 
     let status = resp.status();
@@ -975,7 +1000,13 @@ async fn volcengine_openapi_call(
         return VolcCall::Soft(format!("API error (HTTP {status}): {raw}"));
     }
 
-    let body: serde_json::Value = match resp.json().await {
+    // 同 Bearer 路径：先 bytes() 再解析——读体失败是瞬时（Transient），解析失败
+    // 是确定性（Soft）。reqwest 的 json() 把读体错误也包成 decode，无法区分。
+    let raw = match resp.bytes().await {
+        Ok(b) => b,
+        Err(e) => return VolcCall::Transient(format!("Failed to read response: {e}")),
+    };
+    let body: serde_json::Value = match serde_json::from_slice(&raw) {
         Ok(v) => v,
         Err(e) => return VolcCall::Soft(format!("Failed to parse response: {e}")),
     };
@@ -1117,7 +1148,7 @@ async fn query_volcengine(
     base_url: &str,
     access_key_id: &str,
     secret_access_key: &str,
-) -> SubscriptionQuota {
+) -> Result<SubscriptionQuota, String> {
     let region = volcengine_region(base_url);
     let mut soft_errors: Vec<String> = Vec::new();
     // 2xx + 无 Error 信封但解析不出额度时，截断原始响应用于诊断（区分"真没订阅"
@@ -1130,7 +1161,8 @@ async fn query_volcengine(
 
     // 1) Agent Plan：GetAFPUsage
     match volcengine_openapi_call(&region, access_key_id, secret_access_key, "GetAFPUsage").await {
-        VolcCall::Auth(detail) => return volcengine_auth_error(detail),
+        VolcCall::Auth(detail) => return Ok(volcengine_auth_error(detail)),
+        VolcCall::Transient(detail) => return Err(format!("GetAFPUsage: {detail}")),
         VolcCall::Soft(detail) => soft_errors.push(format!("GetAFPUsage: {detail}")),
         VolcCall::Body(body) => {
             let result = body.get("Result").unwrap_or(&body);
@@ -1142,7 +1174,7 @@ async fn query_volcengine(
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .map(|s| format!("Agent Plan {s}"));
-                return volcengine_success(tiers, plan);
+                return Ok(volcengine_success(tiers, plan));
             }
             empty_responses.push(summarize("GetAFPUsage", &body));
         }
@@ -1157,32 +1189,33 @@ async fn query_volcengine(
     )
     .await
     {
-        VolcCall::Auth(detail) => return volcengine_auth_error(detail),
+        VolcCall::Auth(detail) => return Ok(volcengine_auth_error(detail)),
+        VolcCall::Transient(detail) => return Err(format!("GetCodingPlanUsage: {detail}")),
         VolcCall::Soft(detail) => soft_errors.push(format!("GetCodingPlanUsage: {detail}")),
         VolcCall::Body(body) => {
             let result = body.get("Result").unwrap_or(&body);
             let tiers = parse_coding_plan_tiers(result);
             if !tiers.is_empty() {
-                return volcengine_success(tiers, Some("Coding Plan".to_string()));
+                return Ok(volcengine_success(tiers, Some("Coding Plan".to_string())));
             }
             empty_responses.push(summarize("GetCodingPlanUsage", &body));
         }
     }
 
     if !soft_errors.is_empty() {
-        make_error(soft_errors.join("; "))
+        Ok(make_error(soft_errors.join("; ")))
     } else if !empty_responses.is_empty() {
         // 签名已通过、请求到达业务层，但响应里没有可解析的额度。带上原始响应，
         // 便于核对真实字段名/包裹层，或确认确实未订阅。
-        make_error(format!(
+        Ok(make_error(format!(
             "No active subscription found (signature OK). Raw: {}",
             empty_responses.join(" || ")
-        ))
+        )))
     } else {
-        make_error(
+        Ok(make_error(
             "No active Agent Plan or Coding Plan subscription found for this credential"
                 .to_string(),
-        )
+        ))
     }
 }
 
@@ -1202,6 +1235,9 @@ fn coding_plan_not_found(error: &str) -> SubscriptionQuota {
     }
 }
 
+/// 查询编程套餐额度。瞬时传输失败（网络/超时/读体中断）返回 `Err`（前端 reject →
+/// retry + 保留上次成功值）；确定性失败（凭据缺失/未知域名/鉴权/非 2xx/业务错误）
+/// 返回 `Ok(success:false)` 立即透出文案。判定按 reqwest 错误种类在折叠点完成。
 pub async fn get_coding_plan_quota(
     base_url: &str,
     api_key: &str,
@@ -1238,7 +1274,7 @@ pub async fn get_coding_plan_quota(
                 "Volcengine usage query needs the account AccessKey ID + Secret (not the inference API key)",
             ));
         }
-        return Ok(query_volcengine(base_url, ak, sk).await);
+        return query_volcengine(base_url, ak, sk).await;
     }
 
     // 其余供应商：数据面 Bearer api_key。
@@ -1247,7 +1283,7 @@ pub async fn get_coding_plan_quota(
         return Ok(coding_plan_not_found("API key is empty"));
     }
 
-    let quota = match provider {
+    match provider {
         CodingPlanProvider::Kimi => query_kimi(api_key).await,
         CodingPlanProvider::ZhipuCn | CodingPlanProvider::ZhipuEn => {
             query_zhipu(base_url, api_key).await
@@ -1259,9 +1295,7 @@ pub async fn get_coding_plan_quota(
         CodingPlanProvider::Volcengine => {
             unreachable!("volcengine handled via AK/SK branch above")
         }
-    };
-
-    Ok(quota)
+    }
 }
 
 #[cfg(test)]
@@ -1931,5 +1965,101 @@ mod tests {
         // 无 Error 时返回 None
         let ok_body = json!({ "ResponseMetadata": { "RequestId": "x" }, "Result": {} });
         assert!(volcengine_response_error(&ok_body).is_none());
+    }
+
+    use std::io::{Read, Write};
+
+    fn quota_from(
+        base_url: &str,
+    ) -> impl std::future::Future<
+        Output = Result<crate::services::subscription::SubscriptionQuota, String>,
+    > + '_ {
+        super::get_coding_plan_quota(base_url, "k", None, None, None, None, None)
+    }
+
+    fn spawn_once_server(response: Option<String>) -> (String, std::thread::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind local listener");
+        let port = listener.local_addr().expect("local addr").port();
+        let handle = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buffer = [0u8; 2048];
+                let _ = stream.read(&mut buffer);
+                if let Some(response) = response {
+                    let _ = stream.write_all(response.as_bytes());
+                    let _ = stream.flush();
+                }
+            }
+        });
+        (format!("http://127.0.0.1:{port}/zenmux"), handle)
+    }
+
+    fn http_response(status: &str, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    #[tokio::test]
+    async fn transient_connection_refused_returns_err() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("local addr").port();
+        drop(listener);
+        let error = quota_from(&format!("http://127.0.0.1:{port}/zenmux"))
+            .await
+            .expect_err("send failure must reject");
+        assert!(error.contains("Network error"), "error={error}");
+    }
+
+    #[tokio::test]
+    async fn transient_connection_closed_before_response_returns_err() {
+        let (base_url, handle) = spawn_once_server(None);
+        let error = quota_from(&base_url)
+            .await
+            .expect_err("closed response must reject");
+        assert!(error.contains("Network error"), "error={error}");
+        handle.join().expect("server thread");
+    }
+
+    #[tokio::test]
+    async fn transient_truncated_body_returns_err() {
+        let (base_url, handle) = spawn_once_server(Some(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 100\r\n\r\npartial".to_string(),
+        ));
+        let error = quota_from(&base_url)
+            .await
+            .expect_err("truncated body must reject");
+        assert!(error.contains("Failed to read response"), "error={error}");
+        handle.join().expect("server thread");
+    }
+
+    #[tokio::test]
+    async fn deterministic_http_401_stays_ok_with_auth_error() {
+        let (base_url, handle) = spawn_once_server(Some(http_response("401 Unauthorized", "{}")));
+        let quota = quota_from(&base_url).await.expect("401 remains data");
+        assert!(!quota.success);
+        assert!(matches!(quota.credential_status, CredentialStatus::Expired));
+        handle.join().expect("server thread");
+    }
+
+    #[tokio::test]
+    async fn deterministic_http_429_stays_ok_with_status_in_error() {
+        let (base_url, handle) =
+            spawn_once_server(Some(http_response("429 Too Many Requests", "slow down")));
+        let quota = quota_from(&base_url).await.expect("429 remains data");
+        assert!(quota.error.is_some_and(|error| error.contains("HTTP 429")));
+        handle.join().expect("server thread");
+    }
+
+    #[tokio::test]
+    async fn deterministic_invalid_json_body_stays_ok_with_parse_error() {
+        let (base_url, handle) = spawn_once_server(Some(http_response("200 OK", "not-json")));
+        let quota = quota_from(&base_url)
+            .await
+            .expect("invalid JSON remains data");
+        assert!(quota
+            .error
+            .is_some_and(|error| error.contains("Failed to parse response")));
+        handle.join().expect("server thread");
     }
 }

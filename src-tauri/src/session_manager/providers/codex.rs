@@ -1,12 +1,17 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use regex::Regex;
+use rusqlite::Connection;
+use serde::Deserialize;
 use serde_json::Value;
 
-use crate::codex_config::get_codex_config_dir;
+use crate::codex_config::{get_codex_config_dir, read_codex_config_text};
+use crate::codex_state_db::codex_state_db_paths;
 use crate::session_manager::{SessionMessage, SessionMeta};
 
 use super::utils::{
@@ -15,6 +20,7 @@ use super::utils::{
 };
 
 const PROVIDER_ID: &str = "codex";
+const CODEX_SESSION_INDEX_FILENAME: &str = "session_index.jsonl";
 const VSCODE_CONTEXT_PREFIX: &str = "# Context from my IDE setup:";
 const CODEX_REQUEST_MARKER: &str = "my request for codex";
 
@@ -22,6 +28,12 @@ static UUID_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
         .unwrap()
 });
+
+#[derive(Deserialize)]
+struct SessionIndexEntry {
+    id: String,
+    thread_name: String,
+}
 
 pub fn scan_sessions() -> Vec<SessionMeta> {
     let roots = session_roots();
@@ -37,6 +49,14 @@ pub fn session_roots() -> Vec<PathBuf> {
 }
 
 fn scan_sessions_in_roots(roots: &[PathBuf]) -> Vec<SessionMeta> {
+    let thread_titles = load_thread_titles();
+    scan_sessions_in_roots_with_titles(roots, &thread_titles)
+}
+
+fn scan_sessions_in_roots_with_titles(
+    roots: &[PathBuf],
+    thread_titles: &HashMap<String, String>,
+) -> Vec<SessionMeta> {
     let mut files = Vec::new();
     for root in roots {
         collect_jsonl_files(root, &mut files);
@@ -44,12 +64,78 @@ fn scan_sessions_in_roots(roots: &[PathBuf]) -> Vec<SessionMeta> {
 
     let mut sessions = Vec::new();
     for path in files {
-        if let Some(meta) = parse_session(&path) {
+        if let Some(meta) = parse_session_with_titles(&path, thread_titles) {
             sessions.push(meta);
         }
     }
 
     sessions
+}
+
+fn load_thread_titles() -> HashMap<String, String> {
+    let config_dir = get_codex_config_dir();
+    let config_text = read_codex_config_text().unwrap_or_default();
+    load_thread_titles_from_paths(
+        &config_dir.join(CODEX_SESSION_INDEX_FILENAME),
+        &codex_state_db_paths(&config_dir, &config_text),
+    )
+}
+
+fn load_thread_titles_from_paths(
+    session_index_path: &Path,
+    db_paths: &[PathBuf],
+) -> HashMap<String, String> {
+    let mut titles = load_thread_titles_from_session_index(session_index_path);
+    for db_path in db_paths {
+        titles.extend(load_thread_titles_from_db(db_path));
+    }
+    titles
+}
+
+fn load_thread_titles_from_session_index(path: &Path) -> HashMap<String, String> {
+    let Ok(file) = File::open(path) else {
+        return HashMap::new();
+    };
+    BufReader::new(file)
+        .lines()
+        .map_while(Result::ok)
+        .filter_map(|line| serde_json::from_str::<SessionIndexEntry>(&line).ok())
+        .filter_map(|entry| {
+            let id = entry.id.trim();
+            let title = entry.thread_name.trim();
+            (!id.is_empty() && !title.is_empty()).then(|| (id.to_string(), title.to_string()))
+        })
+        .collect()
+}
+
+fn load_thread_titles_from_db(path: &Path) -> HashMap<String, String> {
+    let Ok(conn) = Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ) else {
+        return HashMap::new();
+    };
+    if conn.busy_timeout(Duration::from_secs(2)).is_err() {
+        return HashMap::new();
+    }
+    let Ok(mut statement) = conn.prepare(
+        "SELECT id, title FROM threads WHERE title <> '' \
+         AND (first_user_message IS NULL OR TRIM(title) <> TRIM(first_user_message))",
+    ) else {
+        return HashMap::new();
+    };
+    let Ok(rows) = statement.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }) else {
+        return HashMap::new();
+    };
+    rows.flatten()
+        .filter_map(|(id, title)| {
+            let id = id.trim();
+            let title = title.trim();
+            (!id.is_empty() && !title.is_empty()).then(|| (id.to_string(), title.to_string()))
+        })
+        .collect()
 }
 
 pub fn load_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
@@ -141,6 +227,13 @@ pub fn delete_session(_root: &Path, path: &Path, session_id: &str) -> Result<boo
 }
 
 fn parse_session(path: &Path) -> Option<SessionMeta> {
+    parse_session_with_titles(path, &HashMap::new())
+}
+
+fn parse_session_with_titles(
+    path: &Path,
+    thread_titles: &HashMap<String, String>,
+) -> Option<SessionMeta> {
     let (head, tail) = read_head_tail_lines(path, 10, 30).ok()?;
 
     let mut session_id: Option<String> = None;
@@ -233,8 +326,10 @@ fn parse_session(path: &Path) -> Option<SessionMeta> {
     let session_id = session_id.or_else(|| infer_session_id_from_filename(path));
     let session_id = session_id?;
 
-    let title = first_user_message
-        .map(|t| truncate_summary(&t, TITLE_MAX_CHARS))
+    let title = thread_titles
+        .get(&session_id)
+        .map(|title| truncate_summary(title, TITLE_MAX_CHARS))
+        .or_else(|| first_user_message.map(|title| truncate_summary(&title, TITLE_MAX_CHARS)))
         .or_else(|| {
             project_dir
                 .as_deref()
@@ -366,6 +461,7 @@ fn collect_jsonl_files(root: &Path, files: &mut Vec<PathBuf>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codex_state_db::CODEX_STATE_DB_FILENAME;
     use tempfile::tempdir;
 
     fn write_codex_session(path: &Path, session_id: &str, message: &str) {
@@ -441,6 +537,77 @@ mod tests {
 
         let meta = parse_session(&path).unwrap();
         assert_eq!(meta.title.as_deref(), Some("How do I deploy?"));
+    }
+
+    #[test]
+    fn parse_session_prefers_renamed_thread_title() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("session.jsonl");
+        write_codex_session(&path, "test-id", "Original prompt");
+        let titles = HashMap::from([("test-id".to_string(), "Renamed thread".to_string())]);
+
+        let meta = parse_session_with_titles(&path, &titles).expect("session");
+
+        assert_eq!(meta.title.as_deref(), Some("Renamed thread"));
+    }
+
+    #[test]
+    fn state_db_title_lookup_is_read_only_and_filters_default_title() {
+        let temp = tempdir().expect("tempdir");
+        let db_path = temp.path().join(CODEX_STATE_DB_FILENAME);
+        let conn = Connection::open(&db_path).expect("open db");
+        conn.execute(
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, first_user_message TEXT)",
+            [],
+        )
+        .expect("create threads");
+        conn.execute(
+            "INSERT INTO threads VALUES ('renamed', '  New title  ', 'First prompt')",
+            [],
+        )
+        .expect("insert renamed");
+        conn.execute(
+            "INSERT INTO threads VALUES ('default', 'First prompt', ' First prompt ')",
+            [],
+        )
+        .expect("insert default");
+        drop(conn);
+
+        let titles = load_thread_titles_from_db(&db_path);
+
+        assert_eq!(titles.get("renamed").map(String::as_str), Some("New title"));
+        assert!(!titles.contains_key("default"));
+    }
+
+    #[test]
+    fn state_db_title_overrides_latest_session_index_name() {
+        let temp = tempdir().expect("tempdir");
+        let index = temp.path().join(CODEX_SESSION_INDEX_FILENAME);
+        std::fs::write(
+            &index,
+            "{\"id\":\"thread-1\",\"thread_name\":\"Old name\"}\n{\"id\":\"thread-1\",\"thread_name\":\"Index name\"}\n",
+        )
+        .expect("write index");
+        let db_path = temp.path().join(CODEX_STATE_DB_FILENAME);
+        let conn = Connection::open(&db_path).expect("open db");
+        conn.execute(
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, first_user_message TEXT)",
+            [],
+        )
+        .expect("create threads");
+        conn.execute(
+            "INSERT INTO threads VALUES ('thread-1', 'Database name', 'First prompt')",
+            [],
+        )
+        .expect("insert title");
+        drop(conn);
+
+        let titles = load_thread_titles_from_paths(&index, &[db_path]);
+
+        assert_eq!(
+            titles.get("thread-1").map(String::as_str),
+            Some("Database name")
+        );
     }
 
     #[test]

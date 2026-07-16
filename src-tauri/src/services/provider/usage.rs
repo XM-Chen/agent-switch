@@ -57,6 +57,15 @@ pub(crate) async fn execute_and_format_usage_result(
             })
         }
         Err(err) => {
+            if let AppError::Localized { key, .. } = &err {
+                if matches!(
+                    *key,
+                    "usage_script.request_failed" | "usage_script.read_response_failed"
+                ) {
+                    return Err(err);
+                }
+            }
+
             let lang = settings::get_settings()
                 .language
                 .unwrap_or_else(|| "zh".to_string());

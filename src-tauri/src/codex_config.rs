@@ -558,7 +558,16 @@ fn codex_catalog_model_specs(settings: &Value, config_text: &str) -> Vec<CodexCa
                     .map(str::to_string)
                     .collect::<Vec<_>>()
             })
-            .filter(|items| !items.is_empty());
+            .filter(|items| !items.is_empty())
+            .or_else(|| {
+                Some(
+                    if crate::proxy::media_sanitizer::known_text_only_model(model) {
+                        vec!["text".to_string()]
+                    } else {
+                        vec!["text".to_string(), "image".to_string()]
+                    },
+                )
+            });
 
         let base_instructions = model_config
             .get("baseInstructions")
@@ -2567,6 +2576,32 @@ base_url = "https://production.api/v1"
             base.is_some_and(|s| !s.trim().is_empty()),
             "every native entry must carry a non-empty base_instructions (Codex requires it)"
         );
+    }
+
+    #[test]
+    fn native_catalog_infers_image_modalities_without_overriding_explicit_rows() {
+        let settings = json!({
+            "modelCatalog": { "models": [
+                { "model": "gpt-5.6" },
+                { "model": "qwen3-coder-plus" },
+                { "model": "custom-text", "inputModalities": ["text"] }
+            ] }
+        });
+
+        let catalog = codex_model_catalog_from_settings(
+            &settings,
+            "",
+            CodexCatalogToolProfile::NativeResponses,
+        )
+        .expect("catalog generation")
+        .expect("catalog");
+
+        assert_eq!(
+            catalog["models"][0]["input_modalities"],
+            json!(["text", "image"])
+        );
+        assert_eq!(catalog["models"][1]["input_modalities"], json!(["text"]));
+        assert_eq!(catalog["models"][2]["input_modalities"], json!(["text"]));
     }
 
     #[test]

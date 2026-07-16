@@ -13,89 +13,6 @@ struct LegacySkillMigrationRow {
     app_type: String,
 }
 
-#[cfg(test)]
-mod pricing_tests {
-    use super::Database;
-    use rusqlite::Connection;
-
-    fn pricing(conn: &Connection, model: &str) -> (String, String, String, String) {
-        conn.query_row(
-            "SELECT input_cost_per_million, output_cost_per_million, \
-                    cache_read_cost_per_million, cache_creation_cost_per_million \
-             FROM model_pricing WHERE model_id = ?1",
-            [model],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .unwrap()
-    }
-
-    fn cost(
-        input: &str,
-        output: &str,
-        read: &str,
-        write: &str,
-    ) -> (String, String, String, String) {
-        (input.into(), output.into(), read.into(), write.into())
-    }
-
-    #[test]
-    fn current_m9_pricing_is_seeded_and_repairs_only_old_gpt_56_rows() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE model_pricing (
-                model_id TEXT PRIMARY KEY,
-                display_name TEXT NOT NULL,
-                input_cost_per_million TEXT NOT NULL,
-                output_cost_per_million TEXT NOT NULL,
-                cache_read_cost_per_million TEXT NOT NULL,
-                cache_creation_cost_per_million TEXT NOT NULL
-            );",
-        )
-        .unwrap();
-
-        Database::seed_model_pricing(&conn).unwrap();
-        assert_eq!(pricing(&conn, "gpt-5.6"), cost("5", "30", "0.50", "6.25"));
-        assert_eq!(
-            pricing(&conn, "gpt-5.6-terra"),
-            cost("2.50", "15", "0.25", "3.125")
-        );
-        assert_eq!(
-            pricing(&conn, "gpt-5.6-luna"),
-            cost("1", "6", "0.10", "1.25")
-        );
-        assert_eq!(
-            pricing(&conn, "hunyuan-hy3"),
-            cost("0.14", "0.56", "0.035", "0")
-        );
-        assert_eq!(pricing(&conn, "hy3"), pricing(&conn, "hunyuan-hy3"));
-        assert_eq!(
-            pricing(&conn, "claude-sonnet-5"),
-            cost("3", "15", "0.30", "3.75")
-        );
-        assert_eq!(pricing(&conn, "glm-5.2"), cost("1.4", "4.4", "0.26", "0"));
-        assert_eq!(
-            pricing(&conn, "doubao-seed-2-1-pro"),
-            cost("0.84", "4.2", "0.17", "0")
-        );
-
-        conn.execute(
-            "UPDATE model_pricing SET cache_creation_cost_per_million = '0' WHERE model_id = 'gpt-5.6-sol'",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "UPDATE model_pricing SET input_cost_per_million = '9', cache_creation_cost_per_million = '0' WHERE model_id = 'gpt-5.6-terra'",
-            [],
-        )
-        .unwrap();
-        Database::repair_current_model_pricing(&conn).unwrap();
-
-        assert_eq!(pricing(&conn, "gpt-5.6-sol").3, "6.25");
-        assert_eq!(pricing(&conn, "gpt-5.6-terra").0, "9");
-        assert_eq!(pricing(&conn, "gpt-5.6-terra").3, "0");
-    }
-}
-
 impl Database {
     /// 创建所有数据库表
     pub(crate) fn create_tables(&self) -> Result<(), AppError> {
@@ -2933,5 +2850,88 @@ impl Database {
             .map_err(|e| AppError::Database(format!("为表 {table} 添加列 {column} 失败: {e}")))?;
         log::info!("已为表 {table} 添加缺失列 {column}");
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod pricing_tests {
+    use super::Database;
+    use rusqlite::Connection;
+
+    fn pricing(conn: &Connection, model: &str) -> (String, String, String, String) {
+        conn.query_row(
+            "SELECT input_cost_per_million, output_cost_per_million, \
+                    cache_read_cost_per_million, cache_creation_cost_per_million \
+             FROM model_pricing WHERE model_id = ?1",
+            [model],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap()
+    }
+
+    fn cost(
+        input: &str,
+        output: &str,
+        read: &str,
+        write: &str,
+    ) -> (String, String, String, String) {
+        (input.into(), output.into(), read.into(), write.into())
+    }
+
+    #[test]
+    fn current_m9_pricing_is_seeded_and_repairs_only_old_gpt_56_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE model_pricing (
+                model_id TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                input_cost_per_million TEXT NOT NULL,
+                output_cost_per_million TEXT NOT NULL,
+                cache_read_cost_per_million TEXT NOT NULL,
+                cache_creation_cost_per_million TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+
+        Database::seed_model_pricing(&conn).unwrap();
+        assert_eq!(pricing(&conn, "gpt-5.6"), cost("5", "30", "0.50", "6.25"));
+        assert_eq!(
+            pricing(&conn, "gpt-5.6-terra"),
+            cost("2.50", "15", "0.25", "3.125")
+        );
+        assert_eq!(
+            pricing(&conn, "gpt-5.6-luna"),
+            cost("1", "6", "0.10", "1.25")
+        );
+        assert_eq!(
+            pricing(&conn, "hunyuan-hy3"),
+            cost("0.14", "0.56", "0.035", "0")
+        );
+        assert_eq!(pricing(&conn, "hy3"), pricing(&conn, "hunyuan-hy3"));
+        assert_eq!(
+            pricing(&conn, "claude-sonnet-5"),
+            cost("3", "15", "0.30", "3.75")
+        );
+        assert_eq!(pricing(&conn, "glm-5.2"), cost("1.4", "4.4", "0.26", "0"));
+        assert_eq!(
+            pricing(&conn, "doubao-seed-2-1-pro"),
+            cost("0.84", "4.2", "0.17", "0")
+        );
+
+        conn.execute(
+            "UPDATE model_pricing SET cache_creation_cost_per_million = '0' WHERE model_id = 'gpt-5.6-sol'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE model_pricing SET input_cost_per_million = '9', cache_creation_cost_per_million = '0' WHERE model_id = 'gpt-5.6-terra'",
+            [],
+        )
+        .unwrap();
+        Database::repair_current_model_pricing(&conn).unwrap();
+
+        assert_eq!(pricing(&conn, "gpt-5.6-sol").3, "6.25");
+        assert_eq!(pricing(&conn, "gpt-5.6-terra").0, "9");
+        assert_eq!(pricing(&conn, "gpt-5.6-terra").3, "0");
     }
 }

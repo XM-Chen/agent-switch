@@ -248,6 +248,14 @@ pub fn ensure_claude_desktop_official_provider(state: State<'_, AppState>) -> Re
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn ensure_codex_official_provider(state: State<'_, AppState>) -> Result<bool, String> {
+    state
+        .db
+        .ensure_official_seed_by_id(crate::database::CODEX_OFFICIAL_PROVIDER_ID, AppType::Codex)
+        .map_err(|error| error.to_string())
+}
+
 fn claude_provider_models_are_claude_safe(provider: &Provider) -> bool {
     let Some(env) = provider
         .settings_config
@@ -400,30 +408,30 @@ pub async fn queryProviderUsage(
     // inner 可能以两种形式失败：
     //   1) 返回 Ok(UsageResult { success: false, .. }) —— 业务失败（401、脚本报错等）
     //   2) 返回 Err(String) —— RPC/DB/Copilot fetch_usage 等 transport 层失败
-    // 两种都要把"失败"写进 UsageCache 并刷新托盘，让 format_script_summary 的
-    // success 守卫生效、suffix 自然消失，避免旧 success 快照长期滞留。
-    // 同时保持原始 Err 返回给前端 React Query 的 onError 回调，不吞错误。
+    // 业务结果写入 UsageCache；transport Err 则失效托盘缓存。两条路径都刷新托盘，
+    // 避免旧 success 快照长期滞留，同时保持 Err 给 React Query 做短期 keep-last-good。
     let inner =
         query_provider_usage_inner(&state, &copilot_state, app_type.clone(), &providerId).await;
-    let snapshot = match &inner {
-        Ok(r) => r.clone(),
-        Err(err_msg) => crate::provider::UsageResult {
-            success: false,
-            data: None,
-            error: Some(err_msg.clone()),
-        },
-    };
-    let payload = serde_json::json!({
-        "kind": "script",
-        "appType": app_type.as_str(),
-        "providerId": &providerId,
-        "data": &snapshot,
-    });
-    if let Err(e) = app_handle.emit("usage-cache-updated", payload) {
-        log::error!("emit usage-cache-updated (script) 失败: {e}");
+    if let Ok(snapshot) = &inner {
+        let payload = serde_json::json!({
+            "kind": "script",
+            "appType": app_type.as_str(),
+            "providerId": &providerId,
+            "data": snapshot,
+        });
+        if let Err(e) = app_handle.emit("usage-cache-updated", payload) {
+            log::error!("emit usage-cache-updated (script) 失败: {e}");
+        }
+        state
+            .usage_cache
+            .put_script(app_type, providerId, snapshot.clone());
+        crate::tray::schedule_tray_refresh(&app_handle);
+    } else {
+        // 托盘缓存没有前端的 10 分钟 keep-last-good 时间窗；transport reject 时
+        // 直接失效，避免旧额度永久滞留。前端仍由 React Query 保留短期快照。
+        state.usage_cache.invalidate_script(&app_type, &providerId);
+        crate::tray::schedule_tray_refresh(&app_handle);
     }
-    state.usage_cache.put_script(app_type, providerId, snapshot);
-    crate::tray::schedule_tray_refresh(&app_handle);
     inner
 }
 

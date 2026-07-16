@@ -6,6 +6,7 @@ mod claude_mcp;
 mod claude_plugin;
 mod codex_config;
 mod codex_history_migration;
+mod codex_state_db;
 mod commands;
 mod config;
 mod database;
@@ -1203,6 +1204,7 @@ pub fn run() {
             commands::detect_ccs_channels,
             commands::sync_ccs_channels,
             commands::ensure_claude_desktop_official_provider,
+            commands::ensure_codex_official_provider,
             commands::get_claude_config_status,
             commands::get_config_status,
             commands::get_claude_code_config_path,

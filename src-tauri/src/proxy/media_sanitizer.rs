@@ -251,7 +251,7 @@ fn explicit_model_image_support(provider: &Provider, model: &str) -> Option<bool
     .find_map(|value| explicit_model_image_support_in_value(value, model))
 }
 
-fn known_text_only_model(model: &str) -> bool {
+pub(crate) fn known_text_only_model(model: &str) -> bool {
     let normalized = normalize_model_id(model);
     let tail = normalized.rsplit('/').next().unwrap_or(normalized.as_str());
 
@@ -274,13 +274,20 @@ fn known_text_only_model(model: &str) -> bool {
         "ling-2.5-1t",
         "longcat-2.0",
         "longcat-flash-chat",
+        "minimax-m2.7",
+        "minimax-m2.7-highspeed",
         "mimo-v2.5-pro",
+        "qwen3-coder-480b",
+        "qwen3-coder-480b-a35b-instruct",
+        "qwen3-coder-flash",
+        "qwen3-coder-next",
+        "qwen3-coder-plus",
+        "step-3.5-flash",
+        "step-3.5-flash-2603",
         "us.deepseek.r1-v1",
     ];
 
-    const TAIL_PREFIXES: &[&str] = &["minimax-m2.7", "qwen3-coder", "step-3.5-flash"];
-
-    EXACT_TAILS.contains(&tail) || TAIL_PREFIXES.iter().any(|prefix| tail.starts_with(prefix))
+    EXACT_TAILS.contains(&tail)
 }
 
 fn explicit_model_image_support_in_value(value: &Value, model: &str) -> Option<bool> {

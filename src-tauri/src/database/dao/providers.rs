@@ -710,7 +710,9 @@ impl Database {
 #[cfg(test)]
 mod ensure_official_seed_tests {
     use crate::app_config::AppType;
-    use crate::database::{Database, CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID};
+    use crate::database::{
+        Database, CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID, CODEX_OFFICIAL_PROVIDER_ID,
+    };
 
     #[test]
     fn ensure_inserts_when_missing() {
@@ -774,6 +776,24 @@ mod ensure_official_seed_tests {
         let db = Database::memory().expect("memory db");
         let result = db.ensure_official_seed_by_id("nonexistent-id", AppType::ClaudeDesktop);
         assert!(result.is_err(), "unknown seed id should be Err");
+    }
+
+    #[test]
+    fn ensure_recreates_codex_official_seed_after_deletion() {
+        let db = Database::memory().expect("memory db");
+        db.init_default_official_providers().expect("seed");
+        db.delete_provider(AppType::Codex.as_str(), CODEX_OFFICIAL_PROVIDER_ID)
+            .expect("delete official seed");
+
+        assert!(db
+            .ensure_official_seed_by_id(CODEX_OFFICIAL_PROVIDER_ID, AppType::Codex)
+            .expect("restore official seed"));
+        let provider = db
+            .get_provider_by_id(CODEX_OFFICIAL_PROVIDER_ID, AppType::Codex.as_str())
+            .expect("query")
+            .expect("official seed restored");
+        assert_eq!(provider.category.as_deref(), Some("official"));
+        assert_eq!(provider.settings_config["auth"], serde_json::json!({}));
     }
 
     #[test]

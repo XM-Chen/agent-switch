@@ -1631,6 +1631,7 @@ pub fn import_openclaw_providers_from_live(state: &AppState) -> Result<usize, Ap
     }
 
     let mut imported = 0;
+    let mut updated = 0;
     let existing_ids = state.db.get_provider_ids("openclaw")?;
 
     for (id, config) in providers {
@@ -1644,12 +1645,6 @@ pub fn import_openclaw_providers_from_live(state: &AppState) -> Result<usize, Ap
             continue;
         }
 
-        // Skip if already exists in database
-        if existing_ids.contains(&id) {
-            log::debug!("OpenClaw provider '{id}' already exists in database, skipping");
-            continue;
-        }
-
         // Convert to Value for settings_config
         let settings_config = match serde_json::to_value(&config) {
             Ok(v) => v,
@@ -1658,6 +1653,17 @@ pub fn import_openclaw_providers_from_live(state: &AppState) -> Result<usize, Ap
                 continue;
             }
         };
+
+        if existing_ids.contains(&id) {
+            if let Some(mut provider) = state.db.get_provider_by_id(&id, "openclaw")? {
+                if provider.settings_config != settings_config {
+                    provider.settings_config = settings_config;
+                    state.db.save_provider("openclaw", &provider)?;
+                    updated += 1;
+                }
+            }
+            continue;
+        }
 
         // Determine display name: use first model name if available, otherwise use id
         let display_name = config
@@ -1683,7 +1689,7 @@ pub fn import_openclaw_providers_from_live(state: &AppState) -> Result<usize, Ap
         log::info!("Imported OpenClaw provider '{id}' from live config");
     }
 
-    Ok(imported)
+    Ok(imported + updated)
 }
 
 /// Import all providers from Hermes live config to database
@@ -1700,6 +1706,7 @@ pub fn import_hermes_providers_from_live(state: &AppState) -> Result<usize, AppE
     }
 
     let mut imported = 0;
+    let mut updated = 0;
     let existing_ids = state.db.get_provider_ids("hermes")?;
 
     for (name, config) in providers {
@@ -1709,9 +1716,14 @@ pub fn import_hermes_providers_from_live(state: &AppState) -> Result<usize, AppE
             continue;
         }
 
-        // Skip if already exists in database
         if existing_ids.contains(&name) {
-            log::debug!("Hermes provider '{name}' already exists in database, skipping");
+            if let Some(mut provider) = state.db.get_provider_by_id(&name, "hermes")? {
+                if provider.settings_config != config {
+                    provider.settings_config = config;
+                    state.db.save_provider("hermes", &provider)?;
+                    updated += 1;
+                }
+            }
             continue;
         }
 
@@ -1732,7 +1744,7 @@ pub fn import_hermes_providers_from_live(state: &AppState) -> Result<usize, AppE
         log::info!("Imported Hermes provider '{name}' from live config");
     }
 
-    Ok(imported)
+    Ok(imported + updated)
 }
 
 /// Remove a Hermes provider from live config

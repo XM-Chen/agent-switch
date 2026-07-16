@@ -21,6 +21,7 @@
 //! 归一化结果完全不变。
 
 /// 输入 token 语义：旧行/未知。按 `app_type` 推断（与 v14 之前逻辑一致）。
+#[allow(dead_code)]
 pub const INPUT_TOKEN_SEMANTICS_LEGACY: i64 = 0;
 /// 输入 token 语义：`input_tokens` 含 cache_read + cache_creation。
 pub const INPUT_TOKEN_SEMANTICS_TOTAL: i64 = 1;

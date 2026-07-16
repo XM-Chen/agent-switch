@@ -2,6 +2,44 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
 import type { ProviderFormValues } from "@/components/providers/forms/ProviderForm";
+import type { UniversalProvider } from "@/types";
+
+const universalMocks = vi.hoisted(() => ({
+  upsert: vi.fn(),
+  sync: vi.fn(),
+  warning: vi.fn(),
+}));
+let saveUniversal: ((provider: UniversalProvider) => void) | undefined;
+
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api")>();
+  return {
+    ...actual,
+    universalProvidersApi: {
+      upsert: (...args: unknown[]) => universalMocks.upsert(...args),
+      sync: (...args: unknown[]) => universalMocks.sync(...args),
+    },
+  };
+});
+
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn(), warning: universalMocks.warning },
+}));
+
+vi.mock("@/components/universal", () => ({
+  UniversalProviderPanel: () => <div>universal-panel</div>,
+}));
+
+vi.mock("@/components/universal/UniversalProviderFormModal", () => ({
+  UniversalProviderFormModal: ({
+    onSave,
+  }: {
+    onSave: (provider: UniversalProvider) => void;
+  }) => {
+    saveUniversal = onSave;
+    return null;
+  },
+}));
 
 vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => (
@@ -44,6 +82,10 @@ vi.mock("@/components/providers/forms/ProviderForm", () => ({
 
 describe("AddProviderDialog", () => {
   beforeEach(() => {
+    universalMocks.upsert.mockReset().mockResolvedValue(true);
+    universalMocks.sync.mockReset().mockResolvedValue(true);
+    universalMocks.warning.mockReset();
+    saveUniversal = undefined;
     mockFormValues = {
       name: "Test Provider",
       websiteUrl: "https://provider.example.com",
@@ -57,6 +99,36 @@ describe("AddProviderDialog", () => {
         },
       },
     };
+  });
+
+  it("新增统一供应商后自动同步，失败仅警告且关闭", async () => {
+    universalMocks.sync.mockRejectedValueOnce(new Error("sync failed"));
+    const handleOpenChange = vi.fn();
+    render(
+      <AddProviderDialog
+        open
+        onOpenChange={handleOpenChange}
+        appId="claude"
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    saveUniversal?.({
+      id: "universal-1",
+      name: "Universal",
+      providerType: "custom",
+      baseUrl: "https://example.com",
+      apiKey: "key",
+      models: {},
+      apps: { claude: true, codex: true, gemini: true },
+    });
+
+    await waitFor(() =>
+      expect(universalMocks.sync).toHaveBeenCalledWith("universal-1"),
+    );
+    expect(universalMocks.upsert).toHaveBeenCalledOnce();
+    expect(universalMocks.warning).toHaveBeenCalledOnce();
+    expect(handleOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("使用 ProviderForm 返回的自定义端点", async () => {

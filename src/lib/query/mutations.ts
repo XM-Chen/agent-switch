@@ -22,12 +22,14 @@ export const useAddProviderMutation = (appId: AppId) => {
         providerKey?: string;
         addToLive?: boolean;
         ensureClaudeDesktopOfficialSeed?: boolean;
+        ensureCodexOfficialSeed?: boolean;
       },
     ) => {
       const {
         providerKey: _providerKey,
         addToLive,
         ensureClaudeDesktopOfficialSeed,
+        ensureCodexOfficialSeed,
         ...rest
       } = providerInput;
 
@@ -37,6 +39,16 @@ export const useAddProviderMutation = (appId: AppId) => {
         const officialProvider = providers["claude-desktop-official"];
         if (!officialProvider) {
           throw new Error("Claude Desktop official provider was not created");
+        }
+        return officialProvider;
+      }
+
+      if (appId === "codex" && ensureCodexOfficialSeed) {
+        await providersApi.ensureCodexOfficialProvider();
+        const providers = await providersApi.getAll(appId);
+        const officialProvider = providers["codex-official"];
+        if (!officialProvider) {
+          throw new Error("Codex official provider was not created");
         }
         return officialProvider;
       }

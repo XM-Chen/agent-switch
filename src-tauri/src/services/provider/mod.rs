@@ -325,6 +325,28 @@ mod tests {
         }
     }
 
+    fn hermes_provider(id: &str) -> Provider {
+        Provider {
+            id: id.to_string(),
+            name: format!("Provider {id}"),
+            settings_config: json!({
+                "api": "openai-chat",
+                "base_url": "https://api.example.com/v1",
+                "api_key": "test-key",
+                "models": { "gpt-4o": { "name": "GPT-4o" } }
+            }),
+            website_url: None,
+            category: Some("custom".to_string()),
+            created_at: Some(1),
+            sort_index: Some(0),
+            notes: None,
+            meta: None,
+            icon: None,
+            icon_color: None,
+            in_failover_queue: false,
+        }
+    }
+
     fn opencode_provider(id: &str) -> Provider {
         Provider {
             id: id.to_string(),
@@ -1074,6 +1096,135 @@ command = "legacy-cmd"
         );
     }
 
+    #[tokio::test]
+    #[serial]
+    async fn update_current_codex_provider_refreshes_and_clears_catalog_during_takeover() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+
+        let db = Arc::new(Database::memory().expect("init db"));
+        let state = AppState::new(db.clone());
+
+        let mut original = Provider::with_id(
+            "p1".into(),
+            "Codex A".into(),
+            json!({
+                "auth": { "OPENAI_API_KEY": "token-a" },
+                "config": r#"model_provider = "custom"
+model = "old-model"
+
+[model_providers.custom]
+name = "Codex A"
+base_url = "https://api.a.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+"#,
+                "modelCatalog": {
+                    "models": [{ "model": "old-model" }]
+                }
+            }),
+            None,
+        );
+        original.meta = Some(ProviderMeta {
+            api_format: Some("openai_responses".into()),
+            ..Default::default()
+        });
+        db.save_provider("codex", &original).expect("save provider");
+        db.set_current_provider("codex", "p1")
+            .expect("set current provider");
+        crate::settings::set_current_provider(&AppType::Codex, Some("p1"))
+            .expect("set local current provider");
+
+        db.update_proxy_config(ProxyConfig {
+            live_takeover_active: true,
+            listen_port: 0,
+            ..Default::default()
+        })
+        .await
+        .expect("update proxy config");
+        {
+            let mut config = db
+                .get_proxy_config_for_app("codex")
+                .await
+                .expect("get app proxy config");
+            config.enabled = true;
+            db.update_proxy_config_for_app(config)
+                .await
+                .expect("enable Codex proxy config");
+        }
+        db.save_live_backup(
+            "codex",
+            &serde_json::to_string(&original.settings_config).expect("serialize backup"),
+        )
+        .await
+        .expect("seed live backup");
+
+        state
+            .proxy_service
+            .start()
+            .await
+            .expect("start proxy service");
+        state
+            .proxy_service
+            .sync_codex_live_from_provider_while_proxy_active(&original)
+            .await
+            .expect("seed taken-over Codex live config");
+        assert!(
+            state
+                .proxy_service
+                .detect_takeover_in_live_config_for_app(&AppType::Codex),
+            "seeded Codex live config should be recognized as takeover-owned"
+        );
+
+        let mut updated = original.clone();
+        updated.settings_config["config"] = json!(
+            r#"model_provider = "custom"
+model = "gpt-5.4"
+
+[model_providers.custom]
+name = "Codex A"
+base_url = "https://api.updated.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+"#
+        );
+        updated.settings_config["modelCatalog"] = json!({
+            "models": [{ "model": "gpt-5.4", "displayName": "GPT 5.4" }]
+        });
+
+        ProviderService::update(&state, AppType::Codex, None, updated.clone())
+            .expect("update current Codex provider mapping");
+
+        let catalog_path = crate::codex_config::get_codex_model_catalog_path();
+        let catalog: Value = read_json_file(&catalog_path).expect("read generated catalog");
+        assert_eq!(catalog["models"][0]["slug"], "gpt-5.4");
+        assert_eq!(
+            catalog["models"][0]["input_modalities"],
+            json!(["text", "image"]),
+            "unknown/GPT models must fail open to image input"
+        );
+        let live_config = fs::read_to_string(crate::codex_config::get_codex_config_path())
+            .expect("read Codex config.toml");
+        assert!(live_config.contains("model_catalog_json"));
+
+        updated.settings_config["modelCatalog"] = json!({ "models": [] });
+        ProviderService::update(&state, AppType::Codex, None, updated)
+            .expect("remove current Codex provider mapping");
+
+        let live_config = fs::read_to_string(crate::codex_config::get_codex_config_path())
+            .expect("read Codex config.toml after mapping removal");
+        assert!(
+            !live_config.contains("model_catalog_json"),
+            "removing mappings during takeover must clear the stale catalog pointer"
+        );
+
+        state
+            .proxy_service
+            .stop()
+            .await
+            .expect("stop proxy service");
+    }
+
     #[cfg(any(target_os = "macos", windows))]
     #[tokio::test]
     #[serial]
@@ -1484,6 +1635,68 @@ command = "legacy-cmd"
                     .and_then(|meta| meta.live_config_managed),
                 Some(true),
                 "providers imported from live should be treated as live-managed"
+            );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn live_import_updates_openclaw_settings_without_replacing_metadata() {
+        with_test_home(|state, _| {
+            let mut provider = openclaw_provider("existing-openclaw");
+            provider.settings_config["models"] = json!([{ "id": "claude", "name": "Old model" }]);
+            provider.notes = Some("keep me".to_string());
+            state
+                .db
+                .save_provider(AppType::OpenClaw.as_str(), &provider)
+                .expect("seed provider");
+            let mut live = provider.settings_config.clone();
+            live["baseUrl"] = json!("https://live.example/v1");
+            crate::openclaw_config::set_provider(&provider.id, live).expect("write live");
+
+            assert_eq!(
+                import_openclaw_providers_from_live(state).expect("import"),
+                1
+            );
+            let saved = state
+                .db
+                .get_provider_by_id(&provider.id, AppType::OpenClaw.as_str())
+                .expect("query")
+                .expect("provider");
+            assert_eq!(saved.name, provider.name);
+            assert_eq!(saved.notes, provider.notes);
+            assert_eq!(
+                saved.settings_config["baseUrl"],
+                json!("https://live.example/v1")
+            );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn live_import_updates_hermes_settings_without_replacing_metadata() {
+        with_test_home(|state, _| {
+            let mut provider = hermes_provider("existing-hermes");
+            provider.notes = Some("keep me".to_string());
+            state
+                .db
+                .save_provider(AppType::Hermes.as_str(), &provider)
+                .expect("seed provider");
+            let mut live = provider.settings_config.clone();
+            live["base_url"] = json!("https://live.example/v1");
+            crate::hermes_config::set_provider(&provider.id, live).expect("write live");
+
+            assert!(import_hermes_providers_from_live(state).expect("import") >= 1);
+            let saved = state
+                .db
+                .get_provider_by_id(&provider.id, AppType::Hermes.as_str())
+                .expect("query")
+                .expect("provider");
+            assert_eq!(saved.name, provider.name);
+            assert_eq!(saved.notes, provider.notes);
+            assert_eq!(
+                saved.settings_config["base_url"],
+                json!("https://live.example/v1")
             );
         });
     }
@@ -2074,15 +2287,24 @@ impl ProviderService {
                     .map_err(|e| AppError::Message(format!("更新 Live 备份失败: {e}")))?;
                 }
 
-                if matches!(app_type, AppType::Claude)
-                    && futures::executor::block_on(state.proxy_service.is_running())
-                {
-                    futures::executor::block_on(
-                        state
-                            .proxy_service
-                            .sync_claude_live_from_provider_while_proxy_active(&provider),
-                    )
-                    .map_err(|e| AppError::Message(format!("同步 Claude Live 配置失败: {e}")))?;
+                if futures::executor::block_on(state.proxy_service.is_running()) {
+                    if matches!(app_type, AppType::Claude) {
+                        futures::executor::block_on(
+                            state
+                                .proxy_service
+                                .sync_claude_live_from_provider_while_proxy_active(&provider),
+                        )
+                        .map_err(|e| {
+                            AppError::Message(format!("同步 Claude Live 配置失败: {e}"))
+                        })?;
+                    } else if live_taken_over && matches!(app_type, AppType::Codex) {
+                        futures::executor::block_on(
+                            state
+                                .proxy_service
+                                .sync_codex_live_from_provider_while_proxy_active(&provider),
+                        )
+                        .map_err(|e| AppError::Message(format!("同步 Codex Live 配置失败: {e}")))?;
+                    }
                 }
             } else {
                 write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;

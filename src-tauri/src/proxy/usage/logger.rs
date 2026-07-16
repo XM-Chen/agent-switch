@@ -72,14 +72,11 @@ impl<'a> UsageLogger<'a> {
         let created_at = chrono::Utc::now().timestamp();
 
         // 输入 token 语义（v14 三态列）：
-        // ags 的 codex/gemini 解析器存的 input_tokens **含 cache_read 但不含
-        // cache_creation**（见 parser.rs from_codex_response / from_gemini_response），
-        // 这既不是纯 TOTAL 也不是 FRESH——正是 LEGACY 分支按 app_type 扣 cache_read
-        // 的口径。因此这两类写 LEGACY(0)，让新行与历史行走完全相同的归一化，
-        // 避免标 TOTAL 后多扣 cache_creation 少算 fresh input。
+        // codex/gemini 解析器存储上游 total input（含 cache read/write）；
+        // 其余（Claude/Anthropic）input 已是 fresh。
         // 其余（claude 及 Anthropic 兼容）input 已是 fresh → FRESH(2)。
         let input_token_semantics: i64 = if matches!(log.app_type.as_str(), "codex" | "gemini") {
-            crate::services::sql_helpers::INPUT_TOKEN_SEMANTICS_LEGACY
+            crate::services::sql_helpers::INPUT_TOKEN_SEMANTICS_TOTAL
         } else {
             crate::services::sql_helpers::INPUT_TOKEN_SEMANTICS_FRESH
         };
