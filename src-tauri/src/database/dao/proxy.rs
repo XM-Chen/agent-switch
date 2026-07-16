@@ -494,6 +494,21 @@ impl Database {
         Ok(count > 0)
     }
 
+    /// Synchronous takeover-state check for Profile apply paths.
+    pub fn is_live_takeover_active_sync(&self) -> bool {
+        let conn = match self.conn.lock() {
+            Ok(conn) => conn,
+            Err(_) => return false,
+        };
+        conn.query_row(
+            "SELECT COUNT(*) FROM proxy_config WHERE enabled = 1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+            > 0
+    }
+
     // ==================== Provider Health ====================
 
     /// 获取Provider健康状态

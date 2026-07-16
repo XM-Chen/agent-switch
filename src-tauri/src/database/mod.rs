@@ -38,7 +38,7 @@ pub(crate) use dao::proxy::{
     PRICING_SOURCE_RESPONSE,
 };
 pub use dao::FailoverQueueItem;
-pub use dao::ProviderModel;
+pub use dao::{Profile, ProviderModel};
 // CustomAggregate / TierSelection 目前仅在 dao 内部命名，但作为 C2 对 C3/C4 的
 // 契约类型对外导出（dao 模块本身私有，此处是唯一 crate 级暴露点）。
 #[allow(unused_imports)]

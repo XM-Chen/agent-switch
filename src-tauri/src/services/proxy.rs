@@ -794,6 +794,34 @@ impl ProxyService {
         Ok(())
     }
 
+    /// Synchronously disable one app's takeover without stopping the proxy process.
+    /// Profile apply runs outside a Tokio runtime and needs the live config restored
+    /// before it can switch the underlying provider.
+    pub fn disable_takeover_for_app_sync(&self, app_type: &AppType) -> Result<(), String> {
+        let app_type_str = app_type.as_str();
+
+        futures::executor::block_on(self.restore_live_config_for_app_with_fallback_inner(app_type))
+            .map_err(|e| format!("恢复 {app_type_str} Live 配置失败: {e}"))?;
+
+        futures::executor::block_on(self.db.delete_live_backup(app_type_str))
+            .map_err(|e| format!("删除 {app_type_str} Live 备份失败: {e}"))?;
+
+        let mut config =
+            futures::executor::block_on(self.db.get_proxy_config_for_app(app_type_str))
+                .map_err(|e| format!("获取 {app_type_str} 配置失败: {e}"))?;
+        if config.enabled {
+            config.enabled = false;
+            futures::executor::block_on(self.db.update_proxy_config_for_app(config))
+                .map_err(|e| format!("清除 {app_type_str} enabled 状态失败: {e}"))?;
+        }
+
+        futures::executor::block_on(self.db.clear_provider_health_for_app(app_type_str))
+            .map_err(|e| format!("清除 {app_type_str} 健康状态失败: {e}"))?;
+        let _ = futures::executor::block_on(self.db.set_live_takeover_active(false));
+
+        Ok(())
+    }
+
     /// 同步 Live 配置中的 Token 到数据库
     ///
     /// 在清空 Live Token 之前调用，确保数据库中的 Provider 配置有最新的 Token。

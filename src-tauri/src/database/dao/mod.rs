@@ -5,6 +5,7 @@
 pub mod custom_aggregates;
 pub mod failover;
 pub mod mcp;
+pub mod profiles;
 pub mod prompts;
 pub mod provider_models;
 pub mod providers;
@@ -21,6 +22,8 @@ pub mod usage_rollup;
 pub use failover::FailoverQueueItem;
 // 导出 ProviderModel 供 service/command 层使用
 pub use provider_models::ProviderModel;
+// 导出 Profile 供 service/command 层使用
+pub use profiles::Profile;
 
 // 导出自定义聚合类型供 service/command 层使用
 pub use custom_aggregates::{AggregateRef, CcAggregateConfig, CustomAggregate, TierSelection};

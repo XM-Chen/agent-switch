@@ -10,6 +10,7 @@ pub mod mcp;
 pub mod model_cache;
 pub mod model_fetch;
 pub mod omo;
+pub mod profile;
 pub mod prompt;
 pub mod provider;
 pub mod proxy;
