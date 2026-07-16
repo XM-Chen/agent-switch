@@ -71,14 +71,27 @@ impl<'a> UsageLogger<'a> {
 
         let created_at = chrono::Utc::now().timestamp();
 
+        // 输入 token 语义（v14 三态列）：
+        // ags 的 codex/gemini 解析器存的 input_tokens **含 cache_read 但不含
+        // cache_creation**（见 parser.rs from_codex_response / from_gemini_response），
+        // 这既不是纯 TOTAL 也不是 FRESH——正是 LEGACY 分支按 app_type 扣 cache_read
+        // 的口径。因此这两类写 LEGACY(0)，让新行与历史行走完全相同的归一化，
+        // 避免标 TOTAL 后多扣 cache_creation 少算 fresh input。
+        // 其余（claude 及 Anthropic 兼容）input 已是 fresh → FRESH(2)。
+        let input_token_semantics: i64 = if matches!(log.app_type.as_str(), "codex" | "gemini") {
+            crate::services::sql_helpers::INPUT_TOKEN_SEMANTICS_LEGACY
+        } else {
+            crate::services::sql_helpers::INPUT_TOKEN_SEMANTICS_FRESH
+        };
+
         conn.execute(
             "INSERT OR REPLACE INTO proxy_request_logs (
                 request_id, provider_id, app_type, model, request_model, pricing_model,
                 input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
                 input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd, total_cost_usd,
                 latency_ms, first_token_ms, status_code, error_message, session_id,
-                provider_type, is_streaming, cost_multiplier, created_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+                provider_type, is_streaming, cost_multiplier, created_at, input_token_semantics
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
             rusqlite::params![
                 log.request_id,
                 log.provider_id,
@@ -104,6 +117,7 @@ impl<'a> UsageLogger<'a> {
                 log.is_streaming as i64,
                 log.cost_multiplier,
                 created_at,
+                input_token_semantics,
             ],
         )
         .map_err(|e| AppError::Database(format!("记录请求日志失败: {e}")))?;
