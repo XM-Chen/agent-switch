@@ -1,6 +1,6 @@
 {
   "name": "agent-switch",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "All-in-One Assistant for Claude Code, Codex & Gemini CLI",
   "type": "module",
   "scripts": {
