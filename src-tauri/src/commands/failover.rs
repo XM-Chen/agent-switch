@@ -107,7 +107,7 @@ pub async fn set_auto_failover_enabled(
         .await
         .map_err(|e| e.to_string())?;
 
-    if enabled && !config.enabled {
+    if enabled && !config.takeover_enabled {
         return Err("需要先启用该应用的代理接管，再开启故障转移".to_string());
     }
 

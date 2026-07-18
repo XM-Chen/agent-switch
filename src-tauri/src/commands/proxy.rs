@@ -15,28 +15,34 @@ pub async fn start_proxy_server(
     state.proxy_service.start().await
 }
 
-/// 停止代理服务器（仅停止服务，不恢复/清理 Live 接管状态）
-#[tauri::command]
-pub async fn stop_proxy_server(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let takeover = state.proxy_service.get_takeover_status().await?;
-    if takeover.claude
-        || takeover.codex
-        || takeover.gemini
-        || takeover.opencode
-        || takeover.openclaw
-    {
-        return Err(
-            "仍有应用处于代理接管状态，请先在设置中关闭对应应用接管后再停止本地路由。".to_string(),
-        );
+async fn stop_user_gateway(state: &AppState) -> Result<(), ProxyStopError> {
+    let modules = state
+        .proxy_service
+        .proxy_route_takeovers()
+        .await
+        .map_err(ProxyStopError::stop_failed)?;
+    if !modules.is_empty() {
+        return Err(ProxyStopError::blocked(modules));
     }
-
-    state.proxy_service.stop().await
+    state
+        .proxy_service
+        .stop()
+        .await
+        .map_err(ProxyStopError::stop_failed)
 }
 
-/// 停止代理服务器（恢复 Live 配置）
+/// 用户停止网关：只保护仍依赖网关的 proxy 模块，direct 模块不阻止停止。
 #[tauri::command]
-pub async fn stop_proxy_with_restore(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    state.proxy_service.stop_with_restore().await
+pub async fn stop_proxy_server(state: tauri::State<'_, AppState>) -> Result<(), ProxyStopError> {
+    stop_user_gateway(&state).await
+}
+
+/// 旧命令名兼容；普通 UI 路径不再执行“全模块恢复”，语义与用户停止网关一致。
+#[tauri::command]
+pub async fn stop_proxy_with_restore(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), ProxyStopError> {
+    stop_user_gateway(&state).await
 }
 
 /// 获取各应用接管状态
@@ -340,7 +346,7 @@ pub async fn reset_circuit_breaker(
     // 3. 检查是否应该切回优先级更高的供应商（从 proxy_config 表读取）
     // 只有当该应用已被代理接管（enabled=true）且开启了自动故障转移时才执行
     let (app_enabled, auto_failover_enabled) = match db.get_proxy_config_for_app(&app_type).await {
-        Ok(config) => (config.enabled, config.auto_failover_enabled),
+        Ok(config) => (config.takeover_enabled, config.auto_failover_enabled),
         Err(e) => {
             log::error!("[{app_type}] Failed to read proxy_config: {e}, defaulting to disabled");
             (false, false)

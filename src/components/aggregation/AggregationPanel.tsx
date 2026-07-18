@@ -42,6 +42,7 @@ import type {
   TierName,
 } from "@/lib/api/aggregation";
 import { useProxyStatus } from "@/hooks/useProxyStatus";
+import { getProxyTakeoverState } from "@/types/proxy";
 import {
   useAggregatesQuery,
   useCustomAggregatesQuery,
@@ -73,7 +74,8 @@ interface AggregationPanelProps {
 export function AggregationPanel({ appId }: AggregationPanelProps) {
   const { t } = useTranslation();
   const { isRunning: isProxyRunning, takeoverStatus } = useProxyStatus();
-  const takeoverEnabled = takeoverStatus?.[appId] ?? false;
+  const takeoverEnabled =
+    getProxyTakeoverState(takeoverStatus, appId)?.takeoverEnabled ?? false;
 
   const { data: aggregates = [], isLoading: aggregatesLoading } =
     useAggregatesQuery(appId, isProxyRunning);

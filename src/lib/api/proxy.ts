@@ -16,9 +16,14 @@ export const proxyApi = {
     return invoke("start_proxy_server");
   },
 
-  // 停止代理服务器并恢复配置
+  // 受保护地停止代理服务器，不改写任何模块 Live 配置
+  async stopProxyServer(): Promise<void> {
+    return invoke("stop_proxy_server");
+  },
+
+  // 旧调用名兼容，后端语义同样是受保护的纯网关停止
   async stopProxyWithRestore(): Promise<void> {
-    return invoke("stop_proxy_with_restore");
+    return invoke("stop_proxy_server");
   },
 
   // 获取代理服务器状态

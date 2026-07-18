@@ -41,14 +41,47 @@ export interface ProxyServerInfo {
   started_at: string;
 }
 
+export type ProxyRouteMode = "direct" | "proxy";
+
+export interface ProxyModuleTakeoverStatus {
+  takeoverEnabled: boolean;
+  routeMode: ProxyRouteMode;
+}
+
 export interface ProxyTakeoverStatus {
-  claude: boolean;
-  "claude-desktop"?: boolean;
-  codex: boolean;
-  gemini: boolean;
-  opencode: boolean;
-  openclaw: boolean;
-  hermes: boolean;
+  claude: ProxyModuleTakeoverStatus;
+  claudeDesktop: ProxyModuleTakeoverStatus;
+  codex: ProxyModuleTakeoverStatus;
+  gemini: ProxyModuleTakeoverStatus;
+  opencode: ProxyModuleTakeoverStatus;
+  openclaw: ProxyModuleTakeoverStatus;
+  hermes: ProxyModuleTakeoverStatus;
+}
+
+export const PROXY_TAKEOVER_STATUS_KEY = {
+  claude: "claude",
+  "claude-desktop": "claudeDesktop",
+  codex: "codex",
+  gemini: "gemini",
+  opencode: "opencode",
+  openclaw: "openclaw",
+  hermes: "hermes",
+} as const satisfies Record<string, keyof ProxyTakeoverStatus>;
+
+export function getProxyTakeoverState(
+  status: ProxyTakeoverStatus | undefined,
+  appType: string,
+): ProxyModuleTakeoverStatus | undefined {
+  const key = PROXY_TAKEOVER_STATUS_KEY[
+    appType as keyof typeof PROXY_TAKEOVER_STATUS_KEY
+  ];
+  return key && status ? status[key] : undefined;
+}
+
+export interface ProxyStopError {
+  code: "proxyRoutesActive" | "stopFailed" | string;
+  message: string;
+  modules: string[];
 }
 
 export interface ProviderHealth {
@@ -126,7 +159,8 @@ export interface GlobalProxyConfig {
 // 应用级代理配置（每个 app 独立）
 export interface AppProxyConfig {
   appType: string;
-  enabled: boolean;
+  takeoverEnabled: boolean;
+  routeMode: ProxyRouteMode;
   autoFailoverEnabled: boolean;
   maxRetries: number;
   streamingFirstByteTimeout: number;

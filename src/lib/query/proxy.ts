@@ -76,7 +76,7 @@ export function useStopProxyServer() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: () => proxyApi.stopProxyWithRestore(),
+    mutationFn: () => proxyApi.stopProxyServer(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["proxyStatus"] });
       queryClient.invalidateQueries({ queryKey: ["proxyRunning"] });

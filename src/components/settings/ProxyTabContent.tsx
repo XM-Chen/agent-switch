@@ -27,6 +27,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ToggleRow } from "@/components/ui/toggle-row";
 import { useProxyStatus } from "@/hooks/useProxyStatus";
 import type { SettingsFormState } from "@/hooks/useSettings";
+import { getProxyTakeoverState } from "@/types/proxy";
 
 interface ProxyTabContentProps {
   settings: SettingsFormState;
@@ -45,14 +46,14 @@ export function ProxyTabContent({
     isRunning,
     takeoverStatus,
     startProxyServer,
-    stopWithRestore,
+    stopProxyServer,
     isPending: isProxyPending,
   } = useProxyStatus();
 
   const handleToggleProxy = async (checked: boolean) => {
     try {
       if (!checked) {
-        await stopWithRestore();
+        await stopProxyServer();
       } else if (!settings?.proxyConfirmed) {
         setShowProxyConfirm(true);
       } else {
@@ -187,7 +188,9 @@ export function ProxyTabContent({
                 </TabsList>
                 {(["claude", "codex", "gemini"] as const).map((appType) => {
                   const failoverDisabled =
-                    !isRunning || !(takeoverStatus?.[appType] ?? false);
+                    !isRunning ||
+                    !(getProxyTakeoverState(takeoverStatus, appType)
+                      ?.takeoverEnabled ?? false);
                   return (
                     <TabsContent
                       key={appType}

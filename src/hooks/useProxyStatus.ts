@@ -89,13 +89,13 @@ export function useProxyStatus() {
     },
   });
 
-  // 停止服务器（总开关关闭：强制恢复所有已接管的 Live 配置）
+  // 旧调用名兼容：同样执行受保护的纯网关停止。
   const stopWithRestoreMutation = useMutation({
-    mutationFn: () => invoke("stop_proxy_with_restore"),
+    mutationFn: () => invoke("stop_proxy_server"),
     onSuccess: () => {
       toast.success(
-        t("proxy.stoppedWithRestore", {
-          defaultValue: "代理服务已关闭，已恢复所有接管配置",
+        t("proxy.server.stopped", {
+          defaultValue: "代理服务已停止",
         }),
         { closeButton: true },
       );
@@ -211,11 +211,9 @@ export function useProxyStatus() {
     isLoading,
     isRunning: status?.running || false,
     takeoverStatus,
-    isTakeoverActive:
-      takeoverStatus?.claude ||
-      takeoverStatus?.codex ||
-      takeoverStatus?.gemini ||
-      false,
+    isTakeoverActive: takeoverStatus
+      ? Object.values(takeoverStatus).some((module) => module.takeoverEnabled)
+      : false,
 
     // 启动/停止（总开关）
     startProxyServer: startProxyServerMutation.mutateAsync,

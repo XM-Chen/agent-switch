@@ -1013,7 +1013,8 @@ command = "legacy-cmd"
                 .get_proxy_config_for_app("claude")
                 .await
                 .expect("get app proxy config");
-            config.enabled = true;
+            config.takeover_enabled = true;
+            config.route_mode = crate::proxy::types::RouteMode::Proxy;
             db.update_proxy_config_for_app(config)
                 .await
                 .expect("update app proxy config");
@@ -1147,7 +1148,8 @@ requires_openai_auth = true
                 .get_proxy_config_for_app("codex")
                 .await
                 .expect("get app proxy config");
-            config.enabled = true;
+            config.takeover_enabled = true;
+            config.route_mode = crate::proxy::types::RouteMode::Proxy;
             db.update_proxy_config_for_app(config)
                 .await
                 .expect("enable Codex proxy config");
@@ -1276,7 +1278,8 @@ requires_openai_auth = true
                 .get_proxy_config_for_app("claude-desktop")
                 .await
                 .expect("get app proxy config");
-            config.enabled = true;
+            config.takeover_enabled = true;
+            config.route_mode = crate::proxy::types::RouteMode::Proxy;
             db.update_proxy_config_for_app(config)
                 .await
                 .expect("update app proxy config");
@@ -2272,7 +2275,7 @@ impl ProviderService {
                 .detect_takeover_in_live_config_for_app(&app_type);
             // Backup or live placeholders mean the live file is currently owned
             // by proxy takeover, including the short activation window before
-            // proxy_config.enabled is committed.
+            // proxy_config.takeover_enabled is committed.
             let should_sync_via_proxy = has_live_backup || live_taken_over;
 
             if should_sync_via_proxy {
@@ -2740,7 +2743,7 @@ impl ProviderService {
             .detect_takeover_in_live_config_for_app(&app_type);
 
         // See the save path above: backup/placeholders are the ownership signal
-        // here, not just proxy_config.enabled.
+        // here, not just proxy_config.takeover_enabled.
         if has_live_backup || live_taken_over {
             if matches!(app_type, AppType::ClaudeDesktop) {
                 write_live_with_common_config(state.db.as_ref(), &app_type, provider)?;

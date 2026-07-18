@@ -1501,7 +1501,9 @@ fn sync_current_provider_for_app_keeps_live_takeover_and_updates_restore_backup(
 
     let mut proxy_config = futures::executor::block_on(state.db.get_proxy_config_for_app("claude"))
         .expect("get proxy config");
-    proxy_config.enabled = true;
+    // C1: domain field is takeover_enabled (DB column still named enabled).
+    // Ownership for sync is also signaled by live backup / placeholders.
+    proxy_config.takeover_enabled = true;
     futures::executor::block_on(state.db.update_proxy_config_for_app(proxy_config))
         .expect("enable takeover");
 

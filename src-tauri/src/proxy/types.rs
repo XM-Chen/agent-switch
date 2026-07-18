@@ -1,4 +1,6 @@
+use crate::app_config::AppType;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 /// 代理服务器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,14 +109,108 @@ pub struct ProxyServerInfo {
     pub started_at: String,
 }
 
-/// 各应用的接管状态（是否改写该应用的 Live 配置指向本地代理）
+/// 接管写入目标。仅在 `takeover_enabled=true` 时生效。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RouteMode {
+    #[default]
+    Direct,
+    Proxy,
+}
+
+impl RouteMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Proxy => "proxy",
+        }
+    }
+}
+
+impl FromStr for RouteMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "direct" => Ok(Self::Direct),
+            "proxy" => Ok(Self::Proxy),
+            other => Err(format!("无效的接管路由模式: {other}")),
+        }
+    }
+}
+
+/// 单个模块的稳定接管状态。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyModuleTakeoverStatus {
+    pub takeover_enabled: bool,
+    pub route_mode: RouteMode,
+}
+
+/// 七模块接管状态。字段名是唯一的 AppType -> wire key 映射。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ProxyTakeoverStatus {
-    pub claude: bool,
-    pub codex: bool,
-    pub gemini: bool,
-    pub opencode: bool,
-    pub openclaw: bool,
+    pub claude: ProxyModuleTakeoverStatus,
+    pub claude_desktop: ProxyModuleTakeoverStatus,
+    pub codex: ProxyModuleTakeoverStatus,
+    pub gemini: ProxyModuleTakeoverStatus,
+    pub opencode: ProxyModuleTakeoverStatus,
+    pub openclaw: ProxyModuleTakeoverStatus,
+    pub hermes: ProxyModuleTakeoverStatus,
+}
+
+impl ProxyTakeoverStatus {
+    pub fn set_for_app(&mut self, app: &AppType, status: ProxyModuleTakeoverStatus) {
+        match app {
+            AppType::Claude => self.claude = status,
+            AppType::ClaudeDesktop => self.claude_desktop = status,
+            AppType::Codex => self.codex = status,
+            AppType::Gemini => self.gemini = status,
+            AppType::OpenCode => self.opencode = status,
+            AppType::OpenClaw => self.openclaw = status,
+            AppType::Hermes => self.hermes = status,
+        }
+    }
+
+    pub fn for_app(&self, app: &AppType) -> ProxyModuleTakeoverStatus {
+        match app {
+            AppType::Claude => self.claude,
+            AppType::ClaudeDesktop => self.claude_desktop,
+            AppType::Codex => self.codex,
+            AppType::Gemini => self.gemini,
+            AppType::OpenCode => self.opencode,
+            AppType::OpenClaw => self.openclaw,
+            AppType::Hermes => self.hermes,
+        }
+    }
+}
+
+/// 用户停止网关失败时返回给 IPC 的结构化错误。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyStopError {
+    pub code: String,
+    pub message: String,
+    pub modules: Vec<String>,
+}
+
+impl ProxyStopError {
+    pub fn blocked(modules: Vec<String>) -> Self {
+        Self {
+            code: "proxyRoutesActive".to_string(),
+            message: "仍有模块通过本地网关路由，请先切换为直连或关闭接管。".to_string(),
+            modules,
+        }
+    }
+
+    pub fn stop_failed(message: String) -> Self {
+        Self {
+            code: "stopFailed".to_string(),
+            message,
+            modules: Vec::new(),
+        }
+    }
 }
 
 /// API 格式类型（预留，当前不需要格式转换）
@@ -168,10 +264,14 @@ pub struct GlobalProxyConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppProxyConfig {
-    /// 应用类型 (claude/codex/gemini)
+    /// 应用类型（七模块 AppType::as_str）
     pub app_type: String,
-    /// 该 app 代理启用开关
-    pub enabled: bool,
+    /// 该模块是否由 Agent-Switch 管理；旧 wire 输入 `enabled` 仅作兼容别名。
+    #[serde(default, alias = "enabled")]
+    pub takeover_enabled: bool,
+    /// 接管后的写入目标；缺省为直连。
+    #[serde(default)]
+    pub route_mode: RouteMode,
     /// 该 app 自动故障转移开关
     pub auto_failover_enabled: bool,
     /// 最大重试次数

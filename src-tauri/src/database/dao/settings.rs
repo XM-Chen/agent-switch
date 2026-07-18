@@ -170,13 +170,16 @@ impl Database {
         }
     }
 
-    // --- 代理接管状态管理（已废弃，使用 proxy_config.enabled 替代）---
+    // --- 代理接管状态管理（已废弃，使用 proxy_config.takeover_enabled 替代）---
 
     /// 获取指定应用的代理接管状态
     ///
-    /// **已废弃**: 请使用 `proxy_config.enabled` 字段替代
+    /// **已废弃**: 请使用 `proxy_config.takeover_enabled` 字段替代
     /// 此方法仅用于数据库迁移时读取旧数据
-    #[deprecated(since = "3.9.0", note = "使用 get_proxy_config_for_app().enabled 替代")]
+    #[deprecated(
+        since = "3.9.0",
+        note = "使用 get_proxy_config_for_app().takeover_enabled 替代"
+    )]
     pub fn get_proxy_takeover_enabled(&self, app_type: &str) -> Result<bool, AppError> {
         let key = format!("proxy_takeover_{app_type}");
         match self.get_setting(&key)? {
@@ -187,10 +190,10 @@ impl Database {
 
     /// 设置指定应用的代理接管状态
     ///
-    /// **已废弃**: 请使用 `proxy_config.enabled` 字段替代
+    /// **已废弃**: 请使用 `proxy_config.takeover_enabled` 字段替代
     #[deprecated(
         since = "3.9.0",
-        note = "使用 update_proxy_config_for_app() 修改 enabled 字段"
+        note = "使用 update_proxy_config_for_app() 修改 takeover_enabled 字段"
     )]
     pub fn set_proxy_takeover_enabled(
         &self,

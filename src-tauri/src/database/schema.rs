@@ -120,55 +120,14 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-        // 8. Proxy Config 表（三行结构，app_type 主键）
-        conn.execute("CREATE TABLE IF NOT EXISTS proxy_config (
-            app_type TEXT PRIMARY KEY CHECK (app_type IN ('claude','codex','gemini')),
-            proxy_enabled INTEGER NOT NULL DEFAULT 0, listen_address TEXT NOT NULL DEFAULT '127.0.0.1',
-            listen_port INTEGER NOT NULL DEFAULT 42567, enable_logging INTEGER NOT NULL DEFAULT 1,
-            enabled INTEGER NOT NULL DEFAULT 0, auto_failover_enabled INTEGER NOT NULL DEFAULT 0,
-            max_retries INTEGER NOT NULL DEFAULT 3, streaming_first_byte_timeout INTEGER NOT NULL DEFAULT 60,
-            streaming_idle_timeout INTEGER NOT NULL DEFAULT 120, non_streaming_timeout INTEGER NOT NULL DEFAULT 600,
-            circuit_failure_threshold INTEGER NOT NULL DEFAULT 4, circuit_success_threshold INTEGER NOT NULL DEFAULT 2,
-            circuit_timeout_seconds INTEGER NOT NULL DEFAULT 60, circuit_error_rate_threshold REAL NOT NULL DEFAULT 0.6,
-            circuit_min_requests INTEGER NOT NULL DEFAULT 10,
-            default_cost_multiplier TEXT NOT NULL DEFAULT '1',
-            pricing_model_source TEXT NOT NULL DEFAULT 'response',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )", []).map_err(|e| AppError::Database(e.to_string()))?;
+        // 8. Proxy Config 表（七模块结构，app_type 主键）
+        Self::create_proxy_config_v15_table(conn, "proxy_config")?;
 
-        // 初始化三行数据（每应用不同默认值）
-        //
-        // 兼容旧数据库：
-        // - 老版本 proxy_config 是单例表（没有 app_type 列），此时不能执行三行 seed insert；
-        // - 旧表会在 apply_schema_migrations() 中迁移为三行结构后再插入。
+        // 兼容真实初始化顺序 create -> migrate：旧三模块表仍受旧 CHECK 约束，
+        // v15 整表迁移前只能补旧三行；新表则直接补齐七行。
         if Self::has_column(conn, "proxy_config", "app_type")? {
-            conn.execute(
-                "INSERT OR IGNORE INTO proxy_config (app_type, max_retries,
-                streaming_first_byte_timeout, streaming_idle_timeout, non_streaming_timeout,
-                circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
-                circuit_error_rate_threshold, circuit_min_requests)
-                VALUES ('claude', 6, 90, 180, 600, 8, 3, 90, 0.7, 15)",
-                [],
-            )
-            .map_err(|e| AppError::Database(e.to_string()))?;
-            conn.execute(
-                "INSERT OR IGNORE INTO proxy_config (app_type, max_retries,
-                streaming_first_byte_timeout, streaming_idle_timeout, non_streaming_timeout,
-                circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
-                circuit_error_rate_threshold, circuit_min_requests)
-                VALUES ('codex', 3, 60, 120, 600, 4, 2, 60, 0.6, 10)",
-                [],
-            )
-            .map_err(|e| AppError::Database(e.to_string()))?;
-            conn.execute(
-                "INSERT OR IGNORE INTO proxy_config (app_type, max_retries,
-                streaming_first_byte_timeout, streaming_idle_timeout, non_streaming_timeout,
-                circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
-                circuit_error_rate_threshold, circuit_min_requests)
-                VALUES ('gemini', 5, 60, 120, 600, 4, 2, 60, 0.6, 10)",
-                [],
-            )
-            .map_err(|e| AppError::Database(e.to_string()))?;
+            let include_all_apps = Self::has_column(conn, "proxy_config", "route_mode")?;
+            Self::seed_proxy_config_rows(conn, include_all_apps)?;
         }
 
         // 9. Provider Health 表
@@ -377,6 +336,96 @@ impl Database {
         Ok(())
     }
 
+    fn create_proxy_config_v15_table(conn: &Connection, table_name: &str) -> Result<(), AppError> {
+        let sql = format!(
+            "CREATE TABLE IF NOT EXISTS {table_name} (
+                app_type TEXT PRIMARY KEY CHECK (app_type IN ('claude','claude-desktop','codex','gemini','opencode','openclaw','hermes')),
+                proxy_enabled INTEGER NOT NULL DEFAULT 0,
+                listen_address TEXT NOT NULL DEFAULT '127.0.0.1',
+                listen_port INTEGER NOT NULL DEFAULT 42567,
+                enable_logging INTEGER NOT NULL DEFAULT 1,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                route_mode TEXT NOT NULL DEFAULT 'direct' CHECK (route_mode IN ('direct','proxy')),
+                auto_failover_enabled INTEGER NOT NULL DEFAULT 0,
+                max_retries INTEGER NOT NULL DEFAULT 3,
+                streaming_first_byte_timeout INTEGER NOT NULL DEFAULT 60,
+                streaming_idle_timeout INTEGER NOT NULL DEFAULT 120,
+                non_streaming_timeout INTEGER NOT NULL DEFAULT 600,
+                circuit_failure_threshold INTEGER NOT NULL DEFAULT 4,
+                circuit_success_threshold INTEGER NOT NULL DEFAULT 2,
+                circuit_timeout_seconds INTEGER NOT NULL DEFAULT 60,
+                circuit_error_rate_threshold REAL NOT NULL DEFAULT 0.6,
+                circuit_min_requests INTEGER NOT NULL DEFAULT 10,
+                default_cost_multiplier TEXT NOT NULL DEFAULT '1',
+                pricing_model_source TEXT NOT NULL DEFAULT 'response',
+                live_takeover_active INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )"
+        );
+        conn.execute(&sql, [])
+            .map_err(|e| AppError::Database(format!("创建 {table_name} 失败: {e}")))?;
+        Ok(())
+    }
+
+    fn seed_proxy_config_rows(conn: &Connection, include_all_apps: bool) -> Result<(), AppError> {
+        let defaults = [
+            ("claude", 6, 90, 180, 8, 3, 90, 0.7, 15),
+            ("claude-desktop", 3, 60, 120, 4, 2, 60, 0.6, 10),
+            ("codex", 3, 60, 120, 4, 2, 60, 0.6, 10),
+            ("gemini", 5, 60, 120, 4, 2, 60, 0.6, 10),
+            ("opencode", 3, 60, 120, 4, 2, 60, 0.6, 10),
+            ("openclaw", 3, 60, 120, 4, 2, 60, 0.6, 10),
+            ("hermes", 3, 60, 120, 4, 2, 60, 0.6, 10),
+        ];
+
+        for (
+            index,
+            (app, retries, first_byte, idle, cb_fail, cb_success, cb_timeout, cb_rate, cb_min),
+        ) in defaults.into_iter().enumerate()
+        {
+            if !include_all_apps && index >= 3 {
+                // 旧 CHECK 的第三个合法值是 gemini；数组里 claude-desktop 位于第二项，
+                // 因而旧表不能简单取前三项。
+                continue;
+            }
+            if !include_all_apps && app == "claude-desktop" {
+                continue;
+            }
+            conn.execute(
+                "INSERT OR IGNORE INTO proxy_config (
+                    app_type, max_retries, streaming_first_byte_timeout,
+                    streaming_idle_timeout, non_streaming_timeout,
+                    circuit_failure_threshold, circuit_success_threshold,
+                    circuit_timeout_seconds, circuit_error_rate_threshold,
+                    circuit_min_requests
+                 ) VALUES (?1, ?2, ?3, ?4, 600, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    app, retries, first_byte, idle, cb_fail, cb_success, cb_timeout, cb_rate,
+                    cb_min
+                ],
+            )
+            .map_err(|e| AppError::Database(format!("初始化 {app} proxy_config 失败: {e}")))?;
+        }
+
+        if !include_all_apps {
+            // 上面的数组顺序为七模块稳定 wire 顺序；旧表单独补 gemini。
+            conn.execute(
+                "INSERT OR IGNORE INTO proxy_config (
+                    app_type, max_retries, streaming_first_byte_timeout,
+                    streaming_idle_timeout, non_streaming_timeout,
+                    circuit_failure_threshold, circuit_success_threshold,
+                    circuit_timeout_seconds, circuit_error_rate_threshold,
+                    circuit_min_requests
+                 ) VALUES ('gemini', 5, 60, 120, 600, 4, 2, 60, 0.6, 10)",
+                [],
+            )
+            .map_err(|e| AppError::Database(format!("初始化 gemini proxy_config 失败: {e}")))?;
+        }
+
+        Ok(())
+    }
+
     /// 应用 Schema 迁移
     pub(crate) fn apply_schema_migrations(&self) -> Result<(), AppError> {
         let conn = lock_conn!(self.conn);
@@ -476,6 +525,13 @@ impl Database {
                         );
                         Self::migrate_v13_to_v14(conn)?;
                         Self::set_user_version(conn, 14)?;
+                    }
+                    14 => {
+                        log::info!(
+                            "迁移数据库从 v14 到 v15（proxy_config 扩展七模块并新增 route_mode）"
+                        );
+                        Self::migrate_v14_to_v15(conn)?;
+                        Self::set_user_version(conn, 15)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1459,6 +1515,86 @@ impl Database {
         log::info!(
             "v13 -> v14 迁移完成：proxy_request_logs / usage_daily_rollups 已新增 input_token_semantics 列"
         );
+        Ok(())
+    }
+
+    /// v14 -> v15 迁移：proxy_config 扩展为七模块，并将含糊的历史 enabled
+    /// 映射为显式 route_mode。历史 enabled=1 只能表示旧 proxy 接管。
+    fn migrate_v14_to_v15(conn: &Connection) -> Result<(), AppError> {
+        if !Self::table_exists(conn, "proxy_config")? {
+            Self::create_proxy_config_v15_table(conn, "proxy_config")?;
+            Self::seed_proxy_config_rows(conn, true)?;
+            return Ok(());
+        }
+
+        if Self::has_column(conn, "proxy_config", "route_mode")? {
+            Self::seed_proxy_config_rows(conn, true)?;
+            return Ok(());
+        }
+
+        // 某些中间版本测试库只包含 proxy_config 的最小列集合。除 route_mode 外，
+        // 先在 v15 savepoint 内补齐旧列，随后统一整表重建；绝不在这里 ALTER route_mode。
+        for (column, definition) in [
+            ("proxy_enabled", "INTEGER NOT NULL DEFAULT 0"),
+            ("listen_address", "TEXT NOT NULL DEFAULT '127.0.0.1'"),
+            ("listen_port", "INTEGER NOT NULL DEFAULT 42567"),
+            ("enable_logging", "INTEGER NOT NULL DEFAULT 1"),
+            ("enabled", "INTEGER NOT NULL DEFAULT 0"),
+            ("auto_failover_enabled", "INTEGER NOT NULL DEFAULT 0"),
+            ("max_retries", "INTEGER NOT NULL DEFAULT 3"),
+            (
+                "streaming_first_byte_timeout",
+                "INTEGER NOT NULL DEFAULT 60",
+            ),
+            ("streaming_idle_timeout", "INTEGER NOT NULL DEFAULT 120"),
+            ("non_streaming_timeout", "INTEGER NOT NULL DEFAULT 600"),
+            ("circuit_failure_threshold", "INTEGER NOT NULL DEFAULT 4"),
+            ("circuit_success_threshold", "INTEGER NOT NULL DEFAULT 2"),
+            ("circuit_timeout_seconds", "INTEGER NOT NULL DEFAULT 60"),
+            ("circuit_error_rate_threshold", "REAL NOT NULL DEFAULT 0.6"),
+            ("circuit_min_requests", "INTEGER NOT NULL DEFAULT 10"),
+            ("default_cost_multiplier", "TEXT NOT NULL DEFAULT '1'"),
+            ("pricing_model_source", "TEXT NOT NULL DEFAULT 'response'"),
+            ("live_takeover_active", "INTEGER NOT NULL DEFAULT 0"),
+            ("created_at", "TEXT"),
+            ("updated_at", "TEXT"),
+        ] {
+            Self::add_column_if_missing(conn, "proxy_config", column, definition)?;
+        }
+
+        conn.execute("DROP TABLE IF EXISTS proxy_config_new", [])
+            .map_err(|e| AppError::Database(format!("清理 proxy_config_new 失败: {e}")))?;
+        Self::create_proxy_config_v15_table(conn, "proxy_config_new")?;
+        conn.execute(
+            "INSERT INTO proxy_config_new (
+                app_type, proxy_enabled, listen_address, listen_port, enable_logging,
+                enabled, route_mode, auto_failover_enabled, max_retries,
+                streaming_first_byte_timeout, streaming_idle_timeout, non_streaming_timeout,
+                circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
+                circuit_error_rate_threshold, circuit_min_requests, default_cost_multiplier,
+                pricing_model_source, live_takeover_active, created_at, updated_at
+             )
+             SELECT
+                app_type, proxy_enabled, listen_address, listen_port, enable_logging,
+                enabled, CASE WHEN enabled = 1 THEN 'proxy' ELSE 'direct' END,
+                auto_failover_enabled, max_retries, streaming_first_byte_timeout,
+                streaming_idle_timeout, non_streaming_timeout, circuit_failure_threshold,
+                circuit_success_threshold, circuit_timeout_seconds,
+                circuit_error_rate_threshold, circuit_min_requests, default_cost_multiplier,
+                pricing_model_source, live_takeover_active,
+                COALESCE(created_at, datetime('now')),
+                COALESCE(updated_at, datetime('now'))
+             FROM proxy_config",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("迁移 proxy_config 数据失败: {e}")))?;
+        conn.execute("DROP TABLE proxy_config", [])
+            .map_err(|e| AppError::Database(format!("删除旧 proxy_config 失败: {e}")))?;
+        conn.execute("ALTER TABLE proxy_config_new RENAME TO proxy_config", [])
+            .map_err(|e| AppError::Database(format!("替换 proxy_config 失败: {e}")))?;
+        Self::seed_proxy_config_rows(conn, true)?;
+
+        log::info!("v14 -> v15 迁移完成：proxy_config 已扩展为七模块并新增 route_mode");
         Ok(())
     }
 

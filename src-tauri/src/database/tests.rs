@@ -562,7 +562,7 @@ fn migration_v12_to_v14_adds_profiles_and_input_token_semantics() {
     Database::set_user_version(&conn, 12).expect("set user_version=12");
     Database::apply_schema_migrations_on_conn(&conn).expect("apply migrations");
 
-    // 最终版本达到 SCHEMA_VERSION（=14）。
+    // 最终版本达到 SCHEMA_VERSION（=15）。
     assert_eq!(
         Database::get_user_version(&conn).expect("version after migration"),
         SCHEMA_VERSION
@@ -628,6 +628,94 @@ fn fresh_create_tables_include_profiles_and_input_token_semantics() {
         assert_eq!(col.r#type, "INTEGER", "{table}.input_token_semantics type");
         assert_eq!(col.notnull, 1, "{table}.input_token_semantics NOT NULL");
     }
+
+    let proxy_rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM proxy_config", [], |r| r.get(0))
+        .expect("count proxy_config");
+    assert_eq!(
+        proxy_rows, 7,
+        "fresh create path must seed seven proxy modules"
+    );
+    assert!(
+        Database::has_column(&conn, "proxy_config", "route_mode").expect("route_mode"),
+        "fresh create must include route_mode"
+    );
+}
+
+/// C1：v14 三行旧表迁移到 v15 后得到七行，且历史 enabled=1 -> route_mode=proxy。
+#[test]
+fn migration_v14_to_v15_expands_proxy_config_and_preserves_proxy_route() {
+    let conn = Connection::open_in_memory().expect("open memory db");
+    conn.execute_batch(
+        r#"
+        CREATE TABLE proxy_config (
+            app_type TEXT PRIMARY KEY CHECK (app_type IN ('claude','codex','gemini')),
+            proxy_enabled INTEGER NOT NULL DEFAULT 0,
+            listen_address TEXT NOT NULL DEFAULT '127.0.0.1',
+            listen_port INTEGER NOT NULL DEFAULT 42567,
+            enable_logging INTEGER NOT NULL DEFAULT 1,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            auto_failover_enabled INTEGER NOT NULL DEFAULT 0,
+            max_retries INTEGER NOT NULL DEFAULT 3,
+            streaming_first_byte_timeout INTEGER NOT NULL DEFAULT 60,
+            streaming_idle_timeout INTEGER NOT NULL DEFAULT 120,
+            non_streaming_timeout INTEGER NOT NULL DEFAULT 600,
+            circuit_failure_threshold INTEGER NOT NULL DEFAULT 4,
+            circuit_success_threshold INTEGER NOT NULL DEFAULT 2,
+            circuit_timeout_seconds INTEGER NOT NULL DEFAULT 60,
+            circuit_error_rate_threshold REAL NOT NULL DEFAULT 0.6,
+            circuit_min_requests INTEGER NOT NULL DEFAULT 10,
+            default_cost_multiplier TEXT NOT NULL DEFAULT '1',
+            pricing_model_source TEXT NOT NULL DEFAULT 'response',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO proxy_config (app_type, enabled, max_retries) VALUES
+            ('claude', 1, 6),
+            ('codex', 0, 3),
+            ('gemini', 1, 5);
+        "#,
+    )
+    .expect("seed v14 proxy_config");
+    Database::set_user_version(&conn, 14).expect("set user_version=14");
+    Database::apply_schema_migrations_on_conn(&conn).expect("apply migrations");
+
+    assert_eq!(
+        Database::get_user_version(&conn).expect("version"),
+        SCHEMA_VERSION
+    );
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM proxy_config", [], |r| r.get(0))
+        .expect("count");
+    assert_eq!(count, 7);
+
+    let claude_mode: String = conn
+        .query_row(
+            "SELECT route_mode FROM proxy_config WHERE app_type = 'claude'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("claude mode");
+    let codex_mode: String = conn
+        .query_row(
+            "SELECT route_mode FROM proxy_config WHERE app_type = 'codex'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("codex mode");
+    assert_eq!(claude_mode, "proxy");
+    assert_eq!(codex_mode, "direct");
+
+    // 幂等：重复跑完整迁移链不破坏已有 route_mode。
+    Database::apply_schema_migrations_on_conn(&conn).expect("re-apply migrations");
+    let claude_mode_again: String = conn
+        .query_row(
+            "SELECT route_mode FROM proxy_config WHERE app_type = 'claude'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("claude mode again");
+    assert_eq!(claude_mode_again, "proxy");
 }
 
 #[test]
@@ -801,11 +889,15 @@ fn migration_from_v3_8_schema_v1_to_current_schema_v3() {
         "skills migration snapshot should preserve legacy app mapping"
     );
 
-    // v3.9+ 新增：proxy_config 三行 seed 必须存在（否则 UI 会查不到默认值）
+    // v15：proxy_config 七模块 seed 必须存在（否则 UI 会查不到默认值）
     let proxy_rows: i64 = conn
         .query_row("SELECT COUNT(*) FROM proxy_config", [], |r| r.get(0))
         .expect("count proxy_config rows");
-    assert_eq!(proxy_rows, 3);
+    assert_eq!(proxy_rows, 7);
+    assert!(
+        Database::has_column(&conn, "proxy_config", "route_mode").expect("route_mode"),
+        "proxy_config.route_mode must exist after full migration"
+    );
 
     // model_pricing 应具备默认数据（迁移时会 seed）
     let pricing_rows: i64 = conn

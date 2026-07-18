@@ -2,16 +2,40 @@
 //!
 //! 处理代理配置、Provider健康状态和使用统计的数据库操作
 
+use std::io;
 use std::str::FromStr;
 
 use crate::error::AppError;
 use crate::proxy::types::*;
+use rusqlite::types::Type;
 use rust_decimal::Decimal;
 
 use super::super::{lock_conn, Database};
 
 pub(crate) const PRICING_SOURCE_RESPONSE: &str = "response";
 pub(crate) const PRICING_SOURCE_REQUEST: &str = "request";
+
+type ProxyAppDefault = (&'static str, i32, i32, i32, i32, i32, i32, f64, i32);
+
+const PROXY_APP_DEFAULTS: [ProxyAppDefault; 7] = [
+    ("claude", 6, 90, 180, 8, 3, 90, 0.7, 15),
+    ("claude-desktop", 3, 60, 120, 4, 2, 60, 0.6, 10),
+    ("codex", 3, 60, 120, 4, 2, 60, 0.6, 10),
+    ("gemini", 5, 60, 120, 4, 2, 60, 0.6, 10),
+    ("opencode", 3, 60, 120, 4, 2, 60, 0.6, 10),
+    ("openclaw", 3, 60, 120, 4, 2, 60, 0.6, 10),
+    ("hermes", 3, 60, 120, 4, 2, 60, 0.6, 10),
+];
+
+fn parse_route_mode(value: String, column: usize) -> rusqlite::Result<RouteMode> {
+    RouteMode::from_str(&value).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            column,
+            Type::Text,
+            Box::new(io::Error::new(io::ErrorKind::InvalidData, error)),
+        )
+    })
+}
 
 pub(crate) fn validate_cost_multiplier(value: &str) -> Result<Decimal, AppError> {
     let trimmed = value.trim();
@@ -221,7 +245,7 @@ impl Database {
         let result = {
             let conn = lock_conn!(self.conn);
             conn.query_row(
-                "SELECT app_type, enabled, auto_failover_enabled,
+                "SELECT app_type, enabled, route_mode, auto_failover_enabled,
                         max_retries, streaming_first_byte_timeout, streaming_idle_timeout, non_streaming_timeout,
                         circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
                         circuit_error_rate_threshold, circuit_min_requests
@@ -230,17 +254,18 @@ impl Database {
                 |row| {
                     Ok(AppProxyConfig {
                         app_type: row.get(0)?,
-                        enabled: row.get::<_, i32>(1)? != 0,
-                        auto_failover_enabled: row.get::<_, i32>(2)? != 0,
-                        max_retries: row.get::<_, i32>(3)? as u32,
-                        streaming_first_byte_timeout: row.get::<_, i32>(4)? as u32,
-                        streaming_idle_timeout: row.get::<_, i32>(5)? as u32,
-                        non_streaming_timeout: row.get::<_, i32>(6)? as u32,
-                        circuit_failure_threshold: row.get::<_, i32>(7)? as u32,
-                        circuit_success_threshold: row.get::<_, i32>(8)? as u32,
-                        circuit_timeout_seconds: row.get::<_, i32>(9)? as u32,
-                        circuit_error_rate_threshold: row.get(10)?,
-                        circuit_min_requests: row.get::<_, i32>(11)? as u32,
+                        takeover_enabled: row.get::<_, i32>(1)? != 0,
+                        route_mode: parse_route_mode(row.get(2)?, 2)?,
+                        auto_failover_enabled: row.get::<_, i32>(3)? != 0,
+                        max_retries: row.get::<_, i32>(4)? as u32,
+                        streaming_first_byte_timeout: row.get::<_, i32>(5)? as u32,
+                        streaming_idle_timeout: row.get::<_, i32>(6)? as u32,
+                        non_streaming_timeout: row.get::<_, i32>(7)? as u32,
+                        circuit_failure_threshold: row.get::<_, i32>(8)? as u32,
+                        circuit_success_threshold: row.get::<_, i32>(9)? as u32,
+                        circuit_timeout_seconds: row.get::<_, i32>(10)? as u32,
+                        circuit_error_rate_threshold: row.get(11)?,
+                        circuit_min_requests: row.get::<_, i32>(12)? as u32,
                     })
                 },
             )
@@ -254,7 +279,8 @@ impl Database {
                 self.init_proxy_config_rows().await?;
                 Ok(AppProxyConfig {
                     app_type: app_type_owned,
-                    enabled: false,
+                    takeover_enabled: false,
+                    route_mode: RouteMode::Direct,
                     auto_failover_enabled: false,
                     max_retries: 3,
                     streaming_first_byte_timeout: 60,
@@ -281,21 +307,23 @@ impl Database {
         conn.execute(
             "UPDATE proxy_config SET
                 enabled = ?2,
-                auto_failover_enabled = ?3,
-                max_retries = ?4,
-                streaming_first_byte_timeout = ?5,
-                streaming_idle_timeout = ?6,
-                non_streaming_timeout = ?7,
-                circuit_failure_threshold = ?8,
-                circuit_success_threshold = ?9,
-                circuit_timeout_seconds = ?10,
-                circuit_error_rate_threshold = ?11,
-                circuit_min_requests = ?12,
+                route_mode = ?3,
+                auto_failover_enabled = ?4,
+                max_retries = ?5,
+                streaming_first_byte_timeout = ?6,
+                streaming_idle_timeout = ?7,
+                non_streaming_timeout = ?8,
+                circuit_failure_threshold = ?9,
+                circuit_success_threshold = ?10,
+                circuit_timeout_seconds = ?11,
+                circuit_error_rate_threshold = ?12,
+                circuit_min_requests = ?13,
                 updated_at = datetime('now')
              WHERE app_type = ?1",
             rusqlite::params![
                 config.app_type,
-                if config.enabled { 1 } else { 0 },
+                if config.takeover_enabled { 1 } else { 0 },
+                config.route_mode.as_str(),
                 if config.auto_failover_enabled { 1 } else { 0 },
                 config.max_retries as i32,
                 config.streaming_first_byte_timeout as i32,
@@ -314,22 +342,15 @@ impl Database {
     }
 
     /// 确保指定 app_type 的 proxy_config 行存在（同步版本，用于 set_* 函数）
-    ///
-    /// 使用与 schema.rs seed 相同的 per-app 默认值
     fn ensure_proxy_config_row_exists(&self, app_type: &str) -> Result<(), AppError> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| AppError::Lock(e.to_string()))?;
-
-        // 根据 app_type 使用不同的默认值（与 schema.rs seed 保持一致）
-        let (retries, fb_timeout, idle_timeout, cb_fail, cb_succ, cb_timeout, cb_rate, cb_min) =
-            match app_type {
-                "claude" => (6, 90, 180, 8, 3, 90, 0.7, 15),
-                "codex" => (3, 60, 120, 4, 2, 60, 0.6, 10),
-                "gemini" => (5, 60, 120, 4, 2, 60, 0.6, 10),
-                _ => (3, 60, 120, 4, 2, 60, 0.6, 10), // 默认值
-            };
+        let defaults = PROXY_APP_DEFAULTS
+            .iter()
+            .find(|(app, ..)| *app == app_type)
+            .ok_or_else(|| AppError::Config(format!("不支持的代理模块: {app_type}")))?;
 
         conn.execute(
             "INSERT OR IGNORE INTO proxy_config (
@@ -339,15 +360,8 @@ impl Database {
                 circuit_error_rate_threshold, circuit_min_requests
             ) VALUES (?1, ?2, ?3, ?4, 600, ?5, ?6, ?7, ?8, ?9)",
             rusqlite::params![
-                app_type,
-                retries,
-                fb_timeout,
-                idle_timeout,
-                cb_fail,
-                cb_succ,
-                cb_timeout,
-                cb_rate,
-                cb_min
+                defaults.0, defaults.1, defaults.2, defaults.3, defaults.4, defaults.5, defaults.6,
+                defaults.7, defaults.8
             ],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
@@ -355,48 +369,27 @@ impl Database {
         Ok(())
     }
 
-    /// 初始化 proxy_config 表的三行数据
-    ///
-    /// 使用与 schema.rs seed 相同的 per-app 默认值
+    /// 初始化 proxy_config 表的七模块数据。
     async fn init_proxy_config_rows(&self) -> Result<(), AppError> {
         let conn = lock_conn!(self.conn);
 
-        // 使用与 schema.rs seed 相同的 per-app 默认值
-        // claude: 更激进的重试和超时配置
-        conn.execute(
-            "INSERT OR IGNORE INTO proxy_config (
-                app_type, max_retries,
-                streaming_first_byte_timeout, streaming_idle_timeout, non_streaming_timeout,
-                circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
-                circuit_error_rate_threshold, circuit_min_requests
-            ) VALUES ('claude', 6, 90, 180, 600, 8, 3, 90, 0.7, 15)",
-            [],
-        )
-        .map_err(|e| AppError::Database(e.to_string()))?;
-
-        // codex: 默认配置
-        conn.execute(
-            "INSERT OR IGNORE INTO proxy_config (
-                app_type, max_retries,
-                streaming_first_byte_timeout, streaming_idle_timeout, non_streaming_timeout,
-                circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
-                circuit_error_rate_threshold, circuit_min_requests
-            ) VALUES ('codex', 3, 60, 120, 600, 4, 2, 60, 0.6, 10)",
-            [],
-        )
-        .map_err(|e| AppError::Database(e.to_string()))?;
-
-        // gemini: 稍高的重试次数
-        conn.execute(
-            "INSERT OR IGNORE INTO proxy_config (
-                app_type, max_retries,
-                streaming_first_byte_timeout, streaming_idle_timeout, non_streaming_timeout,
-                circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
-                circuit_error_rate_threshold, circuit_min_requests
-            ) VALUES ('gemini', 5, 60, 120, 600, 4, 2, 60, 0.6, 10)",
-            [],
-        )
-        .map_err(|e| AppError::Database(e.to_string()))?;
+        for (app, retries, first_byte, idle, cb_fail, cb_success, cb_timeout, cb_rate, cb_min) in
+            PROXY_APP_DEFAULTS
+        {
+            conn.execute(
+                "INSERT OR IGNORE INTO proxy_config (
+                    app_type, max_retries,
+                    streaming_first_byte_timeout, streaming_idle_timeout, non_streaming_timeout,
+                    circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
+                    circuit_error_rate_threshold, circuit_min_requests
+                ) VALUES (?1, ?2, ?3, ?4, 600, ?5, ?6, ?7, ?8, ?9)",
+                rusqlite::params![
+                    app, retries, first_byte, idle, cb_fail, cb_success, cb_timeout, cb_rate,
+                    cb_min
+                ],
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        }
 
         Ok(())
     }
@@ -507,6 +500,66 @@ impl Database {
         )
         .unwrap_or(0)
             > 0
+    }
+
+    /// 进程启动时将持久化运行镜像归零；它不是自动启动意图。
+    pub async fn reset_proxy_runtime_mirror(&self) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.execute(
+            "UPDATE proxy_config SET proxy_enabled = 0, updated_at = datetime('now')",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    /// 查询会阻止用户停止网关的模块，返回稳定的 AppType::as_str 值。
+    pub async fn list_proxy_route_takeovers(&self) -> Result<Vec<String>, AppError> {
+        let conn = lock_conn!(self.conn);
+        let mut stmt = conn
+            .prepare(
+                "SELECT app_type FROM proxy_config
+                 WHERE enabled = 1 AND route_mode = 'proxy'
+                 ORDER BY CASE app_type
+                    WHEN 'claude' THEN 1 WHEN 'claude-desktop' THEN 2
+                    WHEN 'codex' THEN 3 WHEN 'gemini' THEN 4
+                    WHEN 'opencode' THEN 5 WHEN 'openclaw' THEN 6
+                    WHEN 'hermes' THEN 7 ELSE 8 END",
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        let modules = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|e| AppError::Database(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(modules)
+    }
+
+    /// 原子放弃指定模块的接管所有权：清 enabled 并删除同模块快照。
+    /// 调用方必须只在恢复全部成功或 direct 明确放弃所有权后调用。
+    pub async fn release_takeover_ownership(&self, app_type: &str) -> Result<(), AppError> {
+        let mut conn = lock_conn!(self.conn);
+        let transaction = conn
+            .transaction()
+            .map_err(|e| AppError::Database(format!("开启接管清理事务失败: {e}")))?;
+        transaction
+            .execute(
+                "UPDATE proxy_config
+                 SET enabled = 0, updated_at = datetime('now')
+                 WHERE app_type = ?1",
+                [app_type],
+            )
+            .map_err(|e| AppError::Database(format!("清除 {app_type} 接管状态失败: {e}")))?;
+        transaction
+            .execute(
+                "DELETE FROM proxy_live_backup WHERE app_type = ?1",
+                [app_type],
+            )
+            .map_err(|e| AppError::Database(format!("删除 {app_type} 快照失败: {e}")))?;
+        transaction
+            .commit()
+            .map_err(|e| AppError::Database(format!("提交 {app_type} 接管清理失败: {e}")))?;
+        Ok(())
     }
 
     // ==================== Provider Health ====================
@@ -760,7 +813,25 @@ impl Database {
 
     // ==================== Live Backup ====================
 
-    /// 保存 Live 配置备份
+    /// 仅在槽位为空时保存版本化快照，已有快照绝不覆盖。
+    pub async fn insert_live_snapshot_if_absent(
+        &self,
+        app_type: &str,
+        snapshot_json: &str,
+    ) -> Result<bool, AppError> {
+        let conn = lock_conn!(self.conn);
+        let now = chrono::Utc::now().to_rfc3339();
+        let changed = conn
+            .execute(
+                "INSERT OR IGNORE INTO proxy_live_backup (app_type, original_config, backed_up_at)
+                 VALUES (?1, ?2, ?3)",
+                rusqlite::params![app_type, snapshot_json, now],
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(changed == 1)
+    }
+
+    /// 保存旧版 Live 配置备份。仅供三旧模块兼容路径使用。
     pub async fn save_live_backup(
         &self,
         app_type: &str,
@@ -963,5 +1034,106 @@ mod tests {
         ));
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn app_proxy_config_maps_takeover_enabled_and_route_mode() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let apps = [
+            "claude",
+            "claude-desktop",
+            "codex",
+            "gemini",
+            "opencode",
+            "openclaw",
+            "hermes",
+        ];
+        for app in apps {
+            let config = db.get_proxy_config_for_app(app).await?;
+            assert!(!config.takeover_enabled);
+            assert_eq!(config.route_mode.as_str(), "direct");
+        }
+
+        let mut config = db.get_proxy_config_for_app("claude").await?;
+        config.takeover_enabled = true;
+        config.route_mode = crate::proxy::types::RouteMode::Proxy;
+        config.auto_failover_enabled = true;
+        db.update_proxy_config_for_app(config).await?;
+
+        let got = db.get_proxy_config_for_app("claude").await?;
+        assert!(got.takeover_enabled);
+        assert_eq!(got.route_mode.as_str(), "proxy");
+        assert!(got.auto_failover_enabled);
+
+        // failover 字段更新不得清接管状态
+        let mut failover_only = got.clone();
+        failover_only.auto_failover_enabled = false;
+        db.update_proxy_config_for_app(failover_only).await?;
+        let preserved = db.get_proxy_config_for_app("claude").await?;
+        assert!(preserved.takeover_enabled);
+        assert_eq!(preserved.route_mode.as_str(), "proxy");
+        assert!(!preserved.auto_failover_enabled);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn release_ownership_and_proxy_stop_guard_query() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let mut proxy_app = db.get_proxy_config_for_app("codex").await?;
+        proxy_app.takeover_enabled = true;
+        proxy_app.route_mode = crate::proxy::types::RouteMode::Proxy;
+        db.update_proxy_config_for_app(proxy_app).await?;
+
+        let mut direct_app = db.get_proxy_config_for_app("claude").await?;
+        direct_app.takeover_enabled = true;
+        direct_app.route_mode = crate::proxy::types::RouteMode::Direct;
+        db.update_proxy_config_for_app(direct_app).await?;
+        db.save_live_backup("claude", r#"{"env":{}}"#).await?;
+
+        let blocked = db.list_proxy_route_takeovers().await?;
+        assert_eq!(blocked, vec!["codex".to_string()]);
+
+        db.release_takeover_ownership("claude").await?;
+        let claude = db.get_proxy_config_for_app("claude").await?;
+        assert!(!claude.takeover_enabled);
+        assert!(db.get_live_backup("claude").await?.is_none());
+
+        // direct 不再阻止停止；proxy 仍阻止
+        let blocked_after = db.list_proxy_route_takeovers().await?;
+        assert_eq!(blocked_after, vec!["codex".to_string()]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wire_accepts_legacy_enabled_alias_for_takeover() {
+        let config: crate::proxy::types::AppProxyConfig =
+            serde_json::from_value(serde_json::json!({
+                "appType": "claude",
+                "enabled": true,
+                "routeMode": "proxy",
+                "autoFailoverEnabled": false,
+                "maxRetries": 3,
+                "streamingFirstByteTimeout": 60,
+                "streamingIdleTimeout": 120,
+                "nonStreamingTimeout": 600,
+                "circuitFailureThreshold": 4,
+                "circuitSuccessThreshold": 2,
+                "circuitTimeoutSeconds": 60,
+                "circuitErrorRateThreshold": 0.6,
+                "circuitMinRequests": 10
+            }))
+            .expect("deserialize");
+        assert!(config.takeover_enabled);
+        assert_eq!(config.route_mode.as_str(), "proxy");
+
+        let encoded = serde_json::to_value(&config).expect("serialize");
+        assert!(encoded.get("takeoverEnabled").is_some());
+        assert!(encoded.get("enabled").is_none());
+        assert_eq!(
+            encoded.get("routeMode").and_then(|v| v.as_str()),
+            Some("proxy")
+        );
     }
 }

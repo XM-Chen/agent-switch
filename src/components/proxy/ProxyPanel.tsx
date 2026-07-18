@@ -26,7 +26,10 @@ import {
   useGlobalProxyConfig,
   useUpdateGlobalProxyConfig,
 } from "@/lib/query/proxy";
-import type { ProxyStatus } from "@/types/proxy";
+import {
+  getProxyTakeoverState,
+  type ProxyStatus,
+} from "@/types/proxy";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion } from "framer-motion";
 import { extractErrorMessage } from "@/utils/errorUtils";
@@ -275,9 +278,8 @@ export function ProxyPanel({
                 <div className="grid gap-2 sm:grid-cols-3">
                   {(["claude", "codex", "gemini"] as const).map((appType) => {
                     const isEnabled =
-                      takeoverStatus?.[
-                        appType as keyof typeof takeoverStatus
-                      ] ?? false;
+                      getProxyTakeoverState(takeoverStatus, appType)
+                        ?.takeoverEnabled ?? false;
                     return (
                       <div
                         key={appType}

@@ -43,6 +43,7 @@ import { openclawKeys, useOpenClawHealth } from "@/hooks/useOpenClaw";
 import { hermesKeys, useOpenHermesWebUI } from "@/hooks/useHermes";
 import { hermesApi } from "@/lib/api/hermes";
 import { useProxyStatus } from "@/hooks/useProxyStatus";
+import { getProxyTakeoverState } from "@/types/proxy";
 import { useAutoCompact } from "@/hooks/useAutoCompact";
 import { useUsageCacheBridge } from "@/hooks/useUsageCacheBridge";
 import { useTauriEvent } from "@/hooks/useTauriEvent";
@@ -276,7 +277,8 @@ function App() {
     takeoverStatus,
     status: proxyStatus,
   } = useProxyStatus();
-  const isCurrentAppTakeoverActive = takeoverStatus?.[activeApp] || false;
+  const isCurrentAppTakeoverActive =
+    getProxyTakeoverState(takeoverStatus, activeApp)?.takeoverEnabled ?? false;
   const activeProviderId = useMemo(() => {
     const target = proxyStatus?.active_targets?.find(
       (t) => t.app_type === activeApp,

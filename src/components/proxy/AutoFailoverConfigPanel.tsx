@@ -161,7 +161,8 @@ export function AutoFailoverConfigPanel({
     try {
       await updateConfig.mutateAsync({
         appType,
-        enabled: config.enabled,
+        takeoverEnabled: config.takeoverEnabled,
+        routeMode: config.routeMode,
         autoFailoverEnabled: formData.autoFailoverEnabled,
         maxRetries: raw.maxRetries,
         streamingFirstByteTimeout: raw.streamingFirstByteTimeout,

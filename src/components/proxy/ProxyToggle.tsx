@@ -11,6 +11,7 @@ import { useProxyStatus } from "@/hooks/useProxyStatus";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import type { AppId } from "@/lib/api";
+import { getProxyTakeoverState } from "@/types/proxy";
 
 interface ProxyToggleProps {
   className?: string;
@@ -30,7 +31,8 @@ export function ProxyToggle({ className, activeApp }: ProxyToggleProps) {
     }
   };
 
-  const takeoverEnabled = takeoverStatus?.[activeApp] || false;
+  const takeoverEnabled =
+    getProxyTakeoverState(takeoverStatus, activeApp)?.takeoverEnabled ?? false;
 
   const appLabel =
     activeApp === "claude"
