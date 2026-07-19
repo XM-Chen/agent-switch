@@ -35,6 +35,38 @@ fn capture_file_target(id: &'static str, path: &Path) -> Result<SnapshotTarget, 
     }
 }
 
+fn validate_manifest_targets(
+    manifest: &SnapshotManifest,
+    app_type: &AppType,
+    expected_ids: &[&str],
+) -> Result<(), String> {
+    manifest.validate()?;
+    if manifest.app_type != app_type.as_str() {
+        return Err(format!(
+            "快照 app_type 不匹配：期望 {}，实际 {}",
+            app_type.as_str(),
+            manifest.app_type
+        ));
+    }
+    if manifest.targets.len() != expected_ids.len()
+        || manifest
+            .targets
+            .iter()
+            .any(|target| !expected_ids.contains(&target.id()))
+    {
+        return Err(format!("{} 快照包含不支持的目标集合", app_type.as_str()));
+    }
+    for id in expected_ids {
+        let target = manifest
+            .targets
+            .iter()
+            .find(|target| target.id() == *id)
+            .ok_or_else(|| format!("快照缺少目标 {id}"))?;
+        target.file_payload()?;
+    }
+    Ok(())
+}
+
 /// 按快照目标恢复单个文件：存在则逐字节写回，不存在则删除 AGS 创建的目标。
 fn restore_file_target(path: &Path, target: &SnapshotTarget) -> Result<(), AppError> {
     match target.file_payload().map_err(AppError::Message)? {
@@ -68,6 +100,9 @@ impl SnapshotModuleAdapter for SingleFileAdapter {
     }
 
     fn restore_manifest_transactional(&self, manifest: &SnapshotManifest) -> Result<(), String> {
+        // 在任何写入前完整校验：目标集合、app_type、payload 合法。否则忽略未知目标后
+        // 误清所有权，或恢复到半写状态。
+        validate_manifest_targets(manifest, &self.app, &[self.target_id])?;
         let target = manifest
             .targets
             .iter()
@@ -115,7 +150,13 @@ impl SnapshotModuleAdapter for ClaudeDesktopSnapshotAdapter {
 
     fn restore_manifest_transactional(&self, manifest: &SnapshotManifest) -> Result<(), String> {
         // 1. 在任何写入前完整校验四个稳定 target id 与 file_bytes payload。
-        // 缺失/类型错误若在逐目标恢复中途才发现，会留下部分恢复状态，违反事务语义。
+        validate_manifest_targets(
+            manifest,
+            &AppType::ClaudeDesktop,
+            &["normal_config", "threep_config", "profile", "meta"],
+        )?;
+
+        // 2. 建立恢复计划，保证后续只访问已校验目标。
         let restore_plan = self
             .targets
             .iter()
@@ -124,15 +165,12 @@ impl SnapshotModuleAdapter for ClaudeDesktopSnapshotAdapter {
                     .targets
                     .iter()
                     .find(|target| target.id() == *id)
-                    .ok_or_else(|| format!("Claude Desktop 快照缺少目标 {id}"))?;
-                target
-                    .file_payload()
-                    .map_err(|error| format!("Claude Desktop 目标 {id} 无效: {error}"))?;
-                Ok((id, path, target))
+                    .expect("目标集合已完成预检");
+                (id, path, target)
             })
-            .collect::<Result<Vec<_>, String>>()?;
+            .collect::<Vec<_>>();
 
-        // 2. 先 snapshot 当前字节，作为补偿回滚来源。
+        // 3. 先 snapshot 当前字节，作为补偿回滚来源。
         let rollback: Vec<(PathBuf, Option<Vec<u8>>)> = self
             .targets
             .iter()
@@ -149,7 +187,7 @@ impl SnapshotModuleAdapter for ClaudeDesktopSnapshotAdapter {
             })
             .collect::<Result<_, String>>()?;
 
-        // 3. 逐目标恢复；任一失败用 rollback 补偿已写目标后返回原始错误。
+        // 4. 逐目标恢复；任一失败用 rollback 补偿已写目标后返回原始错误。
         for (id, path, target) in restore_plan {
             if let Err(err) = restore_file_target(path, target) {
                 let restore_err = format!("恢复 Claude Desktop 目标 {id} 失败: {err}");

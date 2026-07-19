@@ -1094,88 +1094,78 @@ pub(crate) fn sync_current_provider_for_app_to_live(
     Ok(())
 }
 
-fn sync_current_provider_for_app_respecting_takeover(
+pub(crate) fn sync_current_provider_for_app_respecting_takeover(
     state: &AppState,
     app_type: &AppType,
 ) -> Result<(), AppError> {
-    let current_id = match crate::settings::get_effective_current_provider(&state.db, app_type)? {
-        Some(id) => id,
-        None => return Ok(()),
-    };
+    let _switch_guard =
+        futures::executor::block_on(state.proxy_service.lock_switch_for_app(app_type.as_str()));
+    let decision = state
+        .proxy_service
+        .live_write_decision_for_app_sync(app_type)
+        .map_err(AppError::Message)?;
 
-    let providers = state.db.get_all_providers(app_type.as_str())?;
-    let Some(provider) = providers.get(&current_id) else {
-        return Ok(());
-    };
+    match decision {
+        // takeover 关闭时 ProviderService 只维护 DB/current SSOT，任何同步入口都不得
+        // 创建、修改或删除模块 Live（R3/D3）。
+        crate::services::proxy::LiveWriteDecision::Skip => Ok(()),
+        // direct 接管复用既有真实上游 writer；additive 模块仍按原语义同步所有
+        // live_config_managed provider。
+        crate::services::proxy::LiveWriteDecision::DirectUpstream => {
+            sync_current_provider_for_app_to_live(state, app_type)
+        }
+        // proxy 接管只允许代理安全刷新，绝不把真实上游凭据写回 Live，也不更新
+        // immutable first-open snapshot。
+        crate::services::proxy::LiveWriteDecision::ProxyManaged => {
+            let current_id =
+                match crate::settings::get_effective_current_provider(&state.db, app_type)? {
+                    Some(id) => id,
+                    None => return Ok(()),
+                };
+            let providers = state.db.get_all_providers(app_type.as_str())?;
+            let Some(provider) = providers.get(&current_id) else {
+                return Ok(());
+            };
 
-    // C2a three-module semantics: the truth source is proxy_config
-    // (takeover_enabled × route_mode), not backup presence.
-    // - Skip (takeover off): hands-off, never rewrite live (R3/D3/AC1).
-    // - DirectUpstream: write the real upstream config.
-    // - ProxyManaged: only refresh proxy-safe live display fields (Claude/Codex)
-    //   while the gateway runs; do NOT write the immutable first-open snapshot
-    //   backup (Option A: managed-expected baseline is C3's in-memory concern).
-    if matches!(app_type, AppType::Claude | AppType::Codex | AppType::Gemini) {
-        let _switch_guard =
-            futures::executor::block_on(state.proxy_service.lock_switch_for_app(app_type.as_str()));
-        let decision = state
-            .proxy_service
-            .live_write_decision_for_app_sync(app_type)
-            .map_err(AppError::Message)?;
-        return match decision {
-            crate::services::proxy::LiveWriteDecision::Skip => Ok(()),
-            crate::services::proxy::LiveWriteDecision::DirectUpstream => {
-                write_live_with_common_config(state.db.as_ref(), app_type, provider)
-            }
-            crate::services::proxy::LiveWriteDecision::ProxyManaged => {
-                if futures::executor::block_on(state.proxy_service.is_running()) {
-                    match app_type {
-                        AppType::Claude => futures::executor::block_on(
+            match app_type {
+                AppType::Claude => {
+                    if futures::executor::block_on(state.proxy_service.is_running()) {
+                        futures::executor::block_on(
                             state
                                 .proxy_service
                                 .sync_claude_live_from_provider_while_proxy_active(provider),
                         )
                         .map_err(|e| {
                             AppError::Message(format!("同步 Claude Live 配置失败: {e}"))
-                        })?,
-                        AppType::Codex => futures::executor::block_on(
+                        })?;
+                    }
+                }
+                AppType::Codex => {
+                    if futures::executor::block_on(state.proxy_service.is_running()) {
+                        futures::executor::block_on(
                             state
                                 .proxy_service
                                 .sync_codex_live_from_provider_while_proxy_active(provider),
                         )
-                        .map_err(|e| AppError::Message(format!("同步 Codex Live 配置失败: {e}")))?,
-                        _ => {}
+                        .map_err(|e| AppError::Message(format!("同步 Codex Live 配置失败: {e}")))?;
                     }
                 }
-                Ok(())
+                AppType::ClaudeDesktop
+                | AppType::OpenCode
+                | AppType::OpenClaw
+                | AppType::Hermes => {
+                    // Four-module proxy live is already a namespaced gateway fragment.
+                    // A plain sync has no new label/model selection to apply, so it must
+                    // remain byte-stable and must never rebuild the fragment from the
+                    // provider's real upstream credentials.
+                }
+                // Gemini proxy live 只有稳定的本地 endpoint + token 占位，provider
+                // 保存/同步没有安全且必要的可见字段需要刷新。
+                AppType::Gemini => {}
             }
-        };
-    }
-
-    let has_live_backup = futures::executor::block_on(state.db.get_live_backup(app_type.as_str()))
-        .ok()
-        .flatten()
-        .is_some();
-    let live_taken_over = state
-        .proxy_service
-        .detect_takeover_in_live_config_for_app(app_type);
-
-    // ClaudeDesktop / other modules (C2b): keep the backup/placeholder signal.
-    if has_live_backup || live_taken_over {
-        if matches!(app_type, AppType::ClaudeDesktop) {
-            write_live_with_common_config(state.db.as_ref(), app_type, provider)?;
-        } else {
-            futures::executor::block_on(
-                state
-                    .proxy_service
-                    .update_live_backup_from_provider(app_type.as_str(), provider),
-            )
-            .map_err(|e| AppError::Message(format!("更新 Live 备份失败: {e}")))?;
+            Ok(())
         }
-        return Ok(());
     }
-
-    write_live_with_common_config(state.db.as_ref(), app_type, provider)
 }
 
 /// Sync current provider to live configuration
@@ -1186,23 +1176,42 @@ fn sync_current_provider_for_app_respecting_takeover(
 ///
 /// For additive mode apps (OpenCode), all providers are synced instead of just the current one.
 pub fn sync_current_to_live(state: &AppState) -> Result<(), AppError> {
-    // Sync providers based on mode
+    // 七模块都必须经过同一个 takeover 写权限判定；additive 不能再通过
+    // sync_all_providers_to_live 绕过 takeover_enabled。
     for app_type in AppType::all() {
-        if app_type.is_additive_mode() {
-            // Additive mode: sync ALL providers
-            sync_all_providers_to_live(state, &app_type)?;
-        } else {
-            // Switch mode: sync only current provider. During proxy takeover,
-            // update the restore backup instead of rewriting the taken-over
-            // live file.
-            sync_current_provider_for_app_respecting_takeover(state, &app_type)?;
-        }
+        sync_current_provider_for_app_respecting_takeover(state, &app_type)?;
     }
 
-    // MCP sync（best-effort 逐应用投影，内部已聚合失败）。错误暂存到
-    // Skill 同步之后再返回：MCP 的失败不该跳过 Skill 同步，但调用方
-    //（配置导入 / 云同步恢复）需要知道结果不完整。
-    let mcp_result = McpService::sync_all_enabled(state);
+    // MCP 也可能与 provider 共用同一 live 文件（OpenCode/Hermes）。因此不能
+    // 再无条件 sync_all_enabled；只有 direct takeover 才允许 ProviderService 的
+    // 全量同步流程投影 MCP。Skip/ProxyManaged 均保持受管/外部 live 字节稳定。
+    let mut mcp_failures = Vec::new();
+    for app_type in AppType::all() {
+        let decision = state
+            .proxy_service
+            .live_write_decision_for_app_sync(&app_type)
+            .map_err(AppError::Message)?;
+        let should_sync = matches!(app_type, AppType::Claude | AppType::Codex | AppType::Gemini)
+            || matches!(
+                decision,
+                crate::services::proxy::LiveWriteDecision::DirectUpstream
+            );
+        if !should_sync {
+            continue;
+        }
+        if let Err(err) = McpService::sync_enabled_for_app(state, &app_type) {
+            log::warn!("同步 MCP 到 {app_type:?} 失败: {err}");
+            mcp_failures.push(format!("{}: {err}", app_type.as_str()));
+        }
+    }
+    let mcp_result = if mcp_failures.is_empty() {
+        Ok(())
+    } else {
+        Err(AppError::Message(format!(
+            "部分应用 MCP 同步失败: {}",
+            mcp_failures.join("; ")
+        )))
+    };
 
     // Skill sync
     for app_type in AppType::all() {

@@ -403,15 +403,17 @@ pub fn module_canonical_protocol(
 /// 写 live / 提交 route_mode **之前**拒绝，保持 `takeover_enabled`/`route_mode`/live/
 /// snapshot 原样；direct 不受本校验限制（对齐 `gateway-takeover.md` §4、父 AC8-C2b）。
 ///
-/// 目前的消费方是 `services/proxy.rs::set_takeover_for_app` 的 proxy 分支；该分支的
-/// 四模块 match 臂依赖 C2a 落地的公共三维 dispatcher，按 C2b-first 顺序尚未合入，
-/// 故本函数暂无调用方（rebase 到 C2a 后接入）。保留 `allow(dead_code)` 而非删除，
-/// 避免与 C2a 各自发明两套矩阵校验。
-#[allow(dead_code)]
+/// 目前的消费方是 `services/proxy.rs::set_takeover_for_app` 的 proxy 分支。
 pub fn validate_module_proxy_capability(
     app_type: &AppType,
     provider: &Provider,
 ) -> Result<ModuleProtocol, String> {
+    if matches!(app_type, AppType::ClaudeDesktop) {
+        crate::claude_desktop_config::validate_proxy_provider(provider)
+            .map_err(|error| format!("Claude Desktop proxy provider 校验失败: {error}"))?;
+        return Ok(ModuleProtocol::Anthropic);
+    }
+
     let protocol = module_canonical_protocol(app_type, provider).ok_or_else(|| {
         format!(
             "{} 当前供应商的协议不在网关能力矩阵内（无现成转换链），无法启用 proxy 接管；可改用 direct 或切换到受支持协议的供应商",
