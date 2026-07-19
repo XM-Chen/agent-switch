@@ -54,15 +54,31 @@ pub async fn get_proxy_takeover_status(
 }
 
 /// 为指定应用开启/关闭接管
+///
+/// `route_mode` 仅在 `enabled=true` 时生效；wire 缺省 `direct`，兼容旧调用。
 #[tauri::command]
 pub async fn set_proxy_takeover_for_app(
     state: tauri::State<'_, AppState>,
     app_type: String,
     enabled: bool,
+    route_mode: Option<RouteMode>,
 ) -> Result<(), String> {
     state
         .proxy_service
-        .set_takeover_for_app(&app_type, enabled)
+        .set_takeover_for_app(&app_type, enabled, route_mode.unwrap_or_default())
+        .await
+}
+
+/// 在 direct↔proxy 间切换某模块的路由模式（仅接管开启时生效，不重新捕获快照）。
+#[tauri::command]
+pub async fn set_proxy_route_mode(
+    state: tauri::State<'_, AppState>,
+    app_type: String,
+    route_mode: RouteMode,
+) -> Result<(), String> {
+    state
+        .proxy_service
+        .switch_route_mode(&app_type, route_mode)
         .await
 }
 

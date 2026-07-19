@@ -17,6 +17,7 @@ use crate::database::{validate_cost_multiplier, validate_pricing_source};
 use crate::error::AppError;
 use crate::provider::{Provider, UsageResult};
 use crate::services::mcp::McpService;
+use crate::services::proxy::LiveWriteDecision;
 use crate::settings::CustomEndpoint;
 use crate::store::AppState;
 
@@ -48,6 +49,11 @@ use usage::validate_usage_script;
 /// 当前供应商非官方（或不存在）时为 no-op：注入只作用于官方配置，
 /// 第三方 live 配置不受开关影响。
 pub fn reapply_current_codex_official_live(state: &AppState) -> Result<bool, AppError> {
+    let _switch_guard = futures::executor::block_on(
+        state
+            .proxy_service
+            .lock_switch_for_app(AppType::Codex.as_str()),
+    );
     let current_id = ProviderService::current(state, AppType::Codex)?;
     if current_id.is_empty() {
         return Ok(false);
@@ -60,25 +66,36 @@ pub fn reapply_current_codex_official_live(state: &AppState) -> Result<bool, App
         return Ok(false);
     }
 
-    // 代理接管期间 live 归代理所有（开启代理时官方供应商只警告不拦截，
-    // 二者可以共存）。与切换/保存路径一致：以 backup/占位符为所有权信号，
-    // 只更新备份，注入后的配置由接管释放时的恢复路径落盘。
-    let has_live_backup =
-        futures::executor::block_on(state.db.get_live_backup(AppType::Codex.as_str()))
-            .ok()
-            .flatten()
-            .is_some();
-    let live_taken_over = state
+    // C2a: reapply is also a Codex live-sync path, so it obeys the same
+    // three-dimensional truth source as save/switch/sync.
+    let decision = state
         .proxy_service
-        .detect_takeover_in_live_config_for_app(&AppType::Codex);
-    if has_live_backup || live_taken_over {
-        futures::executor::block_on(
-            state
+        .live_write_decision_for_app_sync(&AppType::Codex)
+        .map_err(AppError::Message)?;
+    match decision {
+        LiveWriteDecision::Skip => {
+            // Hands-off: the setting is persisted in DB, but AGS must not rewrite
+            // Codex live until the user opts into takeover.
+            return Ok(true);
+        }
+        LiveWriteDecision::ProxyManaged => {
+            // Option A: refresh proxy-safe live config only; never rewrite the
+            // immutable first-open restore snapshot. If the proxy is stopped and
+            // live is already clean, there is nothing to refresh.
+            let live_taken_over = state
                 .proxy_service
-                .update_live_backup_from_provider(AppType::Codex.as_str(), provider),
-        )
-        .map_err(|e| AppError::Message(format!("更新 Live 备份失败: {e}")))?;
-        return Ok(true);
+                .detect_takeover_in_live_config_for_app(&AppType::Codex);
+            if futures::executor::block_on(state.proxy_service.is_running()) || live_taken_over {
+                futures::executor::block_on(
+                    state
+                        .proxy_service
+                        .sync_codex_live_from_provider_while_proxy_active(provider),
+                )
+                .map_err(|e| AppError::Message(format!("同步 Codex Live 配置失败: {e}")))?;
+            }
+            return Ok(true);
+        }
+        LiveWriteDecision::DirectUpstream => {}
     }
 
     live::write_live_with_common_config(&state.db, &AppType::Codex, provider)?;
@@ -423,6 +440,39 @@ mod tests {
             "omo-slim" => crate::services::omo::SLIM.preferred_filename,
             other => panic!("unexpected OMO category in test: {other}"),
         })
+    }
+
+    #[test]
+    #[serial]
+    fn add_first_provider_is_hands_off_when_takeover_is_disabled() {
+        with_test_home(|state, _| {
+            let provider = Provider::with_id(
+                "claude-first".to_string(),
+                "Claude first".to_string(),
+                json!({
+                    "env": {
+                        "ANTHROPIC_API_KEY": "should-not-reach-live",
+                        "ANTHROPIC_BASE_URL": "https://upstream.example"
+                    }
+                }),
+                None,
+            );
+
+            ProviderService::add(state, AppType::Claude, provider, true)
+                .expect("add provider should persist in hands-off mode");
+
+            assert!(
+                !get_claude_settings_path().exists(),
+                "takeover-off add must not write Claude settings.json"
+            );
+            assert_eq!(
+                state
+                    .db
+                    .get_current_provider(AppType::Claude.as_str())
+                    .expect("read current provider"),
+                Some("claude-first".to_string())
+            );
+        });
     }
 
     #[test]
@@ -1056,18 +1106,19 @@ command = "legacy-cmd"
         ProviderService::update(&state, AppType::Claude, None, updated.clone())
             .expect("update current provider");
 
-        let backup = db
-            .get_live_backup("claude")
-            .await
-            .expect("get live backup")
-            .expect("backup exists");
-        let stored_provider = db
-            .get_provider_by_id("p1", "claude")
-            .expect("get stored provider")
-            .expect("stored provider exists");
-        let expected_backup =
-            serde_json::to_string(&stored_provider.settings_config).expect("serialize");
-        assert_eq!(backup.original_config, expected_backup);
+        // Option A (C2a): the restore snapshot is the immutable first-open capture
+        // taken by set_takeover_for_app. This test seeds takeover state directly
+        // (no first-open snapshot exists), so a provider save under ProxyManaged
+        // must NOT synthesize a backup from the provider — that "managed baseline
+        // follows the provider" behavior is deferred to C3's in-memory managed
+        // expected. What still holds is the proxy-safe live refresh below.
+        assert!(
+            db.get_live_backup("claude")
+                .await
+                .expect("get live backup")
+                .is_none(),
+            "ProxyManaged save must not synthesize a restore backup (Option A)"
+        );
 
         let live: Value = read_json_file(&get_claude_settings_path()).expect("read live");
         assert_eq!(
@@ -2094,11 +2145,16 @@ impl ProviderService {
         // For other apps: Check if sync is needed (if this is current provider, or no current provider)
         let current = state.db.get_current_provider(app_type.as_str())?;
         if current.is_none() {
-            // No current provider, set as current and sync
+            // No current provider: persist the pointer, then obey the same three-dimensional
+            // write decision as update/switch/sync. Takeover-off remains strictly hands-off.
             state
                 .db
                 .set_current_provider(app_type.as_str(), &provider.id)?;
-            write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
+            if matches!(app_type, AppType::Claude | AppType::Codex | AppType::Gemini) {
+                Self::save_current_live_for_takeover_module(state, &app_type, &provider)?;
+            } else {
+                write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
+            }
         }
 
         Ok(true)
@@ -2262,60 +2318,32 @@ impl ProviderService {
         let is_current = effective_current.as_deref() == Some(provider.id.as_str());
 
         if is_current {
-            // 如果 Claude 代理接管处于激活状态，并且代理服务正在运行：
-            // - 不直接走普通 Live 写入逻辑
-            // - 改为更新 Live 备份，并在 Claude 下同步代理安全的 Live 配置
-            let has_live_backup =
-                futures::executor::block_on(state.db.get_live_backup(app_type.as_str()))
-                    .ok()
-                    .flatten()
-                    .is_some();
-            let live_taken_over = state
-                .proxy_service
-                .detect_takeover_in_live_config_for_app(&app_type);
-            // Backup or live placeholders mean the live file is currently owned
-            // by proxy takeover, including the short activation window before
-            // proxy_config.takeover_enabled is committed.
-            let should_sync_via_proxy = has_live_backup || live_taken_over;
-
-            if should_sync_via_proxy {
-                if matches!(app_type, AppType::ClaudeDesktop) {
+            // C2a 三模块按 (takeover_enabled, route_mode) 三维语义决定写入目标；
+            // 真相来源是 proxy_config，不再靠"有备份/占位符"推断接管。
+            // ClaudeDesktop（C2b）保持既有行为不变。
+            if matches!(app_type, AppType::Claude | AppType::Codex | AppType::Gemini) {
+                Self::save_current_live_for_takeover_module(state, &app_type, &provider)?;
+            } else if matches!(app_type, AppType::ClaudeDesktop) {
+                let should_sync_via_proxy =
+                    futures::executor::block_on(state.db.get_live_backup(app_type.as_str()))
+                        .ok()
+                        .flatten()
+                        .is_some()
+                        || state
+                            .proxy_service
+                            .detect_takeover_in_live_config_for_app(&app_type);
+                if should_sync_via_proxy {
                     write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
                 } else {
-                    futures::executor::block_on(
-                        state
-                            .proxy_service
-                            .update_live_backup_from_provider(app_type.as_str(), &provider),
-                    )
-                    .map_err(|e| AppError::Message(format!("更新 Live 备份失败: {e}")))?;
-                }
-
-                if futures::executor::block_on(state.proxy_service.is_running()) {
-                    if matches!(app_type, AppType::Claude) {
-                        futures::executor::block_on(
-                            state
-                                .proxy_service
-                                .sync_claude_live_from_provider_while_proxy_active(&provider),
-                        )
-                        .map_err(|e| {
-                            AppError::Message(format!("同步 Claude Live 配置失败: {e}"))
-                        })?;
-                    } else if live_taken_over && matches!(app_type, AppType::Codex) {
-                        futures::executor::block_on(
-                            state
-                                .proxy_service
-                                .sync_codex_live_from_provider_while_proxy_active(&provider),
-                        )
-                        .map_err(|e| AppError::Message(format!("同步 Codex Live 配置失败: {e}")))?;
+                    write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
+                    if let Err(err) = McpService::sync_enabled_for_app(state, &app_type) {
+                        log::warn!(
+                            "保存供应商后重投影 {app_type:?} MCP 失败（将在下次同步时自愈）: {err}"
+                        );
                     }
                 }
             } else {
                 write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
-                // 重写 live 后只重投影本应用的 MCP：全量 sync_all_enabled 会把
-                // 无关应用的 live 损坏（如 ~/.claude.json 坏 JSON）牵连进保存
-                // 流程。走到这里 DB 与 live 都已按新配置落盘，保存事实上已
-                // 成功；投影失败降级为警告，避免制造"保存失败"假象（MCP
-                // 投影可自愈：下次切换 / 任一 MCP 启停都会重新投影）。
                 if let Err(err) = McpService::sync_enabled_for_app(state, &app_type) {
                     log::warn!(
                         "保存供应商后重投影 {app_type:?} MCP 失败（将在下次同步时自愈）: {err}"
@@ -2325,6 +2353,61 @@ impl ProviderService {
         }
 
         Ok(true)
+    }
+
+    /// C2a 三模块保存当前供应商时的 Live 写入判定。
+    ///
+    /// - Skip（未接管）：只更新 DB SSOT，不写 Live（R3/D3/AC1）。
+    /// - DirectUpstream：写真实上游（切换即时同步），并重投影本应用 MCP。
+    /// - ProxyManaged：仅刷新代理安全的 Live 显示字段（Claude/Codex），不写 immutable
+    ///   首次快照备份（Option A：受管基线指纹归 C3 内存态，不覆盖首次快照槽）。
+    fn save_current_live_for_takeover_module(
+        state: &AppState,
+        app_type: &AppType,
+        provider: &Provider,
+    ) -> Result<(), AppError> {
+        let _switch_guard =
+            futures::executor::block_on(state.proxy_service.lock_switch_for_app(app_type.as_str()));
+        let decision = state
+            .proxy_service
+            .live_write_decision_for_app_sync(app_type)
+            .map_err(AppError::Message)?;
+
+        match decision {
+            crate::services::proxy::LiveWriteDecision::Skip => Ok(()),
+            crate::services::proxy::LiveWriteDecision::DirectUpstream => {
+                write_live_with_common_config(state.db.as_ref(), app_type, provider)?;
+                if let Err(err) = McpService::sync_enabled_for_app(state, app_type) {
+                    log::warn!(
+                        "保存供应商后重投影 {app_type:?} MCP 失败（将在下次同步时自愈）: {err}"
+                    );
+                }
+                Ok(())
+            }
+            crate::services::proxy::LiveWriteDecision::ProxyManaged => {
+                if futures::executor::block_on(state.proxy_service.is_running()) {
+                    match app_type {
+                        AppType::Claude => futures::executor::block_on(
+                            state
+                                .proxy_service
+                                .sync_claude_live_from_provider_while_proxy_active(provider),
+                        )
+                        .map_err(|e| {
+                            AppError::Message(format!("同步 Claude Live 配置失败: {e}"))
+                        })?,
+                        AppType::Codex => futures::executor::block_on(
+                            state
+                                .proxy_service
+                                .sync_codex_live_from_provider_while_proxy_active(provider),
+                        )
+                        .map_err(|e| AppError::Message(format!("同步 Codex Live 配置失败: {e}")))?,
+                        // Gemini proxy live 仅含稳定的本地 base_url + 占位符，热切换无需刷新。
+                        _ => {}
+                    }
+                }
+                Ok(())
+            }
+        }
     }
 
     /// Delete a provider
@@ -2489,19 +2572,69 @@ impl ProviderService {
             return Self::switch_normal(state, app_type, id, &providers);
         }
 
-        // Provider switches and takeover toggles both mutate live config and the
-        // restore backup. Serialize them per app, then decide from the locked
-        // current state so a just-started takeover cannot be overwritten by a
-        // normal live write.
-        let _switch_guard =
-            if matches!(app_type, AppType::Claude | AppType::Codex | AppType::Gemini) {
-                Some(futures::executor::block_on(
-                    state.proxy_service.lock_switch_for_app(app_type.as_str()),
-                ))
-            } else {
-                None
-            };
+        // C2a three-dimensional semantics for Claude/Codex/Gemini: the truth
+        // source for whether/where to write live is proxy_config
+        // (takeover_enabled × route_mode), not backup presence.
+        //
+        // - Skip (takeover off): hands-off. Update DB/settings current only;
+        //   never write live (R3/D3/AC1-C2a).
+        // - DirectUpstream: write the real upstream config = the classic
+        //   provider switch (switch_normal).
+        // - ProxyManaged: hot-switch without restoring upstream live; the proxy
+        //   layer refreshes proxy-safe live fields so client labels follow the
+        //   selected provider while endpoints stay local.
+        if matches!(app_type, AppType::Claude | AppType::Codex | AppType::Gemini) {
+            // Serialize with takeover toggles per app so a just-started takeover
+            // cannot be overwritten by a normal live write.
+            let _switch_guard = futures::executor::block_on(
+                state.proxy_service.lock_switch_for_app(app_type.as_str()),
+            );
 
+            let decision = state
+                .proxy_service
+                .live_write_decision_for_app_sync(&app_type)
+                .map_err(AppError::Message)?;
+
+            // Block switching to official providers only under proxy takeover:
+            // using a proxy with official APIs may cause account bans. Direct
+            // mode writes the real upstream, which is exactly normal official use.
+            if matches!(decision, LiveWriteDecision::ProxyManaged)
+                && _provider.category.as_deref() == Some("official")
+            {
+                return Err(AppError::localized(
+                    "switch.official_blocked_by_proxy",
+                    "代理接管模式下不能切换到官方供应商，使用代理访问官方 API 可能导致账号被封禁。请先关闭代理接管，或选择第三方供应商。",
+                    "Cannot switch to official provider while proxy takeover is active. Using proxy with official APIs may cause account bans.",
+                ));
+            }
+
+            return match decision {
+                LiveWriteDecision::ProxyManaged => {
+                    log::info!(
+                        "代理接管模式：热切换 {} 的目标供应商为 {}",
+                        app_type.as_str(),
+                        id
+                    );
+                    futures::executor::block_on(
+                        state
+                            .proxy_service
+                            .hot_switch_provider_inner(app_type.as_str(), id),
+                    )
+                    .map_err(|e| AppError::Message(format!("热切换失败: {e}")))?;
+                    Ok(SwitchResult::default())
+                }
+                LiveWriteDecision::DirectUpstream => {
+                    Self::switch_normal(state, app_type, id, &providers)
+                }
+                LiveWriteDecision::Skip => Self::switch_db_only_current(state, &app_type, id),
+            };
+        }
+
+        // Remaining apps (additive mode: OpenCode/OpenClaw/Hermes) keep the
+        // legacy backup-based signal until C2b brings them into three-dimensional
+        // semantics. In C2a they never carry proxy takeover, so this collapses to
+        // switch_normal.
+        //
         // Backup or live placeholders mean the live file is owned by proxy
         // takeover, even if the proxy server is temporarily stopped or is in the
         // activation window before enabled=true is committed.
@@ -2550,6 +2683,19 @@ impl ProviderService {
 
         // Normal mode: full switch with Live config write
         Self::switch_normal(state, app_type, id, &providers)
+    }
+
+    /// Hands-off switch (takeover disabled): update the current-provider pointer
+    /// in DB + device settings only, never touching the module's live config
+    /// (R3/D3/AC1-C2a). The proxy layer stays out until the user opts into takeover.
+    fn switch_db_only_current(
+        state: &AppState,
+        app_type: &AppType,
+        id: &str,
+    ) -> Result<SwitchResult, AppError> {
+        crate::settings::set_current_provider(app_type, Some(id))?;
+        state.db.set_current_provider(app_type.as_str(), id)?;
+        Ok(SwitchResult::default())
     }
 
     /// Normal switch flow (non-proxy mode)
@@ -2732,6 +2878,52 @@ impl ProviderService {
             return Ok(());
         };
 
+        // C2a 三模块按三维语义（proxy_config）决定写入目标；ClaudeDesktop（C2b）
+        // 与其它模块保持既有 backup/占位符信号。
+        if matches!(app_type, AppType::Claude | AppType::Codex | AppType::Gemini) {
+            let _switch_guard = futures::executor::block_on(
+                state.proxy_service.lock_switch_for_app(app_type.as_str()),
+            );
+            let decision = state
+                .proxy_service
+                .live_write_decision_for_app_sync(&app_type)
+                .map_err(AppError::Message)?;
+            return match decision {
+                // 未接管：只保留 DB SSOT，不写 Live（R3/D3/AC1）。
+                LiveWriteDecision::Skip => Ok(()),
+                // direct：写真实上游。
+                LiveWriteDecision::DirectUpstream => {
+                    sync_current_provider_for_app_to_live(state, &app_type)
+                }
+                // proxy：仅刷新代理安全的 Live 显示字段（Claude/Codex），不写 immutable
+                // 首次快照备份（Option A：受管基线归 C3 内存态）。
+                LiveWriteDecision::ProxyManaged => {
+                    if futures::executor::block_on(state.proxy_service.is_running()) {
+                        match app_type {
+                            AppType::Claude => futures::executor::block_on(
+                                state
+                                    .proxy_service
+                                    .sync_claude_live_from_provider_while_proxy_active(provider),
+                            )
+                            .map_err(|e| {
+                                AppError::Message(format!("同步 Claude Live 配置失败: {e}"))
+                            })?,
+                            AppType::Codex => futures::executor::block_on(
+                                state
+                                    .proxy_service
+                                    .sync_codex_live_from_provider_while_proxy_active(provider),
+                            )
+                            .map_err(|e| {
+                                AppError::Message(format!("同步 Codex Live 配置失败: {e}"))
+                            })?,
+                            _ => {}
+                        }
+                    }
+                    Ok(())
+                }
+            };
+        }
+
         let has_live_backup =
             futures::executor::block_on(state.db.get_live_backup(app_type.as_str()))
                 .ok()
@@ -2742,8 +2934,7 @@ impl ProviderService {
             .proxy_service
             .detect_takeover_in_live_config_for_app(&app_type);
 
-        // See the save path above: backup/placeholders are the ownership signal
-        // here, not just proxy_config.takeover_enabled.
+        // ClaudeDesktop / 其它模块（C2b）：保留 backup/占位符所有权信号。
         if has_live_backup || live_taken_over {
             if matches!(app_type, AppType::ClaudeDesktop) {
                 write_live_with_common_config(state.db.as_ref(), &app_type, provider)?;

@@ -12,7 +12,7 @@ mod support;
 use std::collections::HashMap;
 use support::{
     create_test_state, create_test_state_with_config, enable_codex_official_auth_preservation,
-    ensure_test_home, reset_test_fs, test_mutex,
+    enable_direct_takeover, ensure_test_home, reset_test_fs, test_mutex,
 };
 
 fn settings_path(home: &Path) -> PathBuf {
@@ -311,6 +311,8 @@ command = "say"
     );
 
     let app_state = create_test_state_with_config(&config).expect("create test state");
+    // C2a: command-path switch writes live only under takeover; direct = classic upstream write.
+    enable_direct_takeover(&app_state, AppType::Codex);
 
     switch_provider_test_hook(&app_state, AppType::Codex, "new-provider")
         .expect("switch provider should succeed");
@@ -466,6 +468,8 @@ fn switch_provider_updates_claude_live_and_state() {
     }
 
     let app_state = create_test_state_with_config(&config).expect("create test state");
+    // C2a: command-path switch writes live only under takeover; direct = classic upstream write.
+    enable_direct_takeover(&app_state, AppType::Claude);
 
     switch_provider_test_hook(&app_state, AppType::Claude, "new-provider")
         .expect("switch provider should succeed");
@@ -565,6 +569,9 @@ fn switch_provider_codex_missing_auth_returns_error_and_keeps_state() {
     }
 
     let app_state = create_test_state_with_config(&config).expect("create test state");
+    // Intent: live-write validation must reject missing Codex auth. Establish
+    // direct takeover so the command reaches the live writer under C2a.
+    enable_direct_takeover(&app_state, AppType::Codex);
 
     let err = switch_provider_test_hook(&app_state, AppType::Codex, "invalid")
         .expect_err("switching should fail when auth missing");

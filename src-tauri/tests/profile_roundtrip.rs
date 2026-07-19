@@ -8,8 +8,8 @@ use serde_json::json;
 
 use agent_switch_lib::{
     AppType, CcAggregateConfig, InstalledSkill, McpServer, McpService, ProfilePayload,
-    ProfileScope, ProfileService, Prompt, PromptService, Provider, ProviderService, SkillApps,
-    SkillService,
+    ProfileScope, ProfileService, Prompt, PromptService, Provider, ProviderService, RouteMode,
+    SkillApps, SkillService,
 };
 
 #[path = "support.rs"]
@@ -708,8 +708,12 @@ fn profile_switch_auto_disables_takeover_before_apply() {
     // 初始状态：custom1 + 代理接管
     ProviderService::switch(&state, AppType::Claude, "custom1").expect("switch to custom1");
     let rt = tokio::runtime::Runtime::new().expect("create tokio runtime");
-    rt.block_on(state.proxy_service.set_takeover_for_app("claude", true))
-        .expect("enable claude takeover");
+    rt.block_on(
+        state
+            .proxy_service
+            .set_takeover_for_app("claude", true, RouteMode::Proxy),
+    )
+    .expect("enable claude takeover");
 
     let (proxy_enabled_before, _) = state.db.get_proxy_flags_sync("claude");
     assert!(
@@ -760,19 +764,15 @@ fn profile_switch_auto_disables_takeover_before_apply() {
         "current provider should be custom2"
     );
 
-    // live 配置应指向 custom2 的真实 endpoint，而非代理地址
+    // C2a three-dimensional semantics: the pre-takeover target did not exist, so
+    // auto-disable must restore it to "absent" (R10). Profile apply then switches
+    // DB current to custom2 while takeover remains OFF; hands-off mode must NOT
+    // recreate/write live. The real endpoint remains in DB SSOT until the user
+    // explicitly re-enables direct takeover.
     let settings_path = home.join(".claude/settings.json");
-    let settings: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(&settings_path).expect("read settings"))
-            .expect("parse settings");
-    let base_url = settings
-        .get("env")
-        .and_then(|e| e.get("ANTHROPIC_BASE_URL"))
-        .and_then(|v| v.as_str());
-    assert_eq!(
-        base_url,
-        Some("https://api.test"),
-        "live config should point to real endpoint after auto-disable"
+    assert!(
+        !settings_path.exists(),
+        "auto-disable should restore missing pre-takeover live, and hands-off profile switch must not recreate it"
     );
 }
 

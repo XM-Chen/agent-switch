@@ -1533,6 +1533,63 @@ pub fn strip_codex_mcp_servers_from_settings(settings: &mut Value) -> Result<(),
     Ok(())
 }
 
+/// Restore a Codex live config verbatim from a stored `{ auth, config }` snapshot.
+///
+/// Used by the takeover snapshot adapter's legacy (pre-versioned) restore path.
+/// A stored Codex backup comes in two shapes needing opposite handling:
+///
+/// - snapshot backup (`read_codex_live_settings`): no inline `modelCatalog`;
+///   the config text already carries the live `model_catalog_json` pointer
+///   → keep raw, or projection would strip it.
+/// - provider-rebuilt backup (`update_live_backup_from_provider`): inline
+///   `modelCatalog` (DB SSOT) with a pointer-less config text → project,
+///   or the mapping is lost on restore.
+///
+/// The projection decision is orthogonal to auth: a provider-rebuilt backup
+/// can pair an inline `modelCatalog` with empty/absent `auth.json`.
+/// Verbatim restore has no Provider in hand, so the catalog tool profile
+/// defaults to `ProxyChat` (a restored native-direct backup keeps its inline
+/// modelCatalog but is not apply_patch re-stripped until the next provider
+/// switch rewrites it — acceptable legacy limitation).
+pub fn write_codex_live_verbatim(config: &Value) -> Result<(), AppError> {
+    let auth = config.get("auth");
+    let config_str = config.get("config").and_then(|v| v.as_str());
+
+    let prepared_cfg = config_str
+        .map(|cfg| {
+            prepare_codex_live_config_text_with_optional_catalog(
+                config,
+                cfg,
+                CodexCatalogToolProfile::ProxyChat,
+            )
+        })
+        .transpose()?;
+
+    match (auth, prepared_cfg.as_deref()) {
+        (Some(auth), Some(cfg)) => {
+            let auth_path = get_codex_auth_path();
+            if auth.as_object().is_some_and(|obj| obj.is_empty()) {
+                let _ = delete_file(&auth_path);
+                let config_path = get_codex_config_path();
+                write_text_file(&config_path, cfg)?;
+            } else {
+                write_codex_live_atomic(auth, Some(cfg))?;
+            }
+        }
+        (Some(auth), None) => {
+            let auth_path = get_codex_auth_path();
+            write_json_file(&auth_path, auth)?;
+        }
+        (None, Some(cfg)) => {
+            let config_path = get_codex_config_path();
+            write_text_file(&config_path, cfg)?;
+        }
+        (None, None) => {}
+    }
+
+    Ok(())
+}
+
 /// Route a Codex live write between full auth+config or config-only.
 ///
 /// Official providers with usable login material own `auth.json`. Third-party

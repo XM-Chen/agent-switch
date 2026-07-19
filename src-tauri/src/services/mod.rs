@@ -14,6 +14,7 @@ pub mod profile;
 pub mod prompt;
 pub mod provider;
 pub mod proxy;
+pub mod proxy_snapshot_adapters;
 pub mod s3;
 pub mod s3_auto_sync;
 pub mod s3_sync;
