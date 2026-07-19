@@ -457,7 +457,7 @@ impl ProxyService {
     ///
     /// 两侧 adapter 仍各自拥有模块目标实现；这里只做唯一 dispatcher 的组合，不复制
     /// manifest/capture/restore 语义。
-    fn snapshot_adapter_for_app(
+    pub(crate) fn snapshot_adapter_for_app(
         app_type: &AppType,
     ) -> Result<Option<Box<dyn SnapshotModuleAdapter>>, String> {
         if let Some(adapter) = c2a_snapshot_adapter_for(app_type) {

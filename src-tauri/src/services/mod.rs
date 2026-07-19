@@ -5,6 +5,7 @@ pub mod coding_plan;
 pub mod config;
 pub mod env_checker;
 pub mod env_manager;
+pub mod external_config_monitor;
 pub mod importers;
 pub mod mcp;
 pub mod model_cache;
