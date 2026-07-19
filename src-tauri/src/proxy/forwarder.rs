@@ -12,8 +12,8 @@ use super::{
     log_codes::fwd as log_fwd,
     provider_router::{ProviderRouter, RouteCandidate},
     providers::{
-        codex_chat_history::CodexChatHistoryStore, gemini_shadow::GeminiShadowStore, get_adapter,
-        AuthInfo, AuthStrategy, ProviderAdapter, ProviderType,
+        codex_chat_history::CodexChatHistoryStore, gemini_shadow::GeminiShadowStore,
+        get_adapter_for, AuthInfo, AuthStrategy, ProviderAdapter, ProviderType,
     },
     thinking_budget_rectifier::{rectify_thinking_budget, should_rectify_thinking_budget},
     thinking_rectifier::{
@@ -387,8 +387,6 @@ impl RequestForwarder {
         extensions: Extensions,
         candidates: Vec<RouteCandidate>,
     ) -> Result<ForwardResult, ForwardError> {
-        // 获取适配器
-        let adapter = get_adapter(app_type);
         let app_type_str = app_type.as_str();
 
         if candidates.is_empty() {
@@ -410,6 +408,10 @@ impl RequestForwarder {
         // 依次尝试每个候选
         for candidate in candidates.iter() {
             let provider = &candidate.provider;
+            // provider-aware adapter 解析：OpenCode/OpenClaw/Hermes 的 canonical 协议随
+            // provider schema 变化（`api`/`api_mode`/`npm`），凭据字段位置也与 Codex 不同，
+            // 需要逐候选按 provider 规范化，不能在候选循环外只按 app_type 解析一次。
+            let adapter = get_adapter_for(app_type, provider);
             // 聚合模式下该候选要改写成的上游模型 id（None = 沿用现有 model_mapper 逻辑）。
             let target_model = candidate.target_model.as_deref();
             // 整流器重试标记：每个 provider 独立持有，避免标记跨 provider 短路故障转移

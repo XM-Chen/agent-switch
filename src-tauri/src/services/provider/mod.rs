@@ -34,7 +34,7 @@ pub(crate) use live::sanitize_claude_settings_for_live;
 pub(crate) use live::{
     build_effective_settings_with_common_config, normalize_provider_common_config_for_storage,
     provider_exists_in_live_config, strip_common_config_from_live_settings,
-    sync_current_provider_for_app_to_live, write_live_with_common_config,
+    sync_current_provider_for_app_respecting_takeover, write_live_with_common_config,
 };
 
 // Internal re-exports
@@ -127,6 +127,7 @@ pub struct SwitchResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_config::{McpApps, McpServer};
     #[cfg(any(target_os = "macos", windows))]
     use crate::claude_desktop_config::PROFILE_ID;
     use crate::config::{get_claude_settings_path, read_json_file, write_json_file};
@@ -254,6 +255,16 @@ mod tests {
         }
 
         result
+    }
+
+    fn enable_direct_takeover_for_test(state: &AppState, app_type: &AppType) {
+        let mut config =
+            futures::executor::block_on(state.db.get_proxy_config_for_app(app_type.as_str()))
+                .expect("get proxy config for direct test");
+        config.takeover_enabled = true;
+        config.route_mode = crate::proxy::types::RouteMode::Direct;
+        futures::executor::block_on(state.db.update_proxy_config_for_app(config))
+            .expect("enable direct takeover for test");
     }
 
     fn codex_settings(base_url: &str, api_key: &str) -> Value {
@@ -391,6 +402,653 @@ mod tests {
             icon_color: None,
             in_failover_queue: false,
         }
+    }
+
+    fn c2b_provider(app_type: &AppType, id: &str, base_url: &str, api_key: &str) -> Provider {
+        let mut provider = match app_type {
+            AppType::ClaudeDesktop => {
+                let mut provider = Provider::with_id(
+                    id.to_string(),
+                    format!("Desktop {id}"),
+                    json!({
+                        "env": {
+                            "ANTHROPIC_BASE_URL": base_url,
+                            "ANTHROPIC_AUTH_TOKEN": api_key
+                        }
+                    }),
+                    None,
+                );
+                provider.meta = Some(ProviderMeta {
+                    api_format: Some("anthropic".to_string()),
+                    claude_desktop_mode: Some(ClaudeDesktopMode::Direct),
+                    claude_desktop_model_routes: std::collections::HashMap::from([(
+                        "claude-sonnet-4-6".to_string(),
+                        ClaudeDesktopModelRoute {
+                            model: "claude-sonnet-4-6".to_string(),
+                            label_override: Some(format!("Label {id}")),
+                            supports_1m: Some(false),
+                        },
+                    )]),
+                    ..Default::default()
+                });
+                provider
+            }
+            AppType::OpenCode => {
+                let mut provider = opencode_provider(id);
+                provider.settings_config["options"]["baseURL"] = json!(base_url);
+                provider.settings_config["options"]["apiKey"] = json!(api_key);
+                provider.settings_config["models"] = json!({
+                    format!("model-{id}"): { "name": format!("Model {id}") }
+                });
+                provider
+            }
+            AppType::OpenClaw => {
+                let mut provider = openclaw_provider(id);
+                provider.settings_config["baseUrl"] = json!(base_url);
+                provider.settings_config["apiKey"] = json!(api_key);
+                provider.settings_config["models"] = json!([
+                    { "id": format!("model-{id}"), "name": format!("Model {id}") }
+                ]);
+                provider
+            }
+            AppType::Hermes => Provider {
+                id: id.to_string(),
+                name: format!("Hermes {id}"),
+                settings_config: json!({
+                    "base_url": base_url,
+                    "api_key": api_key,
+                    "api_mode": "chat_completions",
+                    "model": format!("model-{id}"),
+                    "models": {
+                        format!("model-{id}"): { "context_length": 1000 }
+                    }
+                }),
+                website_url: None,
+                category: Some("custom".to_string()),
+                created_at: Some(1),
+                sort_index: Some(0),
+                notes: None,
+                meta: None,
+                icon: None,
+                icon_color: None,
+                in_failover_queue: false,
+            },
+            _ => panic!("not a C2b provider app: {app_type:?}"),
+        };
+        provider.category = Some("custom".to_string());
+        provider
+    }
+
+    fn c2b_target_paths(app_type: &AppType) -> Vec<PathBuf> {
+        match app_type {
+            AppType::ClaudeDesktop => crate::claude_desktop_config::snapshot_target_paths()
+                .expect("resolve Claude Desktop target paths")
+                .into_iter()
+                .map(|(_, path)| path)
+                .collect(),
+            AppType::OpenCode => vec![crate::opencode_config::get_opencode_config_path()],
+            AppType::OpenClaw => vec![crate::openclaw_config::get_openclaw_config_path()],
+            AppType::Hermes => vec![crate::hermes_config::get_hermes_config_path()],
+            _ => panic!("not a C2b target app: {app_type:?}"),
+        }
+    }
+
+    fn seed_c2b_external_live(
+        state: &AppState,
+        app_type: &AppType,
+        provider: &Provider,
+    ) -> Vec<(PathBuf, Vec<u8>)> {
+        write_live_with_common_config(&state.db, app_type, provider)
+            .expect("seed C2b external live config");
+        c2b_target_paths(app_type)
+            .into_iter()
+            .map(|path| {
+                let bytes = fs::read(&path).expect("read seeded C2b live target");
+                (path, bytes)
+            })
+            .collect()
+    }
+
+    fn read_c2b_endpoint_key(app_type: &AppType, provider_id: &str) -> (String, String) {
+        let fragment = match app_type {
+            AppType::ClaudeDesktop => {
+                let profile = crate::claude_desktop_config::snapshot_target_paths()
+                    .expect("resolve profile path")
+                    .into_iter()
+                    .find_map(|(id, path)| (id == "profile").then_some(path))
+                    .expect("profile target");
+                read_json_file(&profile).expect("read desktop profile")
+            }
+            AppType::OpenCode => crate::opencode_config::get_providers()
+                .expect("read OpenCode providers")
+                .get(provider_id)
+                .cloned()
+                .expect("OpenCode provider fragment"),
+            AppType::OpenClaw => crate::openclaw_config::get_provider(provider_id)
+                .expect("read OpenClaw providers")
+                .expect("OpenClaw provider fragment"),
+            AppType::Hermes => crate::hermes_config::get_provider(provider_id)
+                .expect("read Hermes providers")
+                .expect("Hermes provider fragment"),
+            _ => panic!("not a C2b endpoint app: {app_type:?}"),
+        };
+        let (base, key) = match app_type {
+            AppType::ClaudeDesktop => (
+                fragment.get("inferenceGatewayBaseUrl"),
+                fragment.get("inferenceGatewayApiKey"),
+            ),
+            AppType::OpenCode => (
+                fragment.pointer("/options/baseURL"),
+                fragment.pointer("/options/apiKey"),
+            ),
+            AppType::OpenClaw => (fragment.get("baseUrl"), fragment.get("apiKey")),
+            AppType::Hermes => (fragment.get("base_url"), fragment.get("api_key")),
+            _ => unreachable!(),
+        };
+        (
+            base.and_then(Value::as_str)
+                .expect("C2b base URL")
+                .to_string(),
+            key.and_then(Value::as_str)
+                .expect("C2b API key")
+                .to_string(),
+        )
+    }
+
+    fn assert_c2b_targets_equal(expected: &[(PathBuf, Vec<u8>)]) {
+        for (path, bytes) in expected {
+            assert_eq!(
+                fs::read(path).expect("read C2b target"),
+                *bytes,
+                "C2b live target changed unexpectedly: {}",
+                path.display()
+            );
+        }
+    }
+
+    fn c2b_provider_test_apps() -> Vec<AppType> {
+        let mut apps = vec![AppType::OpenCode, AppType::OpenClaw, AppType::Hermes];
+        #[cfg(any(target_os = "macos", windows))]
+        apps.insert(0, AppType::ClaudeDesktop);
+        apps
+    }
+
+    fn remove_c2b_targets(app_type: &AppType) {
+        for path in c2b_target_paths(app_type) {
+            if path.exists() {
+                fs::remove_file(&path)
+                    .unwrap_or_else(|err| panic!("remove C2b target {}: {err}", path.display()));
+            }
+        }
+    }
+
+    type C2bTargetBytes = Vec<(PathBuf, Vec<u8>)>;
+    type C2bOtherBaselines = Vec<(AppType, C2bTargetBytes)>;
+
+    fn seed_other_c2b_lives(state: &AppState, target: &AppType) -> C2bOtherBaselines {
+        c2b_provider_test_apps()
+            .into_iter()
+            .filter(|app_type| app_type != target)
+            .map(|app_type| {
+                let provider = c2b_provider(
+                    &app_type,
+                    &format!("external-{}", app_type.as_str()),
+                    &format!("https://external-{}.example/v1", app_type.as_str()),
+                    &format!("external-{}-key", app_type.as_str()),
+                );
+                let targets = seed_c2b_external_live(state, &app_type, &provider);
+                (app_type, targets)
+            })
+            .collect()
+    }
+
+    fn assert_other_c2b_lives_unchanged(
+        state: &AppState,
+        target: &AppType,
+        expected: &C2bOtherBaselines,
+    ) {
+        for (app_type, targets) in expected {
+            assert_c2b_targets_equal(targets);
+            let config =
+                futures::executor::block_on(state.db.get_proxy_config_for_app(app_type.as_str()))
+                    .expect("read isolated takeover state");
+            assert!(
+                !config.takeover_enabled,
+                "{} operation changed {} takeover state",
+                target.as_str(),
+                app_type.as_str()
+            );
+        }
+    }
+
+    fn expected_c2b_proxy_base_url(app_type: &AppType, port: u16) -> String {
+        let suffix = match app_type {
+            AppType::ClaudeDesktop => "claude-desktop",
+            AppType::OpenCode => "opencode/v1",
+            AppType::OpenClaw => "openclaw/v1",
+            AppType::Hermes => "hermes/v1",
+            _ => panic!("not a C2b proxy app: {app_type:?}"),
+        };
+        format!("http://127.0.0.1:{port}/{suffix}")
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn c2b_provider_paths_are_hands_off_for_all_four_modules() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload test settings");
+
+        for app_type in c2b_provider_test_apps() {
+            remove_c2b_targets(&app_type);
+            let db = Arc::new(Database::memory().expect("init C2b hands-off DB"));
+            let state = AppState::new(db.clone());
+            let others = seed_other_c2b_lives(&state, &app_type);
+            let provider_a = c2b_provider(
+                &app_type,
+                "provider-a",
+                "https://upstream-a.example/v1",
+                "upstream-a-key",
+            );
+            let provider_b = c2b_provider(
+                &app_type,
+                "provider-b",
+                "https://upstream-b.example/v1",
+                "upstream-b-key",
+            );
+
+            ProviderService::add(&state, app_type.clone(), provider_a, true)
+                .expect("first add should be DB-only when takeover is off");
+            assert!(
+                c2b_target_paths(&app_type)
+                    .iter()
+                    .all(|path| !path.exists()),
+                "first add created {} live target while takeover was off",
+                app_type.as_str()
+            );
+            assert_other_c2b_lives_unchanged(&state, &app_type, &others);
+
+            let external = c2b_provider(
+                &app_type,
+                "external",
+                "https://external.example/v1",
+                "external-key",
+            );
+            let original = seed_c2b_external_live(&state, &app_type, &external);
+            let mut mcp_apps = McpApps::default();
+            mcp_apps.set_enabled_for(&app_type, true);
+            state
+                .db
+                .save_mcp_server(&McpServer {
+                    id: format!("hands-off-{}", app_type.as_str()),
+                    name: "Hands Off".to_string(),
+                    server: json!({ "command": "must-not-reach-live" }),
+                    apps: mcp_apps,
+                    description: None,
+                    homepage: None,
+                    docs: None,
+                    tags: Vec::new(),
+                })
+                .expect("seed hands-off MCP projection bait");
+
+            ProviderService::add(&state, app_type.clone(), provider_b.clone(), true)
+                .expect("second add should remain hands-off");
+            assert_c2b_targets_equal(&original);
+
+            ProviderService::switch(&state, app_type.clone(), &provider_b.id)
+                .expect("hands-off switch should update current DB state");
+            assert_c2b_targets_equal(&original);
+
+            let updated = c2b_provider(
+                &app_type,
+                &provider_b.id,
+                "https://updated-upstream.example/v1",
+                "updated-upstream-key",
+            );
+            ProviderService::update(&state, app_type.clone(), None, updated)
+                .expect("hands-off update should persist DB state");
+            assert_c2b_targets_equal(&original);
+
+            ProviderService::sync_current_provider_for_app(&state, app_type.clone())
+                .expect("hands-off per-app sync");
+            assert_c2b_targets_equal(&original);
+            ProviderService::sync_current_to_live(&state).expect("hands-off global sync");
+            assert_c2b_targets_equal(&original);
+            assert_other_c2b_lives_unchanged(&state, &app_type, &others);
+
+            assert_eq!(
+                db.get_current_provider(app_type.as_str())
+                    .expect("read hands-off current")
+                    .as_deref(),
+                Some(provider_b.id.as_str()),
+                "hands-off operations must still update current DB state"
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn c2b_provider_switch_direct_writes_real_upstream_for_all_four_modules() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload test settings");
+
+        for app_type in c2b_provider_test_apps() {
+            let db = Arc::new(Database::memory().expect("init C2b direct DB"));
+            let state = AppState::new(db.clone());
+            let others = seed_other_c2b_lives(&state, &app_type);
+            let external = c2b_provider(
+                &app_type,
+                "external",
+                "https://external.example/v1",
+                "external-key",
+            );
+            let original = seed_c2b_external_live(&state, &app_type, &external);
+            let provider_a = c2b_provider(
+                &app_type,
+                "provider-a",
+                "https://upstream-a.example/v1",
+                "upstream-a-key",
+            );
+            let provider_b = c2b_provider(
+                &app_type,
+                "provider-b",
+                "https://upstream-b.example/v1",
+                "upstream-b-key",
+            );
+            ProviderService::add(&state, app_type.clone(), provider_a, false)
+                .expect("seed provider A");
+            ProviderService::add(&state, app_type.clone(), provider_b.clone(), false)
+                .expect("seed provider B");
+
+            state
+                .proxy_service
+                .set_takeover_for_app(
+                    app_type.as_str(),
+                    true,
+                    crate::proxy::types::RouteMode::Direct,
+                )
+                .await
+                .expect("enable direct takeover");
+            let immutable_snapshot = db
+                .get_live_backup(app_type.as_str())
+                .await
+                .expect("read direct snapshot")
+                .expect("direct snapshot exists")
+                .original_config;
+
+            ProviderService::switch(&state, app_type.clone(), &provider_b.id)
+                .expect("direct provider switch");
+            let (base_url, api_key) = read_c2b_endpoint_key(&app_type, &provider_b.id);
+            assert_eq!(base_url, "https://upstream-b.example/v1");
+            assert_eq!(api_key, "upstream-b-key");
+            assert_eq!(
+                db.get_live_backup(app_type.as_str())
+                    .await
+                    .expect("read immutable direct snapshot")
+                    .expect("direct snapshot remains")
+                    .original_config,
+                immutable_snapshot,
+                "direct provider switch overwrote first-open snapshot"
+            );
+            assert_other_c2b_lives_unchanged(&state, &app_type, &others);
+
+            state
+                .proxy_service
+                .set_takeover_for_app(
+                    app_type.as_str(),
+                    false,
+                    crate::proxy::types::RouteMode::Direct,
+                )
+                .await
+                .expect("disable direct takeover");
+            assert_c2b_targets_equal(&original);
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn c2b_provider_switch_proxy_keeps_namespaced_live_and_immutable_snapshot() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload test settings");
+
+        for app_type in c2b_provider_test_apps() {
+            let db = Arc::new(Database::memory().expect("init C2b proxy DB"));
+            let mut proxy_config = db.get_proxy_config().await.expect("read proxy config");
+            proxy_config.listen_port = 0;
+            db.update_proxy_config(proxy_config)
+                .await
+                .expect("use ephemeral proxy port");
+            let state = AppState::new(db.clone());
+            let others = seed_other_c2b_lives(&state, &app_type);
+            let external = c2b_provider(
+                &app_type,
+                "external",
+                "https://external.example/v1",
+                "external-key",
+            );
+            let original = seed_c2b_external_live(&state, &app_type, &external);
+            let provider_a = c2b_provider(
+                &app_type,
+                "provider-a",
+                "https://upstream-a.example/v1",
+                "upstream-a-key",
+            );
+            let provider_b = c2b_provider(
+                &app_type,
+                "provider-b",
+                "https://upstream-b.example/v1",
+                "upstream-b-key",
+            );
+            ProviderService::add(&state, app_type.clone(), provider_a, false)
+                .expect("seed proxy provider A");
+            ProviderService::add(&state, app_type.clone(), provider_b.clone(), false)
+                .expect("seed proxy provider B");
+
+            state
+                .proxy_service
+                .set_takeover_for_app(
+                    app_type.as_str(),
+                    true,
+                    crate::proxy::types::RouteMode::Proxy,
+                )
+                .await
+                .expect("enable proxy takeover");
+            let immutable_snapshot = db
+                .get_live_backup(app_type.as_str())
+                .await
+                .expect("read proxy snapshot")
+                .expect("proxy snapshot exists")
+                .original_config;
+
+            ProviderService::switch(&state, app_type.clone(), &provider_b.id)
+                .expect("proxy-managed provider switch");
+            let status = state
+                .proxy_service
+                .get_status()
+                .await
+                .expect("read running proxy status");
+            let gateway_token = db
+                .get_setting("claude_desktop_gateway_token")
+                .expect("read gateway token")
+                .expect("gateway token exists");
+            let (base_url, api_key) = read_c2b_endpoint_key(&app_type, &provider_b.id);
+            assert_eq!(
+                base_url,
+                expected_c2b_proxy_base_url(&app_type, status.port)
+            );
+            assert_eq!(api_key, gateway_token);
+            assert_ne!(base_url, "https://upstream-b.example/v1");
+            assert_ne!(api_key, "upstream-b-key");
+            assert_eq!(
+                db.get_live_backup(app_type.as_str())
+                    .await
+                    .expect("read immutable proxy snapshot")
+                    .expect("proxy snapshot remains")
+                    .original_config,
+                immutable_snapshot,
+                "proxy provider switch overwrote first-open snapshot"
+            );
+            assert_other_c2b_lives_unchanged(&state, &app_type, &others);
+
+            let proxy_live_before_sync = c2b_target_paths(&app_type)
+                .into_iter()
+                .map(|path| {
+                    let bytes = fs::read(&path).expect("read proxy live before sync");
+                    (path, bytes)
+                })
+                .collect::<Vec<_>>();
+            ProviderService::sync_current_provider_for_app(&state, app_type.clone())
+                .expect("proxy-managed sync");
+            assert_c2b_targets_equal(&proxy_live_before_sync);
+
+            let updated = c2b_provider(
+                &app_type,
+                &provider_b.id,
+                "https://must-not-reach-live.example/v1",
+                "must-not-reach-live-key",
+            );
+            ProviderService::update(&state, app_type.clone(), None, updated)
+                .expect("proxy-safe provider update");
+            let (updated_base, updated_key) = read_c2b_endpoint_key(&app_type, &provider_b.id);
+            assert_eq!(
+                updated_base,
+                expected_c2b_proxy_base_url(&app_type, status.port)
+            );
+            assert_eq!(updated_key, gateway_token);
+            assert_eq!(
+                db.get_live_backup(app_type.as_str())
+                    .await
+                    .expect("read snapshot after proxy update")
+                    .expect("snapshot after proxy update")
+                    .original_config,
+                immutable_snapshot,
+                "proxy update overwrote first-open snapshot"
+            );
+
+            state
+                .proxy_service
+                .set_takeover_for_app(
+                    app_type.as_str(),
+                    false,
+                    crate::proxy::types::RouteMode::Proxy,
+                )
+                .await
+                .expect("disable proxy takeover");
+            assert_c2b_targets_equal(&original);
+            assert_other_c2b_lives_unchanged(&state, &app_type, &others);
+            state
+                .proxy_service
+                .stop()
+                .await
+                .expect("stop independent proxy");
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn c2b_proxy_update_failure_rolls_back_provider_current_and_live() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload test settings");
+        let db = Arc::new(Database::memory().expect("init C2b rollback DB"));
+        let mut proxy_config = db.get_proxy_config().await.expect("read proxy config");
+        proxy_config.listen_port = 0;
+        db.update_proxy_config(proxy_config)
+            .await
+            .expect("use ephemeral proxy port");
+        let state = AppState::new(db.clone());
+        let app_type = AppType::OpenCode;
+        let provider_a = c2b_provider(
+            &app_type,
+            "provider-a",
+            "https://upstream-a.example/v1",
+            "upstream-a-key",
+        );
+        ProviderService::add(&state, app_type.clone(), provider_a.clone(), false)
+            .expect("seed provider A");
+        state
+            .proxy_service
+            .set_takeover_for_app(
+                app_type.as_str(),
+                true,
+                crate::proxy::types::RouteMode::Proxy,
+            )
+            .await
+            .expect("enable OpenCode proxy takeover");
+
+        let live_path = crate::opencode_config::get_opencode_config_path();
+        fs::write(&live_path, b"{ malformed user edit").expect("seed malformed managed live");
+        let live_before = fs::read(&live_path).expect("read malformed live baseline");
+        let provider_before = db
+            .get_provider_by_id(&provider_a.id, app_type.as_str())
+            .expect("read provider before update")
+            .expect("provider A exists");
+        let db_current_before = db
+            .get_current_provider(app_type.as_str())
+            .expect("read DB current before update");
+        let settings_current_before = crate::settings::get_current_provider(&app_type);
+        let snapshot_before = db
+            .get_live_backup(app_type.as_str())
+            .await
+            .expect("read immutable snapshot before update")
+            .expect("snapshot exists")
+            .original_config;
+
+        let updated = c2b_provider(
+            &app_type,
+            &provider_a.id,
+            "https://must-rollback.example/v1",
+            "must-rollback-key",
+        );
+        ProviderService::update(&state, app_type.clone(), None, updated)
+            .expect_err("malformed OpenCode live must fail proxy refresh");
+
+        let provider_after = db
+            .get_provider_by_id(&provider_a.id, app_type.as_str())
+            .expect("read provider after rollback")
+            .expect("provider remains");
+        assert_eq!(provider_after.id, provider_before.id);
+        assert_eq!(provider_after.name, provider_before.name);
+        assert_eq!(
+            provider_after.settings_config, provider_before.settings_config,
+            "failed proxy update mutated provider credentials/config"
+        );
+        assert_eq!(provider_after.category, provider_before.category);
+        assert_eq!(
+            db.get_current_provider(app_type.as_str())
+                .expect("read DB current after rollback"),
+            db_current_before
+        );
+        assert_eq!(
+            crate::settings::get_current_provider(&app_type),
+            settings_current_before
+        );
+        assert_eq!(
+            fs::read(&live_path).expect("read live after rollback"),
+            live_before,
+            "failed proxy update did not restore pre-operation live bytes"
+        );
+        assert_eq!(
+            db.get_live_backup(app_type.as_str())
+                .await
+                .expect("read immutable snapshot after rollback")
+                .expect("snapshot remains")
+                .original_config,
+            snapshot_before,
+            "failed proxy update overwrote the immutable first-open snapshot"
+        );
+        state
+            .proxy_service
+            .set_takeover_for_app(
+                app_type.as_str(),
+                false,
+                crate::proxy::types::RouteMode::Proxy,
+            )
+            .await
+            .expect("disable rollback fixture takeover");
+        state
+            .proxy_service
+            .stop()
+            .await
+            .expect("stop rollback proxy");
     }
 
     fn opencode_omo_provider(id: &str, category: &str) -> Provider {
@@ -1531,6 +2189,7 @@ requires_openai_auth = true
                 .save_provider(AppType::OpenCode.as_str(), &updated)
                 .expect("update legacy opencode provider in db");
 
+            enable_direct_takeover_for_test(state, &AppType::OpenCode);
             ProviderService::sync_current_provider_for_app(state, AppType::OpenCode)
                 .expect("sync legacy opencode provider");
 
@@ -1557,6 +2216,7 @@ requires_openai_auth = true
                 .save_provider(AppType::OpenCode.as_str(), &provider)
                 .expect("seed legacy opencode provider in db");
 
+            enable_direct_takeover_for_test(state, &AppType::OpenCode);
             ProviderService::sync_current_provider_for_app(state, AppType::OpenCode)
                 .expect("sync legacy opencode provider after reset");
 
@@ -1585,6 +2245,7 @@ requires_openai_auth = true
                 .save_provider(AppType::OpenClaw.as_str(), &provider)
                 .expect("seed legacy openclaw provider in db");
 
+            enable_direct_takeover_for_test(state, &AppType::OpenClaw);
             ProviderService::sync_current_provider_for_app(state, AppType::OpenClaw)
                 .expect("sync legacy openclaw provider after reset");
 
@@ -1770,6 +2431,7 @@ requires_openai_auth = true
             fs::write(openclaw_dir.join("openclaw.json"), "{ invalid json5")
                 .expect("write malformed config");
 
+            enable_direct_takeover_for_test(state, &AppType::OpenClaw);
             let mut updated = provider.clone();
             updated.name = "Legacy Edited".to_string();
 
@@ -1831,6 +2493,7 @@ requires_openai_auth = true
                     .db
                     .set_omo_provider_current(AppType::OpenCode.as_str(), &provider.id, category)
                     .unwrap_or_else(|err| panic!("set current {category} provider: {err}"));
+                enable_direct_takeover_for_test(state, &AppType::OpenCode);
 
                 let mut updated = provider.clone();
                 updated.name = format!("Current {category} updated");
@@ -1881,6 +2544,7 @@ requires_openai_auth = true
                 .db
                 .set_omo_provider_current(AppType::OpenCode.as_str(), &provider.id, "omo")
                 .unwrap_or_else(|err| panic!("set current omo provider: {err}"));
+            enable_direct_takeover_for_test(state, &AppType::OpenCode);
 
             let config_dir = home.join(".config").join("opencode");
             fs::create_dir_all(config_dir.parent().expect("config dir parent"))
@@ -1923,6 +2587,7 @@ requires_openai_auth = true
                 .db
                 .set_omo_provider_current(AppType::OpenCode.as_str(), &provider.id, "omo")
                 .unwrap_or_else(|err| panic!("set current omo provider: {err}"));
+            enable_direct_takeover_for_test(state, &AppType::OpenCode);
 
             let config_path = omo_config_path(home, "omo");
             fs::create_dir_all(config_path.parent().expect("omo config parent"))
@@ -2081,6 +2746,73 @@ impl ProviderService {
         base_url.trim().trim_end_matches('/').to_string()
     }
 
+    fn is_c2b_takeover_app(app_type: &AppType) -> bool {
+        matches!(
+            app_type,
+            AppType::ClaudeDesktop | AppType::OpenCode | AppType::OpenClaw | AppType::Hermes
+        )
+    }
+
+    /// Restore a C2b provider row and both current pointers after a live refresh failed.
+    /// Provider CRUD reports failure only after DB/current and live are back at their
+    /// pre-operation values (the ProxyService hot-switch owns the live rollback).
+    fn rollback_c2b_provider_mutation(
+        state: &AppState,
+        app_type: &AppType,
+        previous_provider: Option<&Provider>,
+        attempted_id: &str,
+        previous_db_current: Option<&str>,
+        previous_settings_current: Option<&str>,
+        operation_error: AppError,
+    ) -> AppError {
+        let mut rollback_errors = Vec::new();
+        let provider_rollback = match previous_provider {
+            Some(provider) => state.db.save_provider(app_type.as_str(), provider),
+            None => state.db.delete_provider(app_type.as_str(), attempted_id),
+        };
+        if let Err(error) = provider_rollback {
+            rollback_errors.push(format!("provider DB rollback failed: {error}"));
+        }
+        if let Err(error) = state
+            .db
+            .set_current_provider(app_type.as_str(), previous_db_current.unwrap_or_default())
+        {
+            rollback_errors.push(format!("DB current rollback failed: {error}"));
+        }
+        if let Err(error) =
+            crate::settings::set_current_provider(app_type, previous_settings_current)
+        {
+            rollback_errors.push(format!("settings current rollback failed: {error}"));
+        }
+        if rollback_errors.is_empty() {
+            operation_error
+        } else {
+            AppError::Message(format!("{operation_error}; {}", rollback_errors.join("; ")))
+        }
+    }
+
+    /// Current C2b provider will immediately affect proxy routing; therefore capability
+    /// 写入前完成能力校验。这样保存不支持协议不会先污染 DB，再在 live 刷新阶段失败。
+    fn validate_c2b_proxy_provider_before_mutation(
+        state: &AppState,
+        app_type: &AppType,
+        provider: &Provider,
+        affects_active_route: bool,
+    ) -> Result<(), AppError> {
+        if !affects_active_route || !Self::is_c2b_takeover_app(app_type) {
+            return Ok(());
+        }
+        let decision = state
+            .proxy_service
+            .live_write_decision_for_app_sync(app_type)
+            .map_err(AppError::Message)?;
+        if matches!(decision, LiveWriteDecision::ProxyManaged) {
+            crate::proxy::providers::validate_module_proxy_capability(app_type, provider)
+                .map_err(AppError::Message)?;
+        }
+        Ok(())
+    }
+
     /// List all providers for an app type
     pub fn list(
         state: &AppState,
@@ -2118,27 +2850,124 @@ impl ProviderService {
         Self::validate_provider_settings(&app_type, &provider)?;
         normalize_provider_common_config_for_storage(state.db.as_ref(), &app_type, &mut provider)?;
         Self::normalize_usage_script_credential_overrides(&app_type, &mut provider);
-        if app_type.is_additive_mode() {
-            Self::set_provider_live_config_managed(&mut provider, add_to_live);
-        }
 
-        // Save to database
+        // Capture C2b DB/current state before any save. A proxy-safe live refresh happens
+        // after the provider row/current pointer change, so failures must restore the whole
+        // provider operation, not merely the inner hot-switch pointers.
+        let c2b_previous_state = if Self::is_c2b_takeover_app(&app_type) {
+            Some((
+                state
+                    .db
+                    .get_provider_by_id(&provider.id, app_type.as_str())?,
+                state.db.get_current_provider(app_type.as_str())?,
+                crate::settings::get_current_provider(&app_type),
+            ))
+        } else {
+            None
+        };
+
+        // 首个 provider 会成为模块 current；若模块已处于 proxy 接管，必须在首次
+        // save_provider / current 指针写入前拒绝能力矩阵外协议。
+        let becomes_current = state.db.get_current_provider(app_type.as_str())?.is_none();
+        Self::validate_c2b_proxy_provider_before_mutation(
+            state,
+            &app_type,
+            &provider,
+            becomes_current,
+        )?;
+
+        // Save to database. Additive `live_config_managed` is finalized below from
+        // the actual LiveWriteDecision result rather than the legacy add_to_live flag.
         state.db.save_provider(app_type.as_str(), &provider)?;
 
-        // Additive mode apps (OpenCode, OpenClaw): optionally write to live config.
+        // Additive mode apps (OpenCode, OpenClaw, Hermes) have historically accepted
+        // `add_to_live` as a write request. It is now subordinate to the module takeover
+        // decision: hands-off mode must not write even when the caller requested live.
         if app_type.is_additive_mode() {
-            // OMO / OMO Slim providers use exclusive mode and write to dedicated config file.
-            if matches!(app_type, AppType::OpenCode)
-                && matches!(provider.category.as_deref(), Some("omo") | Some("omo-slim"))
-            {
-                // Do not auto-enable newly added OMO / OMO Slim providers.
-                // Users must explicitly switch/apply an OMO provider to activate it.
+            let decision = state
+                .proxy_service
+                .live_write_decision_for_app_sync(&app_type)
+                .map_err(AppError::Message)?;
+            let is_omo = matches!(
+                app_type,
+                AppType::OpenCode
+                    if matches!(provider.category.as_deref(), Some("omo") | Some("omo-slim"))
+            );
+
+            // `live_config_managed` describes the result on disk, not the caller's
+            // intention. Start DB-only; flip to true only after a direct/proxy-safe
+            // write succeeds.
+            Self::set_provider_live_config_managed(&mut provider, false);
+            state.db.save_provider(app_type.as_str(), &provider)?;
+
+            // Additive providers now also have a current DB/settings pointer so the
+            // namespaced gateway can select the provider after a later proxy switch.
+            // OMO keeps its dedicated current marker and config path semantics.
+            if !is_omo && state.db.get_current_provider(app_type.as_str())?.is_none() {
+                state
+                    .db
+                    .set_current_provider(app_type.as_str(), &provider.id)?;
+                crate::settings::set_current_provider(&app_type, Some(&provider.id))?;
+            }
+
+            // OMO / OMO Slim providers use exclusive mode and write to a dedicated
+            // config file only when explicitly switched/applied.
+            if is_omo {
                 return Ok(true);
             }
             if !add_to_live {
                 return Ok(true);
             }
-            write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
+
+            match decision {
+                LiveWriteDecision::Skip => {}
+                LiveWriteDecision::DirectUpstream => {
+                    write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
+                    Self::set_provider_live_config_managed(&mut provider, true);
+                    state.db.save_provider(app_type.as_str(), &provider)?;
+                }
+                LiveWriteDecision::ProxyManaged => {
+                    // An add is not a provider switch. Do not copy real upstream
+                    // credentials into a proxy-managed additive file. If this is the
+                    // first/current provider in a recovered state, hot-switch writes
+                    // only the namespaced gateway fragment.
+                    let is_current =
+                        crate::settings::get_effective_current_provider(&state.db, &app_type)?
+                            .as_deref()
+                            == Some(provider.id.as_str());
+                    if is_current {
+                        let _switch_guard = futures::executor::block_on(
+                            state.proxy_service.lock_switch_for_app(app_type.as_str()),
+                        );
+                        if let Err(error) = state
+                            .proxy_service
+                            .hot_switch_c2b_provider_sync(&app_type, &provider.id)
+                        {
+                            let operation_error =
+                                AppError::Message(format!("写入代理受管 Live 配置失败: {error}"));
+                            if let Some((
+                                previous_provider,
+                                previous_db_current,
+                                previous_settings_current,
+                            )) = c2b_previous_state.as_ref()
+                            {
+                                return Err(Self::rollback_c2b_provider_mutation(
+                                    state,
+                                    &app_type,
+                                    previous_provider.as_ref(),
+                                    &provider.id,
+                                    previous_db_current.as_deref(),
+                                    previous_settings_current.as_deref(),
+                                    operation_error,
+                                ));
+                            }
+                            return Err(operation_error);
+                        }
+                        Self::set_provider_live_config_managed(&mut provider, true);
+                        state.db.save_provider(app_type.as_str(), &provider)?;
+                    }
+                }
+            }
             return Ok(true);
         }
 
@@ -2150,11 +2979,7 @@ impl ProviderService {
             state
                 .db
                 .set_current_provider(app_type.as_str(), &provider.id)?;
-            if matches!(app_type, AppType::Claude | AppType::Codex | AppType::Gemini) {
-                Self::save_current_live_for_takeover_module(state, &app_type, &provider)?;
-            } else {
-                write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
-            }
+            Self::save_current_live_for_takeover_module(state, &app_type, &provider)?;
         }
 
         Ok(true)
@@ -2173,6 +2998,15 @@ impl ProviderService {
         let existing_provider = state
             .db
             .get_provider_by_id(&original_id, app_type.as_str())?;
+        let c2b_previous_state = if Self::is_c2b_takeover_app(&app_type) {
+            Some((
+                existing_provider.clone(),
+                state.db.get_current_provider(app_type.as_str())?,
+                crate::settings::get_current_provider(&app_type),
+            ))
+        } else {
+            None
+        };
         // Normalize Claude model keys
         Self::normalize_provider_if_claude(&app_type, &mut provider);
         Self::validate_provider_settings(&app_type, &provider)?;
@@ -2250,9 +3084,25 @@ impl ProviderService {
             return Ok(true);
         }
 
-        // Additive mode apps (OpenCode, OpenClaw): only sync to live when the provider
-        // already exists in live config. Editing a DB-only provider must not auto-add it.
+        let updates_active_provider =
+            crate::settings::get_effective_current_provider(&state.db, &app_type)?.as_deref()
+                == Some(original_id.as_str());
+        Self::validate_c2b_proxy_provider_before_mutation(
+            state,
+            &app_type,
+            &provider,
+            updates_active_provider,
+        )?;
+
+        // Additive mode apps (OpenCode, OpenClaw, Hermes) obey the same unique
+        // takeover write permission as switch-mode apps. Hands-off skips even live
+        // presence parsing; ProxyManaged updates DB and at most refreshes the current
+        // namespaced gateway fragment.
         if app_type.is_additive_mode() {
+            let decision = state
+                .proxy_service
+                .live_write_decision_for_app_sync(&app_type)
+                .map_err(AppError::Message)?;
             let omo_variant = if matches!(app_type, AppType::OpenCode) {
                 match provider.category.as_deref() {
                     Some("omo") => Some(&crate::services::omo::STANDARD),
@@ -2268,11 +3118,11 @@ impl ProviderService {
                     &provider.id,
                     variant.category,
                 )?;
-                if is_current {
+                if is_current && matches!(decision, LiveWriteDecision::DirectUpstream) {
                     crate::services::OmoService::write_provider_config_to_file(&provider, variant)?;
                 }
                 if let Err(err) = state.db.save_provider(app_type.as_str(), &provider) {
-                    if is_current {
+                    if is_current && matches!(decision, LiveWriteDecision::DirectUpstream) {
                         if let Err(rollback_err) =
                             crate::services::OmoService::write_config_to_file(state, variant)
                         {
@@ -2287,6 +3137,63 @@ impl ProviderService {
                 }
                 return Ok(true);
             }
+
+            if matches!(decision, LiveWriteDecision::Skip) {
+                if let Some(managed) = existing_provider
+                    .as_ref()
+                    .and_then(Self::provider_live_config_managed)
+                {
+                    Self::set_provider_live_config_managed(&mut provider, managed);
+                }
+                state.db.save_provider(app_type.as_str(), &provider)?;
+                return Ok(true);
+            }
+
+            if matches!(decision, LiveWriteDecision::ProxyManaged) {
+                if let Some(managed) = existing_provider
+                    .as_ref()
+                    .and_then(Self::provider_live_config_managed)
+                {
+                    Self::set_provider_live_config_managed(&mut provider, managed);
+                }
+                state.db.save_provider(app_type.as_str(), &provider)?;
+
+                let is_current =
+                    crate::settings::get_effective_current_provider(&state.db, &app_type)?
+                        .as_deref()
+                        == Some(provider.id.as_str());
+                if is_current {
+                    let _switch_guard = futures::executor::block_on(
+                        state.proxy_service.lock_switch_for_app(app_type.as_str()),
+                    );
+                    if let Err(error) = state
+                        .proxy_service
+                        .hot_switch_c2b_provider_sync(&app_type, &provider.id)
+                    {
+                        let operation_error =
+                            AppError::Message(format!("刷新代理受管 Live 配置失败: {error}"));
+                        if let Some((
+                            previous_provider,
+                            previous_db_current,
+                            previous_settings_current,
+                        )) = c2b_previous_state.as_ref()
+                        {
+                            return Err(Self::rollback_c2b_provider_mutation(
+                                state,
+                                &app_type,
+                                previous_provider.as_ref(),
+                                &provider.id,
+                                previous_db_current.as_deref(),
+                                previous_settings_current.as_deref(),
+                                operation_error,
+                            ));
+                        }
+                        return Err(operation_error);
+                    }
+                }
+                return Ok(true);
+            }
+
             let live_config_managed = Self::check_live_config_exists(
                 &app_type,
                 &provider.id,
@@ -2318,38 +3225,10 @@ impl ProviderService {
         let is_current = effective_current.as_deref() == Some(provider.id.as_str());
 
         if is_current {
-            // C2a 三模块按 (takeover_enabled, route_mode) 三维语义决定写入目标；
-            // 真相来源是 proxy_config，不再靠"有备份/占位符"推断接管。
-            // ClaudeDesktop（C2b）保持既有行为不变。
-            if matches!(app_type, AppType::Claude | AppType::Codex | AppType::Gemini) {
-                Self::save_current_live_for_takeover_module(state, &app_type, &provider)?;
-            } else if matches!(app_type, AppType::ClaudeDesktop) {
-                let should_sync_via_proxy =
-                    futures::executor::block_on(state.db.get_live_backup(app_type.as_str()))
-                        .ok()
-                        .flatten()
-                        .is_some()
-                        || state
-                            .proxy_service
-                            .detect_takeover_in_live_config_for_app(&app_type);
-                if should_sync_via_proxy {
-                    write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
-                } else {
-                    write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
-                    if let Err(err) = McpService::sync_enabled_for_app(state, &app_type) {
-                        log::warn!(
-                            "保存供应商后重投影 {app_type:?} MCP 失败（将在下次同步时自愈）: {err}"
-                        );
-                    }
-                }
-            } else {
-                write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
-                if let Err(err) = McpService::sync_enabled_for_app(state, &app_type) {
-                    log::warn!(
-                        "保存供应商后重投影 {app_type:?} MCP 失败（将在下次同步时自愈）: {err}"
-                    );
-                }
-            }
+            // All switch-mode modules, including Claude Desktop, use the same
+            // takeover SSOT. Four-module proxy refreshes are proxy-safe and never
+            // fall back to the direct upstream writer.
+            Self::save_current_live_for_takeover_module(state, &app_type, &provider)?;
         }
 
         Ok(true)
@@ -2385,25 +3264,44 @@ impl ProviderService {
                 Ok(())
             }
             crate::services::proxy::LiveWriteDecision::ProxyManaged => {
-                if futures::executor::block_on(state.proxy_service.is_running()) {
-                    match app_type {
-                        AppType::Claude => futures::executor::block_on(
+                match app_type {
+                    AppType::Claude
+                        if futures::executor::block_on(state.proxy_service.is_running()) =>
+                    {
+                        futures::executor::block_on(
                             state
                                 .proxy_service
                                 .sync_claude_live_from_provider_while_proxy_active(provider),
                         )
                         .map_err(|e| {
                             AppError::Message(format!("同步 Claude Live 配置失败: {e}"))
-                        })?,
-                        AppType::Codex => futures::executor::block_on(
+                        })?;
+                    }
+                    AppType::Codex
+                        if futures::executor::block_on(state.proxy_service.is_running()) =>
+                    {
+                        futures::executor::block_on(
                             state
                                 .proxy_service
                                 .sync_codex_live_from_provider_while_proxy_active(provider),
                         )
-                        .map_err(|e| AppError::Message(format!("同步 Codex Live 配置失败: {e}")))?,
-                        // Gemini proxy live 仅含稳定的本地 base_url + 占位符，热切换无需刷新。
-                        _ => {}
+                        .map_err(|e| AppError::Message(format!("同步 Codex Live 配置失败: {e}")))?;
                     }
+                    AppType::ClaudeDesktop
+                    | AppType::OpenCode
+                    | AppType::OpenClaw
+                    | AppType::Hermes => {
+                        state
+                            .proxy_service
+                            .hot_switch_c2b_provider_sync(app_type, &provider.id)
+                            .map_err(|e| {
+                                AppError::Message(format!(
+                                    "同步 {} 代理受管 Live 配置失败: {e}",
+                                    app_type.as_str()
+                                ))
+                            })?;
+                    }
+                    _ => {}
                 }
                 Ok(())
             }
@@ -2415,8 +3313,22 @@ impl ProviderService {
     /// 同时检查本地 settings 和数据库的当前供应商，防止删除任一端正在使用的供应商。
     /// 对于累加模式应用（OpenCode, OpenClaw），可以随时删除任意供应商，同时从 live 配置中移除。
     pub fn delete(state: &AppState, app_type: AppType, id: &str) -> Result<(), AppError> {
-        // Additive mode apps - no current provider concept
         if app_type.is_additive_mode() {
+            let _switch_guard = futures::executor::block_on(
+                state.proxy_service.lock_switch_for_app(app_type.as_str()),
+            );
+            let decision = state
+                .proxy_service
+                .live_write_decision_for_app_sync(&app_type)
+                .map_err(AppError::Message)?;
+            if !matches!(decision, LiveWriteDecision::DirectUpstream) {
+                // Deleting the DB row is not a live write; retain the module file when
+                // takeover is off or proxy-managed. Direct is the only mode allowed to
+                // remove the provider from live.
+                state.db.delete_provider(app_type.as_str(), id)?;
+                return Ok(());
+            }
+
             // Single DB read shared across all additive-mode sub-paths below.
             let existing = state.db.get_provider_by_id(id, app_type.as_str())?;
 
@@ -2486,6 +3398,23 @@ impl ProviderService {
         app_type: AppType,
         id: &str,
     ) -> Result<(), AppError> {
+        let _switch_guard =
+            futures::executor::block_on(state.proxy_service.lock_switch_for_app(app_type.as_str()));
+        let decision = state
+            .proxy_service
+            .live_write_decision_for_app_sync(&app_type)
+            .map_err(AppError::Message)?;
+        if !matches!(decision, LiveWriteDecision::DirectUpstream) {
+            // Explicitly removing from Live is still a write operation. Under
+            // takeover-off/proxy-managed, retain the module file and only update the
+            // DB marker so this operation cannot bypass the unique permission switch.
+            if let Some(mut provider) = state.db.get_provider_by_id(id, app_type.as_str())? {
+                Self::set_provider_live_config_managed(&mut provider, false);
+                state.db.save_provider(app_type.as_str(), &provider)?;
+            }
+            return Ok(());
+        }
+
         match app_type {
             AppType::OpenCode => {
                 let provider_category = state
@@ -2556,102 +3485,24 @@ impl ProviderService {
             .get(id)
             .ok_or_else(|| AppError::Message(format!("供应商 {id} 不存在")))?;
 
-        // OMO providers are switched through their own exclusive path.
-        if matches!(app_type, AppType::OpenCode) && _provider.category.as_deref() == Some("omo") {
-            return Self::switch_normal(state, app_type, id, &providers);
-        }
-
-        // OMO Slim providers are switched through their own exclusive path.
-        if matches!(app_type, AppType::OpenCode)
-            && _provider.category.as_deref() == Some("omo-slim")
-        {
-            return Self::switch_normal(state, app_type, id, &providers);
-        }
-
-        if matches!(app_type, AppType::ClaudeDesktop) {
-            return Self::switch_normal(state, app_type, id, &providers);
-        }
-
-        // C2a three-dimensional semantics for Claude/Codex/Gemini: the truth
-        // source for whether/where to write live is proxy_config
-        // (takeover_enabled × route_mode), not backup presence.
-        //
-        // - Skip (takeover off): hands-off. Update DB/settings current only;
-        //   never write live (R3/D3/AC1-C2a).
-        // - DirectUpstream: write the real upstream config = the classic
-        //   provider switch (switch_normal).
-        // - ProxyManaged: hot-switch without restoring upstream live; the proxy
-        //   layer refreshes proxy-safe live fields so client labels follow the
-        //   selected provider while endpoints stay local.
-        if matches!(app_type, AppType::Claude | AppType::Codex | AppType::Gemini) {
-            // Serialize with takeover toggles per app so a just-started takeover
-            // cannot be overwritten by a normal live write.
-            let _switch_guard = futures::executor::block_on(
-                state.proxy_service.lock_switch_for_app(app_type.as_str()),
-            );
-
-            let decision = state
-                .proxy_service
-                .live_write_decision_for_app_sync(&app_type)
-                .map_err(AppError::Message)?;
-
-            // Block switching to official providers only under proxy takeover:
-            // using a proxy with official APIs may cause account bans. Direct
-            // mode writes the real upstream, which is exactly normal official use.
-            if matches!(decision, LiveWriteDecision::ProxyManaged)
-                && _provider.category.as_deref() == Some("official")
-            {
-                return Err(AppError::localized(
-                    "switch.official_blocked_by_proxy",
-                    "代理接管模式下不能切换到官方供应商，使用代理访问官方 API 可能导致账号被封禁。请先关闭代理接管，或选择第三方供应商。",
-                    "Cannot switch to official provider while proxy takeover is active. Using proxy with official APIs may cause account bans.",
-                ));
-            }
-
-            return match decision {
-                LiveWriteDecision::ProxyManaged => {
-                    log::info!(
-                        "代理接管模式：热切换 {} 的目标供应商为 {}",
-                        app_type.as_str(),
-                        id
-                    );
-                    futures::executor::block_on(
-                        state
-                            .proxy_service
-                            .hot_switch_provider_inner(app_type.as_str(), id),
-                    )
-                    .map_err(|e| AppError::Message(format!("热切换失败: {e}")))?;
-                    Ok(SwitchResult::default())
-                }
-                LiveWriteDecision::DirectUpstream => {
-                    Self::switch_normal(state, app_type, id, &providers)
-                }
-                LiveWriteDecision::Skip => Self::switch_db_only_current(state, &app_type, id),
-            };
-        }
-
-        // Remaining apps (additive mode: OpenCode/OpenClaw/Hermes) keep the
-        // legacy backup-based signal until C2b brings them into three-dimensional
-        // semantics. In C2a they never carry proxy takeover, so this collapses to
-        // switch_normal.
-        //
-        // Backup or live placeholders mean the live file is owned by proxy
-        // takeover, even if the proxy server is temporarily stopped or is in the
-        // activation window before enabled=true is committed.
-        let is_app_taken_over =
-            futures::executor::block_on(state.db.get_live_backup(app_type.as_str()))
-                .ok()
-                .flatten()
-                .is_some();
-        let live_taken_over = state
+        // C2b OMO variants are also subject to the same write permission. The
+        // direct branch below retains their dedicated config writer; hands-off keeps
+        // only the DB-side OMO current marker; proxy capability validation rejects
+        // unsupported OMO schemas before any live write.
+        // Seven-module three-dimensional semantics: proxy_config
+        // (takeover_enabled × route_mode) is the only live-write permission source.
+        // Serialize with takeover toggles per app so a just-started takeover cannot
+        // be overwritten by a normal live write.
+        let _switch_guard =
+            futures::executor::block_on(state.proxy_service.lock_switch_for_app(app_type.as_str()));
+        let decision = state
             .proxy_service
-            .detect_takeover_in_live_config_for_app(&app_type);
+            .live_write_decision_for_app_sync(&app_type)
+            .map_err(AppError::Message)?;
 
-        let should_hot_switch = is_app_taken_over || live_taken_over;
-
-        // Block switching to official providers when proxy takeover is active.
-        // Using a proxy with official APIs (Anthropic/OpenAI/Google) may cause account bans.
-        if should_hot_switch && _provider.category.as_deref() == Some("official") {
+        if matches!(decision, LiveWriteDecision::ProxyManaged)
+            && _provider.category.as_deref() == Some("official")
+        {
             return Err(AppError::localized(
                 "switch.official_blocked_by_proxy",
                 "代理接管模式下不能切换到官方供应商，使用代理访问官方 API 可能导致账号被封禁。请先关闭代理接管，或选择第三方供应商。",
@@ -2659,30 +3510,52 @@ impl ProviderService {
             ));
         }
 
-        if should_hot_switch {
-            // Proxy takeover mode: hot-switch without restoring upstream Live config.
-            // The proxy layer may still refresh proxy-safe Live fields so client labels
-            // follow the selected provider while endpoints remain local.
-            log::info!(
-                "代理接管模式：热切换 {} 的目标供应商为 {}",
-                app_type.as_str(),
-                id
-            );
-
-            futures::executor::block_on(
-                state
-                    .proxy_service
-                    .hot_switch_provider_inner(app_type.as_str(), id),
-            )
-            .map_err(|e| AppError::Message(format!("热切换失败: {e}")))?;
-
-            // The proxy server will route requests to the new provider via is_current.
-            // MCP sync is intentionally skipped while Live config is owned by takeover.
-            return Ok(SwitchResult::default());
+        match decision {
+            LiveWriteDecision::ProxyManaged => {
+                log::info!(
+                    "代理接管模式：热切换 {} 的目标供应商为 {}",
+                    app_type.as_str(),
+                    id
+                );
+                if matches!(
+                    app_type,
+                    AppType::ClaudeDesktop
+                        | AppType::OpenCode
+                        | AppType::OpenClaw
+                        | AppType::Hermes
+                ) {
+                    state
+                        .proxy_service
+                        .hot_switch_c2b_provider_sync(&app_type, id)
+                        .map_err(|e| AppError::Message(format!("热切换失败: {e}")))?;
+                } else {
+                    futures::executor::block_on(
+                        state
+                            .proxy_service
+                            .hot_switch_provider_inner(app_type.as_str(), id),
+                    )
+                    .map_err(|e| AppError::Message(format!("热切换失败: {e}")))?;
+                }
+                Ok(SwitchResult::default())
+            }
+            LiveWriteDecision::DirectUpstream => {
+                Self::switch_normal(state, app_type, id, &providers)
+            }
+            LiveWriteDecision::Skip => {
+                if matches!(
+                    app_type,
+                    AppType::OpenCode
+                        if matches!(_provider.category.as_deref(), Some("omo") | Some("omo-slim"))
+                ) {
+                    let category = _provider.category.as_deref().expect("OMO category");
+                    state
+                        .db
+                        .set_omo_provider_current(app_type.as_str(), id, category)?;
+                    return Ok(SwitchResult::default());
+                }
+                Self::switch_db_only_current(state, &app_type, id)
+            }
         }
-
-        // Normal mode: full switch with Live config write
-        Self::switch_normal(state, app_type, id, &providers)
     }
 
     /// Hands-off switch (takeover disabled): update the current-provider pointer
@@ -2774,14 +3647,12 @@ impl ProviderService {
             }
         }
 
-        // Additive mode apps skip setting is_current (no such concept)
-        if !app_type.is_additive_mode() {
-            // Update local settings (device-level, takes priority)
-            crate::settings::set_current_provider(&app_type, Some(id))?;
-
-            // Update database is_current (as default for new devices)
-            state.db.set_current_provider(app_type.as_str(), id)?;
-        }
+        // Standard providers in all seven modules keep a DB/settings current pointer.
+        // Additive live-file layout remains additive, but C2b's namespaced gateway needs
+        // the pointer as its provider-selection SSOT. OMO variants returned above and
+        // retain their dedicated current marker.
+        crate::settings::set_current_provider(&app_type, Some(id))?;
+        state.db.set_current_provider(app_type.as_str(), id)?;
 
         // Sync to live (write_gemini_live handles security flag internally for Gemini)
         write_live_with_common_config(state.db.as_ref(), &app_type, provider)?;
@@ -2863,94 +3734,7 @@ impl ProviderService {
         state: &AppState,
         app_type: AppType,
     ) -> Result<(), AppError> {
-        if app_type.is_additive_mode() {
-            return sync_current_provider_for_app_to_live(state, &app_type);
-        }
-
-        let current_id =
-            match crate::settings::get_effective_current_provider(&state.db, &app_type)? {
-                Some(id) => id,
-                None => return Ok(()),
-            };
-
-        let providers = state.db.get_all_providers(app_type.as_str())?;
-        let Some(provider) = providers.get(&current_id) else {
-            return Ok(());
-        };
-
-        // C2a 三模块按三维语义（proxy_config）决定写入目标；ClaudeDesktop（C2b）
-        // 与其它模块保持既有 backup/占位符信号。
-        if matches!(app_type, AppType::Claude | AppType::Codex | AppType::Gemini) {
-            let _switch_guard = futures::executor::block_on(
-                state.proxy_service.lock_switch_for_app(app_type.as_str()),
-            );
-            let decision = state
-                .proxy_service
-                .live_write_decision_for_app_sync(&app_type)
-                .map_err(AppError::Message)?;
-            return match decision {
-                // 未接管：只保留 DB SSOT，不写 Live（R3/D3/AC1）。
-                LiveWriteDecision::Skip => Ok(()),
-                // direct：写真实上游。
-                LiveWriteDecision::DirectUpstream => {
-                    sync_current_provider_for_app_to_live(state, &app_type)
-                }
-                // proxy：仅刷新代理安全的 Live 显示字段（Claude/Codex），不写 immutable
-                // 首次快照备份（Option A：受管基线归 C3 内存态）。
-                LiveWriteDecision::ProxyManaged => {
-                    if futures::executor::block_on(state.proxy_service.is_running()) {
-                        match app_type {
-                            AppType::Claude => futures::executor::block_on(
-                                state
-                                    .proxy_service
-                                    .sync_claude_live_from_provider_while_proxy_active(provider),
-                            )
-                            .map_err(|e| {
-                                AppError::Message(format!("同步 Claude Live 配置失败: {e}"))
-                            })?,
-                            AppType::Codex => futures::executor::block_on(
-                                state
-                                    .proxy_service
-                                    .sync_codex_live_from_provider_while_proxy_active(provider),
-                            )
-                            .map_err(|e| {
-                                AppError::Message(format!("同步 Codex Live 配置失败: {e}"))
-                            })?,
-                            _ => {}
-                        }
-                    }
-                    Ok(())
-                }
-            };
-        }
-
-        let has_live_backup =
-            futures::executor::block_on(state.db.get_live_backup(app_type.as_str()))
-                .ok()
-                .flatten()
-                .is_some();
-
-        let live_taken_over = state
-            .proxy_service
-            .detect_takeover_in_live_config_for_app(&app_type);
-
-        // ClaudeDesktop / 其它模块（C2b）：保留 backup/占位符所有权信号。
-        if has_live_backup || live_taken_over {
-            if matches!(app_type, AppType::ClaudeDesktop) {
-                write_live_with_common_config(state.db.as_ref(), &app_type, provider)?;
-                return Ok(());
-            }
-
-            futures::executor::block_on(
-                state
-                    .proxy_service
-                    .update_live_backup_from_provider(app_type.as_str(), provider),
-            )
-            .map_err(|e| AppError::Message(format!("更新 Live 备份失败: {e}")))?;
-            return Ok(());
-        }
-
-        sync_current_provider_for_app_to_live(state, &app_type)
+        sync_current_provider_for_app_respecting_takeover(state, &app_type)
     }
 
     pub fn migrate_legacy_common_config_usage(

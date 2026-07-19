@@ -8,14 +8,16 @@ use crate::database::Database;
 use crate::provider::Provider;
 use crate::proxy::server::ProxyServer;
 use crate::proxy::snapshot::{
-    capture_snapshot_once, restore_snapshot_and_release, CaptureSnapshotOutcome, SnapshotManifest,
+    abandon_snapshot_ownership, capture_snapshot_once, restore_snapshot_and_release,
+    CaptureSnapshotOutcome, SnapshotManifest, SnapshotModuleAdapter,
 };
+use crate::proxy::snapshot_adapters::snapshot_adapter_for as c2b_snapshot_adapter_for;
 use crate::proxy::switch_lock::SwitchLockManager;
 use crate::proxy::types::*;
 use crate::services::provider::{
     build_effective_settings_with_common_config, write_live_with_common_config,
 };
-use crate::services::proxy_snapshot_adapters::snapshot_adapter_for_app;
+use crate::services::proxy_snapshot_adapters::snapshot_adapter_for_app as c2a_snapshot_adapter_for;
 use serde_json::{json, Map, Value};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -451,6 +453,132 @@ impl ProxyService {
             .ok_or_else(|| format!("{app_type:?} 当前供应商不存在，无法接管 Live 配置"))
     }
 
+    /// 复用 C2a 三模块 registry，并把 C2b 四模块 adapter 接到同一 C1 snapshot 契约。
+    ///
+    /// 两侧 adapter 仍各自拥有模块目标实现；这里只做唯一 dispatcher 的组合，不复制
+    /// manifest/capture/restore 语义。
+    fn snapshot_adapter_for_app(
+        app_type: &AppType,
+    ) -> Result<Option<Box<dyn SnapshotModuleAdapter>>, String> {
+        if let Some(adapter) = c2a_snapshot_adapter_for(app_type) {
+            return Ok(Some(adapter));
+        }
+        c2b_snapshot_adapter_for(app_type)
+    }
+
+    fn is_c2b_takeover_app(app_type: &AppType) -> bool {
+        matches!(
+            app_type,
+            AppType::ClaudeDesktop | AppType::OpenCode | AppType::OpenClaw | AppType::Hermes
+        )
+    }
+
+    /// C2b provider 热切换失败时恢复 DB 与本机 settings 中原先的 current 指针。
+    ///
+    /// `Database::set_current_provider` 会先清空本模块的 `is_current`；传入空字符串时
+    /// 第二条 UPDATE 不命中任何合法 provider，等价于精确恢复“原先无 DB current”。
+    fn restore_c2b_current_provider_pointers(
+        &self,
+        app_type: &AppType,
+        previous_db_current: Option<&str>,
+        previous_settings_current: Option<&str>,
+    ) -> Result<(), String> {
+        let mut errors = Vec::new();
+        if let Err(error) = self
+            .db
+            .set_current_provider(app_type.as_str(), previous_db_current.unwrap_or_default())
+        {
+            errors.push(format!("恢复 DB current 失败: {error}"));
+        }
+        if let Err(error) =
+            crate::settings::set_current_provider(app_type, previous_settings_current)
+        {
+            errors.push(format!("恢复本机 current 失败: {error}"));
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("；"))
+        }
+    }
+
+    fn rollback_c2b_current_provider_pointers(
+        &self,
+        app_type: &AppType,
+        previous_db_current: Option<&str>,
+        previous_settings_current: Option<&str>,
+        operation_error: &str,
+    ) -> String {
+        match self.restore_c2b_current_provider_pointers(
+            app_type,
+            previous_db_current,
+            previous_settings_current,
+        ) {
+            Ok(()) => operation_error.to_string(),
+            Err(rollback_error) => {
+                format!("{operation_error}；current 指针回滚失败: {rollback_error}")
+            }
+        }
+    }
+
+    /// C2b proxy 热切换在 current 指针提交后才可按新 provider 写 namespaced live。
+    /// 任一后续步骤失败时，必须同时恢复切换前的完整 live 字节和两处 current 指针，
+    /// 否则调用方会收到失败，但磁盘或 provider 选择已部分生效。
+    fn rollback_c2b_hot_switch(
+        &self,
+        app_type: &AppType,
+        previous_db_current: Option<&str>,
+        previous_settings_current: Option<&str>,
+        adapter: &dyn SnapshotModuleAdapter,
+        live_before: &SnapshotManifest,
+        operation_error: &str,
+    ) -> String {
+        let mut rollback_errors = Vec::new();
+        if let Err(error) = adapter.restore_manifest_transactional(live_before) {
+            rollback_errors.push(format!("Live 回滚失败: {error}"));
+        }
+        if let Err(error) = self.restore_c2b_current_provider_pointers(
+            app_type,
+            previous_db_current,
+            previous_settings_current,
+        ) {
+            rollback_errors.push(format!("current 指针回滚失败: {error}"));
+        }
+        if rollback_errors.is_empty() {
+            operation_error.to_string()
+        } else {
+            format!("{operation_error}；{}", rollback_errors.join("；"))
+        }
+    }
+
+    /// C2b 模块的 proxy 能力门。调用点必须位于任何 snapshot/live/route DB 副作用之前。
+    fn validate_proxy_capability_for_app(&self, app_type: &AppType) -> Result<(), String> {
+        if !Self::is_c2b_takeover_app(app_type) {
+            return Ok(());
+        }
+        let provider = self.require_current_provider_for_app(app_type)?;
+        crate::proxy::providers::validate_module_proxy_capability(app_type, &provider).map(|_| ())
+    }
+
+    fn provider_with_claude_desktop_mode(
+        provider: &Provider,
+        mode: crate::provider::ClaudeDesktopMode,
+    ) -> Provider {
+        let mut provider = provider.clone();
+        let mut meta = provider.meta.clone().unwrap_or_default();
+        meta.claude_desktop_mode = Some(mode);
+        provider.meta = Some(meta);
+        provider
+    }
+
+    fn effective_provider_for_app(&self, app_type: &AppType) -> Result<Provider, String> {
+        let mut provider = self.require_current_provider_for_app(app_type)?;
+        provider.settings_config =
+            build_effective_settings_with_common_config(self.db.as_ref(), app_type, &provider)
+                .map_err(|error| format!("构建 {} 有效配置失败: {error}", app_type.as_str()))?;
+        Ok(provider)
+    }
+
     /// 设置 AppHandle（在应用初始化时调用）
     pub fn set_app_handle(&self, handle: tauri::AppHandle) {
         futures::executor::block_on(async {
@@ -637,6 +765,12 @@ impl ProxyService {
             .await
             .map_err(|e| format!("获取 {app_type_str} 配置失败: {e}"))?;
 
+        // C2b proxy 能力门必须早于 snapshot capture、网关启动、live 写入和状态提交。
+        // direct 完全绕过，保持能力矩阵外 provider 的直连可用性。
+        if route_mode == RouteMode::Proxy {
+            self.validate_proxy_capability_for_app(app)?;
+        }
+
         // 已接管时不重新 capture：同模式只重建受管 live，不同模式走原子 mode switch。
         if current_config.takeover_enabled {
             return if current_config.route_mode == route_mode {
@@ -647,9 +781,8 @@ impl ProxyService {
             };
         }
 
-        let adapter = snapshot_adapter_for_app(app).ok_or_else(|| {
-            format!("{app_type_str} 尚无精确快照 adapter（C2a 只支持 claude/codex/gemini）")
-        })?;
+        let adapter = Self::snapshot_adapter_for_app(app)?
+            .ok_or_else(|| format!("{app_type_str} 尚无精确快照 adapter"))?;
 
         // 首次快照必须先于任何网关/live 副作用；已有有效快照幂等保留。
         let capture_outcome = capture_snapshot_once(&self.db, adapter.as_ref()).await?;
@@ -657,8 +790,12 @@ impl ProxyService {
 
         let write_result = async {
             if route_mode == RouteMode::Proxy {
-                if is_fresh && Self::primary_live_exists_for_app(app) {
-                    // 首次开启且 Live 原先存在：先把客户端内最新凭据同步进 DB。
+                if is_fresh
+                    && Self::primary_live_exists_for_app(app)
+                    && matches!(app, AppType::Claude | AppType::Codex | AppType::Gemini)
+                {
+                    // 三旧模块沿用 C2a 的首次接管前 token 同步；四新模块以各自
+                    // provider SSOT 构建受管 fragment，不能把整个 additive live 反灌 DB。
                     self.sync_live_to_provider(app).await?;
                 } else if !is_fresh {
                     // 失败残留/旧快照重试：先恢复唯一首次快照，再从干净态重建 proxy live。
@@ -815,7 +952,8 @@ impl ProxyService {
         app: &AppType,
         route_mode: RouteMode,
     ) -> Result<(), String> {
-        let adapter = snapshot_adapter_for_app(app)
+        let adapter = Self::snapshot_adapter_for_app(app)
+            .map_err(|error| format!("解析 {} 快照 adapter 失败: {error}", app.as_str()))?
             .ok_or_else(|| format!("{} 尚无精确快照 adapter", app.as_str()))?;
         let before = self.capture_transient_live_snapshot(app, adapter.as_ref())?;
         let result = async {
@@ -839,7 +977,8 @@ impl ProxyService {
         current_config: AppProxyConfig,
         route_mode: RouteMode,
     ) -> Result<(), String> {
-        let adapter = snapshot_adapter_for_app(app)
+        let adapter = Self::snapshot_adapter_for_app(app)
+            .map_err(|error| format!("解析 {} 快照 adapter 失败: {error}", app.as_str()))?
             .ok_or_else(|| format!("{} 尚无精确快照 adapter", app.as_str()))?;
         let before = self.capture_transient_live_snapshot(app, adapter.as_ref())?;
 
@@ -901,13 +1040,26 @@ impl ProxyService {
                     || crate::codex_config::get_codex_config_path().exists()
             }
             AppType::Gemini => crate::gemini_config::get_gemini_env_path().exists(),
-            _ => false,
+            AppType::ClaudeDesktop => crate::claude_desktop_config::snapshot_target_paths()
+                .map(|paths| paths.into_iter().any(|(_, path)| path.exists()))
+                .unwrap_or(false),
+            AppType::OpenCode => crate::opencode_config::get_opencode_config_path().exists(),
+            AppType::OpenClaw => crate::openclaw_config::get_openclaw_config_path().exists(),
+            AppType::Hermes => crate::hermes_config::get_hermes_config_path().exists(),
         }
     }
 
     /// 写入某模块的真实上游 Live 配置（direct 模式）。复用 provider live 写入逻辑。
     async fn write_direct_upstream_for_app(&self, app: &AppType) -> Result<(), String> {
         let provider = self.require_current_provider_for_app(app)?;
+        let provider = if matches!(app, AppType::ClaudeDesktop) {
+            Self::provider_with_claude_desktop_mode(
+                &provider,
+                crate::provider::ClaudeDesktopMode::Direct,
+            )
+        } else {
+            provider
+        };
         write_live_with_common_config(self.db.as_ref(), app, &provider)
             .map_err(|e| format!("写入 {} 真实上游配置失败: {e}", app.as_str()))
     }
@@ -915,7 +1067,8 @@ impl ProxyService {
     /// 从首次快照恢复 Live，但**不**清所有权/删快照（重建、失败回滚用）。
     async fn restore_first_open_snapshot(&self, app: &AppType) -> Result<(), String> {
         let app_type_str = app.as_str();
-        let adapter = snapshot_adapter_for_app(app)
+        let adapter = Self::snapshot_adapter_for_app(app)
+            .map_err(|error| format!("解析 {app_type_str} 快照 adapter 失败: {error}"))?
             .ok_or_else(|| format!("{app_type_str} 尚无精确快照 adapter"))?;
         let Some(backup) = self
             .db
@@ -948,12 +1101,12 @@ impl ProxyService {
             .is_some();
 
         if has_backup {
-            let adapter = snapshot_adapter_for_app(app)
+            let adapter = Self::snapshot_adapter_for_app(app)
+                .map_err(|error| format!("解析 {app_type_str} 快照 adapter 失败: {error}"))?
                 .ok_or_else(|| format!("{app_type_str} 尚无精确快照 adapter"))?;
             restore_snapshot_and_release(&self.db, adapter.as_ref()).await
         } else {
-            self.db
-                .release_takeover_ownership(app_type_str)
+            abandon_snapshot_ownership(&self.db, app)
                 .await
                 .map_err(|e| format!("清理 {app_type_str} 接管所有权失败: {e}"))
         }
@@ -984,6 +1137,9 @@ impl ProxyService {
         }
         if current_config.route_mode == route_mode {
             return Ok(()); // 模式未变，幂等返回
+        }
+        if route_mode == RouteMode::Proxy {
+            self.validate_proxy_capability_for_app(&app)?;
         }
 
         self.switch_route_mode_locked(&app, current_config, route_mode)
@@ -1387,6 +1543,13 @@ impl ProxyService {
     /// 备份函数仅编译进测试，防止 C2b 或后续代码误用并覆盖 immutable snapshot。
     #[cfg(test)]
     async fn backup_live_config_strict(&self, app_type: &AppType) -> Result<(), String> {
+        if Self::is_c2b_takeover_app(app_type) {
+            let adapter = Self::snapshot_adapter_for_app(app_type)?
+                .ok_or_else(|| format!("{} 尚无精确快照 adapter", app_type.as_str()))?;
+            capture_snapshot_once(&self.db, adapter.as_ref()).await?;
+            return Ok(());
+        }
+
         let (app_type_str, config) = match app_type {
             AppType::Claude => ("claude", self.read_claude_live()?),
             AppType::Codex => ("codex", self.read_codex_live()?),
@@ -1450,6 +1613,102 @@ impl ProxyService {
         let proxy_codex_base_url = format!("{}/v1", proxy_origin.trim_end_matches('/'));
 
         Ok((proxy_url, proxy_codex_base_url))
+    }
+
+    fn namespaced_proxy_base_url(proxy_origin: &str, app_type: &AppType) -> Result<String, String> {
+        let suffix = match app_type {
+            AppType::ClaudeDesktop => "claude-desktop",
+            AppType::OpenCode => "opencode/v1",
+            AppType::OpenClaw => "openclaw/v1",
+            AppType::Hermes => "hermes/v1",
+            _ => return Err(format!("{} 不使用 C2b 独立命名空间", app_type.as_str())),
+        };
+        Ok(format!("{}/{}", proxy_origin.trim_end_matches('/'), suffix))
+    }
+
+    fn gateway_token_for_live(&self) -> Result<String, String> {
+        crate::claude_desktop_config::get_or_create_gateway_token(self.db.as_ref())
+            .map_err(|error| format!("获取本地网关 token 失败: {error}"))
+    }
+
+    fn ensure_json_object<'a>(
+        value: &'a mut Value,
+        context: &str,
+    ) -> Result<&'a mut Map<String, Value>, String> {
+        value
+            .as_object_mut()
+            .ok_or_else(|| format!("{context} 必须是 JSON 对象"))
+    }
+
+    fn write_c2b_proxy_live(&self, app_type: &AppType, proxy_origin: &str) -> Result<(), String> {
+        let mut provider = self.effective_provider_for_app(app_type)?;
+        let proxy_base_url = Self::namespaced_proxy_base_url(proxy_origin, app_type)?;
+
+        match app_type {
+            AppType::ClaudeDesktop => {
+                provider = Self::provider_with_claude_desktop_mode(
+                    &provider,
+                    crate::provider::ClaudeDesktopMode::Proxy,
+                );
+                write_live_with_common_config(self.db.as_ref(), app_type, &provider)
+                    .map_err(|error| format!("写入 Claude Desktop proxy profile 失败: {error}"))?;
+            }
+            AppType::OpenCode => {
+                let gateway_token = self.gateway_token_for_live()?;
+                let root = Self::ensure_json_object(
+                    &mut provider.settings_config,
+                    "OpenCode provider settings_config",
+                )?;
+                let options = root
+                    .entry("options".to_string())
+                    .or_insert_with(|| Value::Object(Map::new()));
+                let options = Self::ensure_json_object(options, "OpenCode provider options")?;
+                options.insert("baseURL".to_string(), Value::String(proxy_base_url.clone()));
+                options.insert("apiKey".to_string(), Value::String(gateway_token));
+                crate::opencode_config::set_provider(
+                    &provider.id,
+                    provider.settings_config.clone(),
+                )
+                .map_err(|error| format!("写入 OpenCode proxy 配置失败: {error}"))?;
+            }
+            AppType::OpenClaw => {
+                let gateway_token = self.gateway_token_for_live()?;
+                let root = Self::ensure_json_object(
+                    &mut provider.settings_config,
+                    "OpenClaw provider settings_config",
+                )?;
+                root.insert("baseUrl".to_string(), Value::String(proxy_base_url.clone()));
+                root.insert("apiKey".to_string(), Value::String(gateway_token));
+                // `api` 只读不改，客户端继续按 capability gate 已确认的协议调用命名空间。
+                crate::openclaw_config::set_provider(
+                    &provider.id,
+                    provider.settings_config.clone(),
+                )
+                .map_err(|error| format!("写入 OpenClaw proxy 配置失败: {error}"))?;
+            }
+            AppType::Hermes => {
+                let gateway_token = self.gateway_token_for_live()?;
+                let root = Self::ensure_json_object(
+                    &mut provider.settings_config,
+                    "Hermes provider settings_config",
+                )?;
+                root.insert(
+                    "base_url".to_string(),
+                    Value::String(proxy_base_url.clone()),
+                );
+                root.insert("api_key".to_string(), Value::String(gateway_token));
+                // `api_mode` 只读不改，Bedrock/未知值已在 capture 前被原子拒绝。
+                crate::hermes_config::set_provider(&provider.id, provider.settings_config.clone())
+                    .map_err(|error| format!("写入 Hermes proxy 配置失败: {error}"))?;
+            }
+            _ => return Err(format!("{} 不是 C2b 接管模块", app_type.as_str())),
+        }
+
+        log::info!(
+            "{} Live 配置已接管，代理地址: {proxy_base_url}",
+            app_type.as_str()
+        );
+        Ok(())
     }
 
     /// 接管各应用的 Live 配置（写入代理地址）
@@ -1534,6 +1793,9 @@ impl ProxyService {
     /// 以当前 provider 的 effective settings 为基线创建受管文件。首次快照已在调用前
     /// 记录 `existed=false`，关闭接管会删除该文件并恢复为不存在（R10）。
     async fn takeover_live_config_strict(&self, app_type: &AppType) -> Result<(), String> {
+        if Self::is_c2b_takeover_app(app_type) {
+            self.validate_proxy_capability_for_app(app_type)?;
+        }
         let (proxy_url, proxy_codex_base_url) = self.build_proxy_urls().await?;
 
         match app_type {
@@ -1620,7 +1882,9 @@ impl ProxyService {
                 self.write_gemini_live(&live_config)?;
                 log::info!("Gemini Live 配置已接管，代理地址: {proxy_url}");
             }
-            _ => return Err("该应用不支持代理功能".to_string()),
+            AppType::ClaudeDesktop | AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => {
+                self.write_c2b_proxy_live(app_type, &proxy_url)?;
+            }
         }
 
         Ok(())
@@ -1703,7 +1967,9 @@ impl ProxyService {
                     let _ = self.write_gemini_live(&live_config);
                 }
             }
-            _ => {}
+            AppType::ClaudeDesktop | AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => {
+                let _ = self.write_c2b_proxy_live(app_type, &proxy_url);
+            }
         }
 
         Ok(())
@@ -1760,9 +2026,13 @@ impl ProxyService {
                 &backup.original_config,
             )? {
                 crate::proxy::snapshot::DecodedSnapshot::Manifest(manifest) => {
-                    let adapter = snapshot_adapter_for_app(app_type).ok_or_else(|| {
-                        format!("{app_type_str} 存在版本化快照，但精确恢复 adapter 尚未接入；已保留快照")
-                    })?;
+                    let adapter = Self::snapshot_adapter_for_app(app_type)
+                        .map_err(|error| {
+                            format!("解析 {app_type_str} 快照 adapter 失败: {error}")
+                        })?
+                        .ok_or_else(|| {
+                            format!("{app_type_str} 存在版本化快照，但精确恢复 adapter 尚未接入；已保留快照")
+                        })?;
                     adapter.restore_manifest_transactional(&manifest)?;
                     log::info!("{app_type_str} Live 配置已从版本化快照恢复");
                     return Ok(());
@@ -1821,7 +2091,35 @@ impl ProxyService {
             AppType::Claude => self.write_claude_live(config),
             AppType::Codex => self.write_codex_live(config),
             AppType::Gemini => self.write_gemini_live(config),
-            _ => Err("该应用不支持代理功能".to_string()),
+            _ => Err("该应用不支持旧版 JSON 备份恢复".to_string()),
+        }
+    }
+
+    fn read_c2b_live_config_for_app(&self, app_type: &AppType) -> Result<Value, String> {
+        match app_type {
+            AppType::ClaudeDesktop => {
+                let profile_path = crate::claude_desktop_config::snapshot_target_paths()
+                    .map_err(|error| format!("解析 Claude Desktop profile 路径失败: {error}"))?
+                    .into_iter()
+                    .find_map(|(id, path)| (id == "profile").then_some(path))
+                    .ok_or_else(|| "Claude Desktop 快照目标缺少 profile".to_string())?;
+                if !profile_path.exists() {
+                    return Ok(json!({}));
+                }
+                read_json_file(&profile_path)
+                    .map_err(|error| format!("读取 Claude Desktop profile 失败: {error}"))
+            }
+            AppType::OpenCode => crate::opencode_config::read_opencode_config()
+                .map_err(|error| format!("读取 OpenCode 配置失败: {error}")),
+            AppType::OpenClaw => crate::openclaw_config::read_openclaw_config()
+                .map_err(|error| format!("读取 OpenClaw 配置失败: {error}")),
+            AppType::Hermes => {
+                let config = crate::hermes_config::read_hermes_config()
+                    .map_err(|error| format!("读取 Hermes 配置失败: {error}"))?;
+                crate::hermes_config::yaml_to_json(&config)
+                    .map_err(|error| format!("转换 Hermes 配置失败: {error}"))
+            }
+            _ => Err(format!("{} 不是 C2b 接管模块", app_type.as_str())),
         }
     }
 
@@ -1839,7 +2137,11 @@ impl ProxyService {
                 Ok(config) => Self::is_gemini_live_taken_over(&config),
                 Err(_) => false,
             },
-            _ => false,
+            AppType::ClaudeDesktop | AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => {
+                self.read_c2b_live_config_for_app(app_type)
+                    .map(|config| Self::live_has_proxy_placeholder_for_app(app_type, &config))
+                    .unwrap_or(false)
+            }
         }
     }
 
@@ -1875,7 +2177,15 @@ impl ProxyService {
             return Ok(false);
         }
 
-        write_live_with_common_config(self.db.as_ref(), app_type, provider)
+        let provider = if matches!(app_type, AppType::ClaudeDesktop) {
+            Self::provider_with_claude_desktop_mode(
+                provider,
+                crate::provider::ClaudeDesktopMode::Direct,
+            )
+        } else {
+            provider.clone()
+        };
+        write_live_with_common_config(self.db.as_ref(), app_type, &provider)
             .map_err(|e| format!("写入 {app_type:?} Live 配置失败: {e}"))?;
 
         Ok(true)
@@ -1889,7 +2199,10 @@ impl ProxyService {
             AppType::Claude => self.cleanup_claude_takeover_placeholders_in_live(),
             AppType::Codex => self.cleanup_codex_takeover_placeholders_in_live(),
             AppType::Gemini => self.cleanup_gemini_takeover_placeholders_in_live(),
-            _ => Ok(()),
+            AppType::ClaudeDesktop => self.cleanup_claude_desktop_takeover_in_live(),
+            AppType::OpenCode => self.cleanup_opencode_takeover_in_live(),
+            AppType::OpenClaw => self.cleanup_openclaw_takeover_in_live(),
+            AppType::Hermes => self.cleanup_hermes_takeover_in_live(),
         }
     }
 
@@ -1983,7 +2296,12 @@ impl ProxyService {
                     .is_some_and(|url| Self::proxy_urls_match(url, &proxy_url));
                 Ok(Self::is_gemini_live_taken_over(&config) && base_url_matches)
             }
-            _ => Ok(false),
+            AppType::ClaudeDesktop | AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => {
+                let config = self.read_c2b_live_config_for_app(app_type)?;
+                let expected = Self::namespaced_proxy_base_url(&proxy_url, app_type)?;
+                Ok(Self::live_has_proxy_placeholder_for_app(app_type, &config)
+                    && Self::c2b_proxy_url_matches(&config, app_type, &expected))
+            }
         }
     }
 
@@ -2071,6 +2389,73 @@ impl ProxyService {
         Ok(())
     }
 
+    fn cleanup_claude_desktop_takeover_in_live(&self) -> Result<(), String> {
+        let official = Provider::with_id(
+            crate::database::CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID.to_string(),
+            "Claude Desktop 官方".to_string(),
+            json!({}),
+            None,
+        );
+        crate::claude_desktop_config::apply_provider(self.db.as_ref(), &official)
+            .map_err(|error| format!("清理 Claude Desktop 网关 profile 失败: {error}"))
+    }
+
+    fn cleanup_opencode_takeover_in_live(&self) -> Result<(), String> {
+        let mut config = crate::opencode_config::read_opencode_config()
+            .map_err(|error| format!("读取 OpenCode 配置失败: {error}"))?;
+        let mut changed = false;
+        if let Some(providers) = config.get_mut("provider").and_then(Value::as_object_mut) {
+            for provider in providers.values_mut() {
+                let Some(options) = provider.get_mut("options").and_then(Value::as_object_mut)
+                else {
+                    continue;
+                };
+                if Self::c2b_base_url_matches_namespace(options.get("baseURL"), "opencode/v1") {
+                    options.remove("baseURL");
+                    options.remove("apiKey");
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            crate::opencode_config::write_opencode_config(&config)
+                .map_err(|error| format!("清理 OpenCode 接管配置失败: {error}"))?;
+        }
+        Ok(())
+    }
+
+    fn cleanup_openclaw_takeover_in_live(&self) -> Result<(), String> {
+        let providers = crate::openclaw_config::get_providers()
+            .map_err(|error| format!("读取 OpenClaw 配置失败: {error}"))?;
+        for (id, mut provider) in providers {
+            if Self::c2b_base_url_matches_namespace(provider.get("baseUrl"), "openclaw/v1") {
+                if let Some(root) = provider.as_object_mut() {
+                    root.remove("baseUrl");
+                    root.remove("apiKey");
+                }
+                crate::openclaw_config::set_provider(&id, provider)
+                    .map_err(|error| format!("清理 OpenClaw provider '{id}' 失败: {error}"))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn cleanup_hermes_takeover_in_live(&self) -> Result<(), String> {
+        let providers = crate::hermes_config::get_providers()
+            .map_err(|error| format!("读取 Hermes 配置失败: {error}"))?;
+        for (id, mut provider) in providers {
+            if Self::c2b_base_url_matches_namespace(provider.get("base_url"), "hermes/v1") {
+                if let Some(root) = provider.as_object_mut() {
+                    root.remove("base_url");
+                    root.remove("api_key");
+                }
+                crate::hermes_config::set_provider(&id, provider)
+                    .map_err(|error| format!("清理 Hermes provider '{id}' 失败: {error}"))?;
+            }
+        }
+        Ok(())
+    }
+
     /// 检查是否处于 Live 接管模式
     pub async fn is_takeover_active(&self) -> Result<bool, String> {
         let status = self.get_takeover_status().await?;
@@ -2099,31 +2484,29 @@ impl ProxyService {
             };
             // direct 只放弃所有权，不恢复首次快照，也不改写当前真实上游。
             if config.takeover_enabled && config.route_mode == RouteMode::Direct {
-                if let Err(error) = self.db.release_takeover_ownership(app_type).await {
+                if let Err(error) = abandon_snapshot_ownership(&self.db, &app).await {
                     errors.push(format!("放弃 {app_type} direct 所有权失败: {error}"));
                 }
                 continue;
             }
 
             let has_proxy_residue = self.detect_takeover_in_live_config_for_app(&app);
+            // C2b 的 namespaced URL + gateway token 也可能是用户手工配置的网关入口。
+            // 在 takeover_enabled=false 且没有快照时，它不是 AGS 所有的残留；否则启动
+            // 恢复会违反“关闭接管不得写 live”，把用户手工配置改回当前 provider。
+            // C1 三模块沿用原有 placeholder 兜底，因为其 AGS 占位符与普通配置可区分。
+            let recoverable_proxy_residue = has_proxy_residue
+                && (!Self::is_c2b_takeover_app(&app) || config.takeover_enabled || has_backup);
 
             // backup/占位符代表确有 proxy 残留；仅凭历史 enabled 不写 Live。
-            if has_backup || has_proxy_residue {
-                if matches!(app, AppType::Claude | AppType::Codex | AppType::Gemini) {
-                    if let Err(error) = self.restore_live_config_for_app_with_fallback(&app).await {
-                        errors.push(format!("恢复 {app_type} proxy 残留失败: {error}"));
-                        continue;
-                    }
-                } else if has_backup {
-                    // 四个新模块的精确 adapter 由 C2 接入；无 adapter 时绝不删除恢复源。
-                    errors.push(format!(
-                        "{app_type} 存在快照，但精确恢复 adapter 尚未接入；已保留接管状态与快照"
-                    ));
+            if has_backup || recoverable_proxy_residue {
+                if let Err(error) = self.restore_live_config_for_app_with_fallback(&app).await {
+                    errors.push(format!("恢复 {app_type} proxy 残留失败: {error}"));
                     continue;
                 }
             }
 
-            if config.takeover_enabled || has_backup || has_proxy_residue {
+            if config.takeover_enabled || has_backup || recoverable_proxy_residue {
                 if let Err(error) = self.db.release_takeover_ownership(app_type).await {
                     errors.push(format!("清理 {app_type} 接管所有权失败: {error}"));
                 }
@@ -2144,25 +2527,7 @@ impl ProxyService {
     /// 用于兜底处理：当数据库备份缺失但 Live 文件已经写成代理占位符时，
     /// 启动流程可以据此触发恢复逻辑。
     pub fn detect_takeover_in_live_configs(&self) -> bool {
-        if let Ok(config) = self.read_claude_live() {
-            if Self::is_claude_live_taken_over(&config) {
-                return true;
-            }
-        }
-
-        if let Ok(config) = self.read_codex_live() {
-            if Self::is_codex_live_taken_over(&config) {
-                return true;
-            }
-        }
-
-        if let Ok(config) = self.read_gemini_live() {
-            if Self::is_gemini_live_taken_over(&config) {
-                return true;
-            }
-        }
-
-        false
+        AppType::all().any(|app_type| self.detect_takeover_in_live_config_for_app(&app_type))
     }
 
     fn is_claude_live_taken_over(config: &Value) -> bool {
@@ -2216,7 +2581,138 @@ impl ProxyService {
         env.get("GEMINI_API_KEY").and_then(|v| v.as_str()) == Some(PROXY_TOKEN_PLACEHOLDER)
     }
 
-    /// 判断给定的 Live/备份配置是否已被代理接管（包含占位符）
+    fn c2b_base_url_matches_namespace(value: Option<&Value>, namespace: &str) -> bool {
+        let Some(url) = value.and_then(Value::as_str).map(str::trim) else {
+            return false;
+        };
+        if !Self::is_local_proxy_url(url) {
+            return false;
+        }
+        let Some((_, path)) = url["http://".len()..].split_once('/') else {
+            return false;
+        };
+        path.trim_matches('/').eq_ignore_ascii_case(namespace)
+    }
+
+    fn is_claude_desktop_live_taken_over(config: &Value) -> bool {
+        config.get("inferenceProvider").and_then(Value::as_str) == Some("gateway")
+            && Self::c2b_base_url_matches_namespace(
+                config.get("inferenceGatewayBaseUrl"),
+                "claude-desktop",
+            )
+    }
+
+    fn is_opencode_provider_taken_over(provider: &Value) -> bool {
+        let options = provider.get("options");
+        Self::c2b_base_url_matches_namespace(
+            options.and_then(|value| value.get("baseURL")),
+            "opencode/v1",
+        ) && options
+            .and_then(|value| value.get("apiKey"))
+            .and_then(Value::as_str)
+            .is_some_and(|key| !key.trim().is_empty())
+    }
+
+    fn is_opencode_live_taken_over(config: &Value) -> bool {
+        if config.get("options").is_some() {
+            return Self::is_opencode_provider_taken_over(config);
+        }
+        config
+            .get("provider")
+            .and_then(Value::as_object)
+            .is_some_and(|providers| {
+                providers
+                    .values()
+                    .any(Self::is_opencode_provider_taken_over)
+            })
+    }
+
+    fn is_openclaw_provider_taken_over(provider: &Value) -> bool {
+        Self::c2b_base_url_matches_namespace(provider.get("baseUrl"), "openclaw/v1")
+            && provider
+                .get("apiKey")
+                .and_then(Value::as_str)
+                .is_some_and(|key| !key.trim().is_empty())
+    }
+
+    fn is_openclaw_live_taken_over(config: &Value) -> bool {
+        if config.get("baseUrl").is_some() {
+            return Self::is_openclaw_provider_taken_over(config);
+        }
+        config
+            .pointer("/models/providers")
+            .and_then(Value::as_object)
+            .is_some_and(|providers| {
+                providers
+                    .values()
+                    .any(Self::is_openclaw_provider_taken_over)
+            })
+    }
+
+    fn is_hermes_provider_taken_over(provider: &Value) -> bool {
+        Self::c2b_base_url_matches_namespace(provider.get("base_url"), "hermes/v1")
+            && provider
+                .get("api_key")
+                .and_then(Value::as_str)
+                .is_some_and(|key| !key.trim().is_empty())
+    }
+
+    fn is_hermes_live_taken_over(config: &Value) -> bool {
+        if config.get("base_url").is_some() {
+            return Self::is_hermes_provider_taken_over(config);
+        }
+        config
+            .get("custom_providers")
+            .and_then(Value::as_array)
+            .is_some_and(|providers| providers.iter().any(Self::is_hermes_provider_taken_over))
+    }
+
+    #[cfg(test)]
+    fn c2b_proxy_url_matches(config: &Value, app_type: &AppType, expected: &str) -> bool {
+        match app_type {
+            AppType::ClaudeDesktop => config
+                .get("inferenceGatewayBaseUrl")
+                .and_then(Value::as_str)
+                .is_some_and(|url| Self::proxy_urls_match(url, expected)),
+            AppType::OpenCode => config
+                .get("provider")
+                .and_then(Value::as_object)
+                .is_some_and(|providers| {
+                    providers.values().any(|provider| {
+                        provider
+                            .pointer("/options/baseURL")
+                            .and_then(Value::as_str)
+                            .is_some_and(|url| Self::proxy_urls_match(url, expected))
+                    })
+                }),
+            AppType::OpenClaw => config
+                .pointer("/models/providers")
+                .and_then(Value::as_object)
+                .is_some_and(|providers| {
+                    providers.values().any(|provider| {
+                        provider
+                            .get("baseUrl")
+                            .and_then(Value::as_str)
+                            .is_some_and(|url| Self::proxy_urls_match(url, expected))
+                    })
+                }),
+            AppType::Hermes => config
+                .get("custom_providers")
+                .and_then(Value::as_array)
+                .is_some_and(|providers| {
+                    providers.iter().any(|provider| {
+                        provider
+                            .get("base_url")
+                            .and_then(Value::as_str)
+                            .is_some_and(|url| Self::proxy_urls_match(url, expected))
+                    })
+                }),
+            _ => false,
+        }
+    }
+
+    /// 判断给定的 Live/备份配置是否已被代理接管（包含 C1 三模块占位符或 C2b
+    /// 独立命名空间）。这只是 crash/legacy 兜底信号，绝不替代 proxy_config SSOT。
     ///
     /// 用途：检测"备份里存的其实是代理配置"这种异常历史状态。
     /// 如果发现，备份不可信，备份路径不能写入（否则会把代理配置固化进备份槽），
@@ -2227,7 +2723,10 @@ impl ProxyService {
             AppType::Claude => Self::is_claude_live_taken_over(config),
             AppType::Codex => Self::codex_live_has_proxy_placeholder(config),
             AppType::Gemini => Self::is_gemini_live_taken_over(config),
-            _ => false,
+            AppType::ClaudeDesktop => Self::is_claude_desktop_live_taken_over(config),
+            AppType::OpenCode => Self::is_opencode_live_taken_over(config),
+            AppType::OpenClaw => Self::is_openclaw_live_taken_over(config),
+            AppType::Hermes => Self::is_hermes_live_taken_over(config),
         }
     }
 
@@ -2253,6 +2752,21 @@ impl ProxyService {
     ) -> Result<(), String> {
         let app_type_enum =
             AppType::from_str(app_type).map_err(|_| format!("未知的应用类型: {app_type}"))?;
+
+        // C2b 起 proxy_live_backup 是 immutable 首次快照；四模块热切换只重写受管
+        // live，不得把 provider JSON 覆盖进 manifest 槽。C3 的 managed expected 另管。
+        if Self::is_c2b_takeover_app(&app_type_enum) {
+            if let Some(backup) = self
+                .db
+                .get_live_backup(app_type)
+                .await
+                .map_err(|e| format!("读取 {app_type} 现有快照失败: {e}"))?
+            {
+                crate::proxy::snapshot::decode_stored_snapshot(app_type, &backup.original_config)?;
+            }
+            return Ok(());
+        }
+
         let mut effective_settings =
             build_effective_settings_with_common_config(self.db.as_ref(), &app_type_enum, provider)
                 .map_err(|e| format!("构建 {app_type} 有效配置失败: {e}"))?;
@@ -2313,6 +2827,105 @@ impl ProxyService {
         Ok(())
     }
 
+    /// ProviderService 的同步 CRUD/switch 路径使用的 C2b proxy-safe 热切换。
+    ///
+    /// 不把整个 async hot-switch 包进 `futures::executor::block_on`：Claude Desktop
+    /// writer 内部会同步读取 DB，外层 LocalPool 会形成嵌套 executor。这里把必要的
+    /// async 读取拆开完成，再在同步栈写模块专属 proxy fragment；immutable snapshot
+    /// 从始至终不参与。
+    pub(crate) fn hot_switch_c2b_provider_sync(
+        &self,
+        app_type: &AppType,
+        provider_id: &str,
+    ) -> Result<HotSwitchOutcome, String> {
+        if !Self::is_c2b_takeover_app(app_type) {
+            return Err(format!("{} 不是 C2b 接管模块", app_type.as_str()));
+        }
+
+        let provider = self
+            .db
+            .get_provider_by_id(provider_id, app_type.as_str())
+            .map_err(|e| format!("读取供应商失败: {e}"))?
+            .ok_or_else(|| format!("供应商不存在: {provider_id}"))?;
+        if provider.category.as_deref() == Some("official") {
+            return Err(
+                "代理接管模式下不能切换到官方供应商 (Cannot switch to official provider during proxy takeover)"
+                    .to_string(),
+            );
+        }
+
+        let takeover =
+            futures::executor::block_on(self.db.get_proxy_config_for_app(app_type.as_str()))
+                .map_err(|e| format!("读取 {} 接管状态失败: {e}", app_type.as_str()))?;
+        let proxy_managed = takeover.takeover_enabled && takeover.route_mode == RouteMode::Proxy;
+        if proxy_managed {
+            crate::proxy::providers::validate_module_proxy_capability(app_type, &provider)?;
+        }
+
+        // Resolve every fallible prerequisite and capture the complete pre-switch Live before
+        // changing either current pointer. This makes URL/config failures side-effect free and
+        // gives writer failures a byte-exact rollback source independent of the first-open snapshot.
+        let proxy_write_context = if proxy_managed {
+            let adapter = Self::snapshot_adapter_for_app(app_type)?
+                .ok_or_else(|| format!("{} 尚无精确快照 adapter", app_type.as_str()))?;
+            let live_before = self.capture_transient_live_snapshot(app_type, adapter.as_ref())?;
+            let (proxy_origin, _) = futures::executor::block_on(self.build_proxy_urls())?;
+            Some((adapter, live_before, proxy_origin))
+        } else {
+            None
+        };
+
+        let logical_target_changed =
+            crate::settings::get_effective_current_provider(&self.db, app_type)
+                .map_err(|e| format!("读取当前供应商失败: {e}"))?
+                .as_deref()
+                != Some(provider_id);
+        let previous_db_current = self
+            .db
+            .get_current_provider(app_type.as_str())
+            .map_err(|e| format!("读取原 DB current 失败: {e}"))?;
+        let previous_settings_current = crate::settings::get_current_provider(app_type);
+
+        self.db
+            .set_current_provider(app_type.as_str(), provider_id)
+            .map_err(|e| format!("更新当前供应商失败: {e}"))?;
+        if let Err(error) = crate::settings::set_current_provider(app_type, Some(provider_id)) {
+            return Err(self.rollback_c2b_current_provider_pointers(
+                app_type,
+                previous_db_current.as_deref(),
+                previous_settings_current.as_deref(),
+                &format!("更新本地当前供应商失败: {error}"),
+            ));
+        }
+
+        if let Some((adapter, live_before, proxy_origin)) = proxy_write_context.as_ref() {
+            // `write_c2b_proxy_live` is deliberately outside the block_on above so
+            // Claude Desktop may perform its existing synchronous DB reads safely.
+            if let Err(error) = self.write_c2b_proxy_live(app_type, proxy_origin) {
+                return Err(self.rollback_c2b_hot_switch(
+                    app_type,
+                    previous_db_current.as_deref(),
+                    previous_settings_current.as_deref(),
+                    adapter.as_ref(),
+                    live_before,
+                    &format!("写入代理受管 Live 配置失败: {error}"),
+                ));
+            }
+        }
+
+        futures::executor::block_on(async {
+            if let Some(server) = self.server.read().await.as_ref() {
+                server
+                    .set_active_target(app_type.as_str(), &provider.id, &provider.name)
+                    .await;
+            }
+        });
+
+        Ok(HotSwitchOutcome {
+            logical_target_changed,
+        })
+    }
+
     pub async fn hot_switch_provider(
         &self,
         app_type: &str,
@@ -2343,11 +2956,50 @@ impl ProxyService {
             );
         }
 
+        let c2b_proxy_managed = if Self::is_c2b_takeover_app(&app_type_enum) {
+            let takeover = self
+                .db
+                .get_proxy_config_for_app(app_type_enum.as_str())
+                .await
+                .map_err(|e| format!("读取 {} 接管状态失败: {e}", app_type_enum.as_str()))?;
+            if takeover.takeover_enabled && takeover.route_mode == RouteMode::Proxy {
+                crate::proxy::providers::validate_module_proxy_capability(
+                    &app_type_enum,
+                    &provider,
+                )?;
+            }
+            takeover.takeover_enabled && takeover.route_mode == RouteMode::Proxy
+        } else {
+            false
+        };
+
+        let c2b_proxy_context = if c2b_proxy_managed {
+            let adapter = Self::snapshot_adapter_for_app(&app_type_enum)?
+                .ok_or_else(|| format!("{} 尚无精确快照 adapter", app_type_enum.as_str()))?;
+            let live_before =
+                self.capture_transient_live_snapshot(&app_type_enum, adapter.as_ref())?;
+            // Resolve URL/config prerequisites before current-pointer side effects.
+            let (proxy_origin, _) = self.build_proxy_urls().await?;
+            Some((adapter, live_before, proxy_origin))
+        } else {
+            None
+        };
+
         let logical_target_changed =
             crate::settings::get_effective_current_provider(&self.db, &app_type_enum)
                 .map_err(|e| format!("读取当前供应商失败: {e}"))?
                 .as_deref()
                 != Some(provider_id);
+        let c2b_previous_pointers = if Self::is_c2b_takeover_app(&app_type_enum) {
+            Some((
+                self.db
+                    .get_current_provider(app_type_enum.as_str())
+                    .map_err(|e| format!("读取原 DB current 失败: {e}"))?,
+                crate::settings::get_current_provider(&app_type_enum),
+            ))
+        } else {
+            None
+        };
 
         // Option A (C2a): the restore snapshot in proxy_live_backup is the IMMUTABLE
         // first-open capture. Hot-switch under ProxyManaged only refreshes the
@@ -2359,8 +3011,20 @@ impl ProxyService {
         self.db
             .set_current_provider(app_type_enum.as_str(), provider_id)
             .map_err(|e| format!("更新当前供应商失败: {e}"))?;
-        crate::settings::set_current_provider(&app_type_enum, Some(provider_id))
-            .map_err(|e| format!("更新本地当前供应商失败: {e}"))?;
+        if let Err(error) = crate::settings::set_current_provider(&app_type_enum, Some(provider_id))
+        {
+            if let Some((previous_db_current, previous_settings_current)) =
+                c2b_previous_pointers.as_ref()
+            {
+                return Err(self.rollback_c2b_current_provider_pointers(
+                    &app_type_enum,
+                    previous_db_current.as_deref(),
+                    previous_settings_current.as_deref(),
+                    &format!("更新本地当前供应商失败: {error}"),
+                ));
+            }
+            return Err(format!("更新本地当前供应商失败: {error}"));
+        }
 
         if matches!(app_type_enum, AppType::Claude) {
             self.sync_claude_live_from_provider_while_proxy_active(&provider)
@@ -2371,6 +3035,25 @@ impl ProxyService {
             // client menu tracks the selected provider.
             self.sync_codex_live_from_provider_while_proxy_active(&provider)
                 .await?;
+        } else if let Some((adapter, live_before, proxy_origin)) = c2b_proxy_context.as_ref() {
+            // 四模块的 ProxyManaged 写入由 proxy_config SSOT 决定，不能依赖 live
+            // 占位符检测：外部格式漂移也不得退回真实上游 writer。只重写当前模块
+            // 的命名空间 fragment，immutable first-open snapshot 保持不变。
+            if let Err(error) = self.write_c2b_proxy_live(&app_type_enum, proxy_origin) {
+                if let Some((previous_db_current, previous_settings_current)) =
+                    c2b_previous_pointers.as_ref()
+                {
+                    return Err(self.rollback_c2b_hot_switch(
+                        &app_type_enum,
+                        previous_db_current.as_deref(),
+                        previous_settings_current.as_deref(),
+                        adapter.as_ref(),
+                        live_before,
+                        &format!("刷新代理受管 Live 配置失败: {error}"),
+                    ));
+                }
+                return Err(format!("刷新代理受管 Live 配置失败: {error}"));
+            }
         }
 
         if let Some(server) = self.server.read().await.as_ref() {
@@ -2780,7 +3463,7 @@ impl ProxyService {
             // 使用严格 writer，避免 best-effort 静默留下旧端口或与 provider 写入竞态。
             drop(server_guard);
             let mut updated_any = false;
-            for app in [AppType::Claude, AppType::Codex, AppType::Gemini] {
+            for app in AppType::all() {
                 let _guard = self.switch_locks.lock_for_app(app.as_str()).await;
                 let config = self
                     .db
@@ -2875,6 +3558,9 @@ mod tests {
         original_home: Option<String>,
         original_userprofile: Option<String>,
         original_test_home: Option<String>,
+        original_localappdata: Option<String>,
+        original_hermes_home: Option<String>,
+        original_opencode_db: Option<String>,
     }
 
     impl TempHome {
@@ -2883,16 +3569,25 @@ mod tests {
             let original_home = env::var("HOME").ok();
             let original_userprofile = env::var("USERPROFILE").ok();
             let original_test_home = env::var("AGENT_SWITCH_TEST_HOME").ok();
+            let original_localappdata = env::var("LOCALAPPDATA").ok();
+            let original_hermes_home = env::var("HERMES_HOME").ok();
+            let original_opencode_db = env::var("OPENCODE_DB").ok();
 
             env::set_var("HOME", dir.path());
             env::set_var("USERPROFILE", dir.path());
             env::set_var("AGENT_SWITCH_TEST_HOME", dir.path());
+            env::set_var("LOCALAPPDATA", dir.path().join("AppData").join("Local"));
+            env::set_var("HERMES_HOME", dir.path().join("hermes"));
+            env::set_var("OPENCODE_DB", dir.path().join("opencode.db"));
 
             Self {
                 dir,
                 original_home,
                 original_userprofile,
                 original_test_home,
+                original_localappdata,
+                original_hermes_home,
+                original_opencode_db,
             }
         }
     }
@@ -2912,6 +3607,18 @@ mod tests {
             match &self.original_test_home {
                 Some(value) => env::set_var("AGENT_SWITCH_TEST_HOME", value),
                 None => env::remove_var("AGENT_SWITCH_TEST_HOME"),
+            }
+            match &self.original_localappdata {
+                Some(value) => env::set_var("LOCALAPPDATA", value),
+                None => env::remove_var("LOCALAPPDATA"),
+            }
+            match &self.original_hermes_home {
+                Some(value) => env::set_var("HERMES_HOME", value),
+                None => env::remove_var("HERMES_HOME"),
+            }
+            match &self.original_opencode_db {
+                Some(value) => env::set_var("OPENCODE_DB", value),
+                None => env::remove_var("OPENCODE_DB"),
             }
         }
     }
@@ -2950,6 +3657,804 @@ mod tests {
             .expect("serialize models_cache"),
         )
         .expect("write models_cache.json");
+    }
+
+    fn c2b_test_provider(app_type: &AppType, supported_proxy_protocol: bool) -> Provider {
+        let id = "c2b-provider";
+        let settings = match app_type {
+            AppType::ClaudeDesktop => json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://upstream.example/v1",
+                    "ANTHROPIC_AUTH_TOKEN": "upstream-key"
+                }
+            }),
+            AppType::OpenCode => json!({
+                "npm": if supported_proxy_protocol { "@ai-sdk/openai-compatible" } else { "@vendor/unknown" },
+                "options": {
+                    "baseURL": "https://upstream.example/v1",
+                    "apiKey": "upstream-key"
+                },
+                "models": { "test-model": { "name": "Test" } }
+            }),
+            AppType::OpenClaw => json!({
+                "baseUrl": "https://upstream.example/v1",
+                "apiKey": "upstream-key",
+                "api": if supported_proxy_protocol { "openai-completions" } else { "unknown-api" },
+                "models": [{ "id": "test-model", "name": "Test" }]
+            }),
+            AppType::Hermes => json!({
+                "base_url": "https://upstream.example/v1",
+                "api_key": "upstream-key",
+                "api_mode": if supported_proxy_protocol { "chat_completions" } else { "bedrock_converse" },
+                "models": [{ "id": "test-model", "name": "Test" }]
+            }),
+            _ => panic!("not a C2b test app: {app_type:?}"),
+        };
+        let mut provider = Provider::with_id(
+            id.to_string(),
+            format!("{} Test", app_type.as_str()),
+            settings,
+            None,
+        );
+        if matches!(app_type, AppType::ClaudeDesktop) {
+            provider.meta = Some(ProviderMeta {
+                claude_desktop_mode: Some(crate::provider::ClaudeDesktopMode::Direct),
+                api_format: Some(
+                    if supported_proxy_protocol {
+                        "anthropic"
+                    } else {
+                        "bedrock_converse"
+                    }
+                    .to_string(),
+                ),
+                claude_desktop_model_routes: std::collections::HashMap::from([(
+                    "claude-sonnet-4-6".to_string(),
+                    crate::provider::ClaudeDesktopModelRoute {
+                        model: "claude-sonnet-4-6".to_string(),
+                        label_override: Some("Claude Sonnet".to_string()),
+                        supports_1m: Some(false),
+                    },
+                )]),
+                ..Default::default()
+            });
+        }
+        provider
+    }
+
+    fn seed_c2b_current_provider(db: &Database, app_type: &AppType, provider: &Provider) {
+        db.save_provider(app_type.as_str(), provider)
+            .expect("save C2b provider");
+        db.set_current_provider(app_type.as_str(), &provider.id)
+            .expect("set DB current C2b provider");
+        crate::settings::set_current_provider(app_type, Some(&provider.id))
+            .expect("set settings current C2b provider");
+    }
+
+    fn c2b_live_target_paths(app_type: &AppType) -> Vec<std::path::PathBuf> {
+        match app_type {
+            AppType::ClaudeDesktop => crate::claude_desktop_config::snapshot_target_paths()
+                .expect("resolve Claude Desktop test paths")
+                .into_iter()
+                .map(|(_, path)| path)
+                .collect(),
+            AppType::OpenCode => vec![crate::opencode_config::get_opencode_config_path()],
+            AppType::OpenClaw => vec![crate::openclaw_config::get_openclaw_config_path()],
+            AppType::Hermes => vec![crate::hermes_config::get_hermes_config_path()],
+            _ => panic!("not a C2b test app: {app_type:?}"),
+        }
+    }
+
+    fn seed_c2b_original_live(
+        app_type: &AppType,
+        provider: &Provider,
+    ) -> Vec<(std::path::PathBuf, Vec<u8>)> {
+        let targets = c2b_live_target_paths(app_type);
+        let contents = match app_type {
+            AppType::ClaudeDesktop => vec![
+                br#"{
+  "deploymentMode": "1p",
+  "custom": "normal"
+}
+"#
+                .to_vec(),
+                br#"{
+  "deploymentMode": "1p",
+  "custom": "threep"
+}
+"#
+                .to_vec(),
+                br#"{
+  "userProfile": true
+}
+"#
+                .to_vec(),
+                br#"{
+  "entries": [{"id": "user", "name": "User"}],
+  "appliedId": "user"
+}
+"#
+                .to_vec(),
+            ],
+            AppType::OpenCode => vec![format!(
+                "{{\n  // preserve this exact OpenCode comment\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {{\n    \"{}\": {}\n  }},\n  \"plugin\": [\"user-plugin\"]\n}}\n",
+                provider.id, provider.settings_config
+            )
+            .into_bytes()],
+            AppType::OpenClaw => vec![format!(
+                "{{\n  // preserve this exact OpenClaw comment\n  models: {{\n    mode: 'merge',\n    providers: {{\n      '{}': {}\n    }}\n  }},\n  custom: true\n}}\n",
+                provider.id, provider.settings_config
+            )
+            .into_bytes()],
+            AppType::Hermes => vec![format!(
+                "# preserve this exact Hermes comment\ncustom_providers:\n  - name: {}\n    base_url: https://upstream.example/v1\n    api_key: upstream-key\n    api_mode: {}\n    model: test-model\n    models:\n      test-model:\n        context_length: 1000\ncustom_section:\n  keep: true\n",
+                provider.id,
+                provider
+                    .settings_config
+                    .get("api_mode")
+                    .and_then(Value::as_str)
+                    .unwrap_or("chat_completions")
+            )
+            .into_bytes()],
+            _ => unreachable!(),
+        };
+        assert_eq!(targets.len(), contents.len());
+        targets
+            .into_iter()
+            .zip(contents)
+            .map(|(path, bytes)| {
+                std::fs::create_dir_all(path.parent().expect("live target parent"))
+                    .expect("create live target parent");
+                std::fs::write(&path, &bytes).expect("seed C2b live target");
+                (path, bytes)
+            })
+            .collect()
+    }
+
+    fn read_c2b_live_fragment(app_type: &AppType, provider_id: &str) -> Value {
+        match app_type {
+            AppType::ClaudeDesktop => {
+                let profile = crate::claude_desktop_config::snapshot_target_paths()
+                    .expect("resolve Claude Desktop paths")
+                    .into_iter()
+                    .find_map(|(id, path)| (id == "profile").then_some(path))
+                    .expect("Claude Desktop profile target");
+                read_json_file(&profile).expect("read Claude Desktop profile")
+            }
+            AppType::OpenCode => crate::opencode_config::get_providers()
+                .expect("read OpenCode providers")
+                .remove(provider_id)
+                .expect("OpenCode live provider"),
+            AppType::OpenClaw => crate::openclaw_config::get_provider(provider_id)
+                .expect("read OpenClaw provider")
+                .expect("OpenClaw live provider"),
+            AppType::Hermes => crate::hermes_config::get_provider(provider_id)
+                .expect("read Hermes provider")
+                .expect("Hermes live provider"),
+            _ => unreachable!(),
+        }
+    }
+
+    fn c2b_live_endpoint_key_protocol(
+        app_type: &AppType,
+        provider_id: &str,
+    ) -> (String, String, Option<String>) {
+        let fragment = read_c2b_live_fragment(app_type, provider_id);
+        let (base_url, api_key, protocol) = match app_type {
+            AppType::ClaudeDesktop => (
+                fragment.get("inferenceGatewayBaseUrl"),
+                fragment.get("inferenceGatewayApiKey"),
+                None,
+            ),
+            AppType::OpenCode => (
+                fragment.pointer("/options/baseURL"),
+                fragment.pointer("/options/apiKey"),
+                fragment.get("npm"),
+            ),
+            AppType::OpenClaw => (
+                fragment.get("baseUrl"),
+                fragment.get("apiKey"),
+                fragment.get("api"),
+            ),
+            AppType::Hermes => (
+                fragment.get("base_url"),
+                fragment.get("api_key"),
+                fragment.get("api_mode"),
+            ),
+            _ => unreachable!(),
+        };
+        (
+            base_url
+                .and_then(Value::as_str)
+                .expect("C2b live base URL")
+                .to_string(),
+            api_key
+                .and_then(Value::as_str)
+                .expect("C2b live API key")
+                .to_string(),
+            protocol.and_then(Value::as_str).map(str::to_string),
+        )
+    }
+
+    fn expected_c2b_proxy_base_url(app_type: &AppType, port: u16) -> String {
+        let suffix = match app_type {
+            AppType::ClaudeDesktop => "claude-desktop",
+            AppType::OpenCode => "opencode/v1",
+            AppType::OpenClaw => "openclaw/v1",
+            AppType::Hermes => "hermes/v1",
+            _ => unreachable!(),
+        };
+        format!("http://127.0.0.1:{port}/{suffix}")
+    }
+
+    async fn assert_c2b_route_lifecycle(app_type: AppType) {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+        let db = Arc::new(Database::memory().expect("init db"));
+        use_ephemeral_proxy_port(&db).await;
+        let service = ProxyService::new(db.clone());
+        let provider = c2b_test_provider(&app_type, true);
+        seed_c2b_current_provider(&db, &app_type, &provider);
+        let originals = seed_c2b_original_live(&app_type, &provider);
+
+        let opencode_db_before = if matches!(app_type, AppType::OpenCode) {
+            let path = crate::opencode_config::get_opencode_db_path();
+            std::fs::create_dir_all(path.parent().expect("OpenCode DB parent"))
+                .expect("create OpenCode DB parent");
+            std::fs::write(&path, b"sqlite-session-usage-must-stay-untouched")
+                .expect("seed OpenCode DB");
+            Some((
+                path.clone(),
+                std::fs::read(&path).expect("read OpenCode DB"),
+                std::fs::metadata(&path)
+                    .and_then(|metadata| metadata.modified())
+                    .expect("OpenCode DB mtime"),
+            ))
+        } else {
+            None
+        };
+
+        service
+            .set_takeover_for_app(app_type.as_str(), true, RouteMode::Direct)
+            .await
+            .expect("enable C2b direct takeover");
+        assert!(!service.is_running().await, "direct must not start gateway");
+        let (direct_url, direct_key, direct_protocol) =
+            c2b_live_endpoint_key_protocol(&app_type, &provider.id);
+        assert_eq!(direct_url, "https://upstream.example/v1");
+        assert_eq!(direct_key, "upstream-key");
+
+        let immutable_snapshot = db
+            .get_live_backup(app_type.as_str())
+            .await
+            .expect("read C2b snapshot")
+            .expect("C2b snapshot exists")
+            .original_config;
+
+        service
+            .switch_route_mode(app_type.as_str(), RouteMode::Proxy)
+            .await
+            .expect("switch C2b module to proxy");
+        let status = service.get_status().await.expect("proxy status");
+        assert!(status.running);
+        let (proxy_url, proxy_key, proxy_protocol) =
+            c2b_live_endpoint_key_protocol(&app_type, &provider.id);
+        assert_eq!(
+            proxy_url,
+            expected_c2b_proxy_base_url(&app_type, status.port)
+        );
+        assert_eq!(
+            proxy_key,
+            db.get_setting("claude_desktop_gateway_token")
+                .expect("read gateway token")
+                .expect("gateway token exists")
+        );
+        assert_eq!(
+            proxy_protocol, direct_protocol,
+            "protocol field must be preserved"
+        );
+        assert!(service
+            .live_takeover_matches_current_proxy(&app_type)
+            .await
+            .expect("check C2b proxy live"));
+        assert_eq!(
+            db.get_live_backup(app_type.as_str())
+                .await
+                .expect("read immutable C2b snapshot")
+                .expect("snapshot still exists")
+                .original_config,
+            immutable_snapshot,
+            "direct/proxy switch must not overwrite first-open snapshot"
+        );
+
+        service
+            .set_takeover_for_app(app_type.as_str(), false, RouteMode::Proxy)
+            .await
+            .expect("disable C2b takeover");
+        for (path, original) in originals {
+            assert_eq!(
+                std::fs::read(&path).expect("read restored C2b target"),
+                original,
+                "{} target must restore byte-for-byte: {}",
+                app_type.as_str(),
+                path.display()
+            );
+        }
+        assert!(
+            !db.get_proxy_config_for_app(app_type.as_str())
+                .await
+                .expect("read released state")
+                .takeover_enabled
+        );
+        assert!(db
+            .get_live_backup(app_type.as_str())
+            .await
+            .expect("read released snapshot")
+            .is_none());
+
+        if let Some((path, bytes, modified)) = opencode_db_before {
+            assert_eq!(
+                std::fs::read(&path).expect("read untouched OpenCode DB"),
+                bytes
+            );
+            assert_eq!(
+                std::fs::metadata(&path)
+                    .and_then(|metadata| metadata.modified())
+                    .expect("OpenCode DB mtime after takeover"),
+                modified,
+                "OpenCode takeover must not touch opencode.db"
+            );
+        }
+
+        service.stop().await.expect("stop independent gateway");
+    }
+
+    async fn assert_c2b_missing_target_deleted(app_type: AppType) {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+        let db = Arc::new(Database::memory().expect("init db"));
+        use_ephemeral_proxy_port(&db).await;
+        let service = ProxyService::new(db.clone());
+        let provider = c2b_test_provider(&app_type, true);
+        seed_c2b_current_provider(&db, &app_type, &provider);
+        let targets = c2b_live_target_paths(&app_type);
+        assert!(targets.iter().all(|path| !path.exists()));
+
+        service
+            .set_takeover_for_app(app_type.as_str(), true, RouteMode::Direct)
+            .await
+            .expect("enable missing-target direct takeover");
+        assert!(
+            targets.iter().all(|path| path.exists()),
+            "direct takeover should create every managed target for {}",
+            app_type.as_str()
+        );
+        service
+            .switch_route_mode(app_type.as_str(), RouteMode::Proxy)
+            .await
+            .expect("switch missing-target module to proxy");
+        service
+            .set_takeover_for_app(app_type.as_str(), false, RouteMode::Proxy)
+            .await
+            .expect("disable missing-target takeover");
+
+        assert!(
+            targets.iter().all(|path| !path.exists()),
+            "existed=false targets must be deleted for {}",
+            app_type.as_str()
+        );
+        assert!(db
+            .get_live_backup(app_type.as_str())
+            .await
+            .expect("read missing-target snapshot")
+            .is_none());
+        service.stop().await.expect("stop independent gateway");
+    }
+
+    async fn assert_c2b_unsupported_proxy_is_atomic(app_type: AppType) {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+        let db = Arc::new(Database::memory().expect("init db"));
+        use_ephemeral_proxy_port(&db).await;
+        let service = ProxyService::new(db.clone());
+        let provider = c2b_test_provider(&app_type, false);
+        seed_c2b_current_provider(&db, &app_type, &provider);
+        let originals = seed_c2b_original_live(&app_type, &provider);
+
+        let error = service
+            .set_takeover_for_app(app_type.as_str(), true, RouteMode::Proxy)
+            .await
+            .expect_err("unsupported proxy protocol must be rejected");
+        assert!(
+            error.contains("不支持") || error.contains("能力矩阵"),
+            "unexpected capability error for {}: {error}",
+            app_type.as_str()
+        );
+        assert!(
+            !service.is_running().await,
+            "gate must run before gateway start"
+        );
+        let config = db
+            .get_proxy_config_for_app(app_type.as_str())
+            .await
+            .expect("read rejected takeover state");
+        assert!(!config.takeover_enabled);
+        assert_eq!(config.route_mode, RouteMode::Direct);
+        assert!(db
+            .get_live_backup(app_type.as_str())
+            .await
+            .expect("read rejected snapshot")
+            .is_none());
+        for (path, original) in &originals {
+            assert_eq!(
+                std::fs::read(path).expect("read unchanged live after rejection"),
+                *original,
+                "capability rejection must not mutate {}",
+                path.display()
+            );
+        }
+
+        service
+            .set_takeover_for_app(app_type.as_str(), true, RouteMode::Direct)
+            .await
+            .expect("same unsupported provider must remain usable in direct mode");
+        let direct = db
+            .get_proxy_config_for_app(app_type.as_str())
+            .await
+            .expect("read direct state");
+        assert!(direct.takeover_enabled);
+        assert_eq!(direct.route_mode, RouteMode::Direct);
+        service
+            .set_takeover_for_app(app_type.as_str(), false, RouteMode::Direct)
+            .await
+            .expect("disable direct after capability test");
+        for (path, original) in originals {
+            assert_eq!(
+                std::fs::read(path).expect("read exact restore after direct"),
+                original
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn c2b_missing_targets_are_deleted_for_all_four_modules() {
+        for app_type in [
+            AppType::ClaudeDesktop,
+            AppType::OpenCode,
+            AppType::OpenClaw,
+            AppType::Hermes,
+        ] {
+            assert_c2b_missing_target_deleted(app_type).await;
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn c2b_unsupported_proxy_protocols_are_rejected_before_mutation() {
+        for app_type in [AppType::OpenCode, AppType::OpenClaw, AppType::Hermes] {
+            assert_c2b_unsupported_proxy_is_atomic(app_type).await;
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn c2b_module_takeover_isolated_from_other_three_live_targets() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+        let db = Arc::new(Database::memory().expect("init db"));
+        use_ephemeral_proxy_port(&db).await;
+        let service = ProxyService::new(db.clone());
+        let mut originals = Vec::new();
+        for app_type in [
+            AppType::ClaudeDesktop,
+            AppType::OpenCode,
+            AppType::OpenClaw,
+            AppType::Hermes,
+        ] {
+            let provider = c2b_test_provider(&app_type, true);
+            seed_c2b_current_provider(&db, &app_type, &provider);
+            originals.push((
+                app_type.clone(),
+                seed_c2b_original_live(&app_type, &provider),
+            ));
+        }
+
+        service
+            .set_takeover_for_app("opencode", true, RouteMode::Proxy)
+            .await
+            .expect("enable isolated OpenCode proxy takeover");
+
+        for (app_type, targets) in &originals {
+            if matches!(app_type, AppType::OpenCode) {
+                continue;
+            }
+            for (path, original) in targets {
+                assert_eq!(
+                    std::fs::read(path).expect("read isolated target"),
+                    *original,
+                    "OpenCode takeover must not mutate {} target {}",
+                    app_type.as_str(),
+                    path.display()
+                );
+            }
+        }
+        let status = service
+            .get_takeover_status()
+            .await
+            .expect("takeover status");
+        for app_type in AppType::all() {
+            assert_eq!(
+                status.for_app(&app_type).takeover_enabled,
+                matches!(app_type, AppType::OpenCode),
+                "only OpenCode should be taken over"
+            );
+        }
+
+        service
+            .set_takeover_for_app("opencode", false, RouteMode::Proxy)
+            .await
+            .expect("disable isolated OpenCode takeover");
+        let opencode_originals = originals
+            .iter()
+            .find(|(app_type, _)| matches!(app_type, AppType::OpenCode))
+            .expect("OpenCode originals");
+        for (path, original) in &opencode_originals.1 {
+            assert_eq!(
+                std::fs::read(path).expect("read restored OpenCode"),
+                *original
+            );
+        }
+        service.stop().await.expect("stop independent gateway");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn c2b_unowned_manual_namespaces_survive_crash_recovery() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+        let db = Arc::new(Database::memory().expect("init manual namespace DB"));
+        let service = ProxyService::new(db.clone());
+
+        let mut baselines = Vec::new();
+        for app_type in [
+            AppType::ClaudeDesktop,
+            AppType::OpenCode,
+            AppType::OpenClaw,
+            AppType::Hermes,
+        ] {
+            let provider = c2b_test_provider(&app_type, true);
+            seed_c2b_current_provider(&db, &app_type, &provider);
+            let targets = c2b_live_target_paths(&app_type);
+            let manual_url = expected_c2b_proxy_base_url(&app_type, 42567);
+            let bytes = match app_type {
+                AppType::ClaudeDesktop => vec![
+                    br#"{"manual":"normal"}"#.to_vec(),
+                    br#"{"manual":"threep"}"#.to_vec(),
+                    format!(
+                        "{{\"inferenceProvider\":\"gateway\",\"inferenceGatewayBaseUrl\":\"{manual_url}\",\"inferenceGatewayApiKey\":\"user-token\"}}"
+                    )
+                    .into_bytes(),
+                    br#"{"manual":"meta"}"#.to_vec(),
+                ],
+                AppType::OpenCode => vec![format!(
+                    "{{\"provider\":{{\"{}\":{{\"npm\":\"@ai-sdk/openai-compatible\",\"options\":{{\"baseURL\":\"{manual_url}\",\"apiKey\":\"user-token\"}}}}}}}}",
+                    provider.id
+                )
+                .into_bytes()],
+                AppType::OpenClaw => vec![format!(
+                    "{{models:{{providers:{{'{}':{{baseUrl:'{manual_url}',apiKey:'user-token',api:'openai-completions'}}}}}}}}",
+                    provider.id
+                )
+                .into_bytes()],
+                AppType::Hermes => vec![format!(
+                    "custom_providers:\n  - name: {}\n    base_url: {}\n    api_key: user-token\n    api_mode: chat_completions\n",
+                    provider.id, manual_url
+                )
+                .into_bytes()],
+                _ => unreachable!(),
+            };
+            assert_eq!(targets.len(), bytes.len());
+            let target_bytes = targets
+                .into_iter()
+                .zip(bytes)
+                .map(|(path, bytes)| {
+                    std::fs::create_dir_all(path.parent().expect("manual target parent"))
+                        .expect("create manual target parent");
+                    std::fs::write(&path, &bytes).expect("seed manual namespace target");
+                    (path, bytes)
+                })
+                .collect::<Vec<_>>();
+            assert!(service.detect_takeover_in_live_config_for_app(&app_type));
+            assert!(
+                !db.get_proxy_config_for_app(app_type.as_str())
+                    .await
+                    .expect("read unowned state")
+                    .takeover_enabled
+            );
+            assert!(db
+                .get_live_backup(app_type.as_str())
+                .await
+                .expect("read absent snapshot")
+                .is_none());
+            baselines.push((app_type, target_bytes));
+        }
+
+        service
+            .recover_from_crash()
+            .await
+            .expect("manual namespaces must not be treated as AGS residue");
+
+        for (app_type, targets) in baselines {
+            for (path, bytes) in targets {
+                assert_eq!(
+                    std::fs::read(&path).expect("read preserved manual namespace"),
+                    bytes,
+                    "crash recovery rewrote unowned {} namespace target {}",
+                    app_type.as_str(),
+                    path.display()
+                );
+            }
+            assert!(
+                !db.get_proxy_config_for_app(app_type.as_str())
+                    .await
+                    .expect("read still-unowned state")
+                    .takeover_enabled
+            );
+            assert!(db
+                .get_live_backup(app_type.as_str())
+                .await
+                .expect("read still-absent snapshot")
+                .is_none());
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn c2b_crash_recovery_restores_all_four_without_retakeover() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+        let db = Arc::new(Database::memory().expect("init db"));
+        use_ephemeral_proxy_port(&db).await;
+        let service = ProxyService::new(db.clone());
+        let mut originals = Vec::new();
+        for app_type in [
+            AppType::ClaudeDesktop,
+            AppType::OpenCode,
+            AppType::OpenClaw,
+            AppType::Hermes,
+        ] {
+            let provider = c2b_test_provider(&app_type, true);
+            seed_c2b_current_provider(&db, &app_type, &provider);
+            originals.push((
+                app_type.clone(),
+                seed_c2b_original_live(&app_type, &provider),
+            ));
+            service
+                .set_takeover_for_app(app_type.as_str(), true, RouteMode::Proxy)
+                .await
+                .expect("enable C2b proxy before crash recovery");
+        }
+
+        service
+            .recover_from_crash()
+            .await
+            .expect("recover all C2b proxy residue");
+
+        for (app_type, targets) in originals {
+            for (path, original) in targets {
+                assert_eq!(
+                    std::fs::read(&path).expect("read crash-restored target"),
+                    original,
+                    "crash recovery must exactly restore {} target {}",
+                    app_type.as_str(),
+                    path.display()
+                );
+            }
+            let config = db
+                .get_proxy_config_for_app(app_type.as_str())
+                .await
+                .expect("read crash-released state");
+            assert!(!config.takeover_enabled);
+            assert!(db
+                .get_live_backup(app_type.as_str())
+                .await
+                .expect("read crash-released snapshot")
+                .is_none());
+        }
+        service.stop().await.expect("stop independent gateway");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn c2b_claude_desktop_malformed_manifest_preflight_keeps_live_and_ownership() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+        let db = Arc::new(Database::memory().expect("init db"));
+        let service = ProxyService::new(db.clone());
+        let targets = crate::claude_desktop_config::snapshot_target_paths()
+            .expect("resolve Claude Desktop paths");
+        for (_, path) in &targets {
+            std::fs::create_dir_all(path.parent().expect("target parent"))
+                .expect("create target parent");
+            std::fs::write(path, br#"{"managed":true}"#).expect("seed managed target");
+        }
+
+        let malformed = SnapshotManifest::new(
+            &AppType::ClaudeDesktop,
+            vec![
+                crate::proxy::snapshot::SnapshotTarget::file_bytes(
+                    "normal_config",
+                    Some(b"original-normal"),
+                ),
+                crate::proxy::snapshot::SnapshotTarget::file_bytes(
+                    "threep_config",
+                    Some(b"original-threep"),
+                ),
+                crate::proxy::snapshot::SnapshotTarget::file_bytes("profile", None),
+                // 故意缺少 meta；若 adapter 不预检，前三个目标可能先被部分恢复。
+            ],
+        )
+        .expect("build structurally valid but module-incomplete manifest")
+        .encode()
+        .expect("encode malformed manifest");
+        db.save_live_backup("claude-desktop", &malformed)
+            .await
+            .expect("save malformed manifest");
+        let mut state = db
+            .get_proxy_config_for_app("claude-desktop")
+            .await
+            .expect("read takeover state");
+        state.takeover_enabled = true;
+        state.route_mode = RouteMode::Proxy;
+        db.update_proxy_config_for_app(state)
+            .await
+            .expect("mark takeover active");
+
+        assert!(service
+            .set_takeover_for_app("claude-desktop", false, RouteMode::Proxy)
+            .await
+            .is_err());
+        for (_, path) in &targets {
+            assert_eq!(
+                std::fs::read(path).expect("read untouched managed target"),
+                br#"{"managed":true}"#
+            );
+        }
+        assert!(
+            db.get_proxy_config_for_app("claude-desktop")
+                .await
+                .expect("read retained state")
+                .takeover_enabled
+        );
+        assert!(db
+            .get_live_backup("claude-desktop")
+            .await
+            .expect("read retained malformed snapshot")
+            .is_some());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn c2b_claude_desktop_direct_proxy_and_exact_restore() {
+        assert_c2b_route_lifecycle(AppType::ClaudeDesktop).await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn c2b_opencode_direct_proxy_exact_restore_and_db_untouched() {
+        assert_c2b_route_lifecycle(AppType::OpenCode).await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn c2b_openclaw_direct_proxy_and_exact_restore() {
+        assert_c2b_route_lifecycle(AppType::OpenClaw).await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn c2b_hermes_direct_proxy_and_exact_restore() {
+        assert_c2b_route_lifecycle(AppType::Hermes).await;
     }
 
     #[test]

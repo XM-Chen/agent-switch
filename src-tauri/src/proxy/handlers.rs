@@ -19,7 +19,7 @@ use super::{
     providers::{
         codex_chat_common::extract_reasoning_field_text,
         codex_chat_history::record_responses_sse_stream,
-        get_adapter, get_claude_api_format,
+        get_adapter_for, get_claude_api_format,
         streaming::create_anthropic_sse_stream,
         streaming_codex_anthropic::{
             create_responses_sse_stream_from_anthropic_with_context,
@@ -29,7 +29,7 @@ use super::{
         streaming_gemini::create_anthropic_sse_stream_from_gemini,
         streaming_responses::create_anthropic_sse_stream_from_responses,
         transform, transform_codex_anthropic, transform_codex_chat, transform_gemini,
-        transform_responses,
+        transform_responses, ModuleProtocol,
     },
     response_processor::{
         create_logged_passthrough_stream, process_response, read_decoded_body,
@@ -179,6 +179,9 @@ async fn handle_messages_for_app(
 
     let mut ctx =
         RequestContext::new(&state, &body, &headers, app_type.clone(), tag, app_type_str).await?;
+    if matches!(&app_type, AppType::OpenClaw | AppType::Hermes) {
+        ctx.require_module_protocol(ModuleProtocol::Anthropic)?;
+    }
 
     let raw_endpoint = uri
         .path_and_query()
@@ -228,7 +231,9 @@ async fn handle_messages_for_app(
     let response = result.response;
 
     // 检查是否需要格式转换（OpenRouter 等中转服务）
-    let adapter = get_adapter(&app_type);
+    // 用 provider-aware 解析：OpenClaw/Hermes 走 anthropic-messages 命名空间时，
+    // adapter 必须按 provider 的 canonical 协议规范化，而不是 app-type-only fallback。
+    let adapter = get_adapter_for(&app_type, &ctx.provider);
     let needs_transform = adapter.needs_transform(&ctx.provider);
 
     // Claude 特有：格式转换处理
@@ -260,12 +265,24 @@ fn validate_claude_desktop_gateway_auth(
     state: &ProxyState,
     headers: &axum::http::HeaderMap,
 ) -> Result<(), ProxyError> {
+    validate_gateway_auth(state, headers, "Claude Desktop")
+}
+
+/// 各模块命名空间网关共用的 Bearer 鉴权。
+///
+/// token 来源沿用 Claude Desktop 的 `get_or_create_gateway_token`（单一网关 token
+/// setting，减少 UI 面）；`module_label` 只用于错误信息，便于区分是哪条命名空间入口。
+fn validate_gateway_auth(
+    state: &ProxyState,
+    headers: &axum::http::HeaderMap,
+    module_label: &str,
+) -> Result<(), ProxyError> {
     let expected = crate::claude_desktop_config::get_or_create_gateway_token(state.db.as_ref())
         .map_err(|e| ProxyError::AuthError(e.to_string()))?;
     let Some(value) = headers.get(axum::http::header::AUTHORIZATION) else {
-        return Err(ProxyError::AuthError(
-            "Claude Desktop gateway 缺少 Authorization 头".to_string(),
-        ));
+        return Err(ProxyError::AuthError(format!(
+            "{module_label} gateway 缺少 Authorization 头"
+        )));
     };
     let value = value
         .to_str()
@@ -276,11 +293,313 @@ fn validate_claude_desktop_gateway_auth(
         .unwrap_or("")
         .trim();
     if token != expected {
-        return Err(ProxyError::AuthError(
-            "Claude Desktop gateway token 无效".to_string(),
-        ));
+        return Err(ProxyError::AuthError(format!(
+            "{module_label} gateway token 无效"
+        )));
     }
     Ok(())
+}
+
+fn validate_opencode_gateway_auth(
+    state: &ProxyState,
+    headers: &axum::http::HeaderMap,
+) -> Result<(), ProxyError> {
+    validate_gateway_auth(state, headers, "OpenCode")
+}
+
+fn validate_openclaw_gateway_auth(
+    state: &ProxyState,
+    headers: &axum::http::HeaderMap,
+) -> Result<(), ProxyError> {
+    validate_gateway_auth(state, headers, "OpenClaw")
+}
+
+fn validate_hermes_gateway_auth(
+    state: &ProxyState,
+    headers: &axum::http::HeaderMap,
+) -> Result<(), ProxyError> {
+    validate_gateway_auth(state, headers, "Hermes")
+}
+
+// ============================================================================
+// 模块命名空间 handler（OpenCode / OpenClaw / Hermes）
+//
+// 每个模块使用独立命名空间路由 + 独立 RequestContext（携带各自 AppType/app_type_str），
+// 使 provider 选择、usage 统计、故障转移、熔断器都按模块隔离，而不是复用硬绑
+// `AppType::Codex` 的 `/v1` handler 或硬绑 `AppType::Claude` 的 `/v1/messages`。
+//
+// - OpenAI 兼容（chat/completions、responses）复用 `OPENAI_PARSER_CONFIG` 透传骨架；
+// - Anthropic messages 复用 `handle_messages_for_app` 骨架（带 strip_prefix）。
+// ============================================================================
+
+/// OpenAI 兼容命名空间 handler 的公共骨架。
+///
+/// 与硬绑 Codex 的 `handle_chat_completions` 的关键差异：
+/// - 用调用方传入的 `AppType`/tag/app_type_str 构造 `RequestContext`，统计归到自身模块；
+/// - 不做 Codex 专属的 zstd 请求体解压和 Codex 错误体包装（模块客户端不发这些）；
+/// - `endpoint` 由调用方按 canonical 协议给定（`/chat/completions` 或 `/responses`）。
+#[allow(clippy::too_many_arguments)]
+async fn handle_module_openai_compat(
+    state: ProxyState,
+    request: axum::extract::Request,
+    app_type: AppType,
+    tag: &'static str,
+    app_type_str: &'static str,
+    client_protocol: ModuleProtocol,
+    upstream_endpoint: &'static str,
+    parser_config: &'static super::handler_config::UsageParserConfig,
+) -> Result<axum::response::Response, ProxyError> {
+    let (parts, req_body) = request.into_parts();
+    let method = parts.method.clone();
+    let uri = parts.uri;
+    let headers = parts.headers;
+    let extensions = parts.extensions;
+    let body_bytes = req_body
+        .collect()
+        .await
+        .map_err(|e| ProxyError::Internal(format!("Failed to read request body: {e}")))?
+        .to_bytes();
+    let body: Value = serde_json::from_slice(&body_bytes)
+        .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
+
+    let mut ctx =
+        RequestContext::new(&state, &body, &headers, app_type.clone(), tag, app_type_str).await?;
+    ctx.require_module_protocol(client_protocol)?;
+    let endpoint = endpoint_with_query(&uri, upstream_endpoint);
+
+    let is_stream = body
+        .get("stream")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let forwarder = ctx.create_forwarder(&state);
+    let mut result = match forwarder
+        .forward_with_retry(
+            &app_type,
+            method,
+            &endpoint,
+            body,
+            headers,
+            extensions,
+            ctx.get_candidates(),
+        )
+        .await
+    {
+        Ok(result) => result,
+        Err(mut err) => {
+            if let Some(provider) = err.provider.take() {
+                ctx.provider = provider;
+            }
+            log_forward_error(&state, &ctx, is_stream, &err.error);
+            return Err(err.error);
+        }
+    };
+
+    let connection_guard = result.connection_guard.take();
+    ctx.outbound_model = result.outbound_model.take();
+    ctx.provider = result.provider;
+    let response = result.response;
+
+    process_response(response, &ctx, &state, parser_config, connection_guard).await
+}
+
+/// 模块命名空间的模型列表响应（reachability check）。
+///
+/// 客户端启动时探测该端点；返回当前 provider 配置里可见的模型 id，形状按 OpenAI
+/// `{"object":"list","data":[{"id":...}]}` 兼容。找不到 provider 时返回空列表而非报错，
+/// 避免客户端把 reachability 探测当成致命错误。
+async fn handle_module_models(
+    state: &ProxyState,
+    app_type_str: &'static str,
+) -> Result<Json<Value>, ProxyError> {
+    let providers = state
+        .provider_router
+        .select_providers(app_type_str, "unknown")
+        .await
+        .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
+    let Some(candidate) = providers.first() else {
+        return Ok(Json(json!({ "object": "list", "data": [] })));
+    };
+    let data: Vec<Value> = collect_module_model_ids(&candidate.provider.settings_config)
+        .into_iter()
+        .map(|id| json!({ "id": id, "object": "model" }))
+        .collect();
+    Ok(Json(json!({ "object": "list", "data": data })))
+}
+
+/// 从模块 provider 的 settings_config 中尽力收集模型 id（用于 reachability 响应）。
+///
+/// 兼容三种形态：OpenCode `models` map 的键、OpenClaw `models` 数组元素的 `id`、
+/// Hermes `models` map 的键。无法识别时返回空列表。
+fn collect_module_model_ids(settings: &Value) -> Vec<String> {
+    let Some(models) = settings.get("models") else {
+        return Vec::new();
+    };
+    match models {
+        Value::Object(map) => map.keys().cloned().collect(),
+        Value::Array(items) => items
+            .iter()
+            .filter_map(|item| {
+                item.get("id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .or_else(|| item.as_str().map(str::to_string))
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+// --- OpenCode：仅 OpenAI Chat Completions ---
+
+pub async fn handle_opencode_chat_completions(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ProxyError> {
+    validate_opencode_gateway_auth(&state, request.headers())?;
+    handle_module_openai_compat(
+        state,
+        request,
+        AppType::OpenCode,
+        "OpenCode",
+        "opencode",
+        ModuleProtocol::OpenAiChat,
+        "/chat/completions",
+        &OPENAI_PARSER_CONFIG,
+    )
+    .await
+}
+
+pub async fn handle_opencode_models(
+    State(state): State<ProxyState>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<Value>, ProxyError> {
+    validate_opencode_gateway_auth(&state, &headers)?;
+    handle_module_models(&state, "opencode").await
+}
+
+// --- OpenClaw：openai-completions / openai-responses / anthropic-messages ---
+
+pub async fn handle_openclaw_chat_completions(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ProxyError> {
+    validate_openclaw_gateway_auth(&state, request.headers())?;
+    handle_module_openai_compat(
+        state,
+        request,
+        AppType::OpenClaw,
+        "OpenClaw",
+        "openclaw",
+        ModuleProtocol::OpenAiChat,
+        "/chat/completions",
+        &OPENAI_PARSER_CONFIG,
+    )
+    .await
+}
+
+pub async fn handle_openclaw_responses(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ProxyError> {
+    validate_openclaw_gateway_auth(&state, request.headers())?;
+    handle_module_openai_compat(
+        state,
+        request,
+        AppType::OpenClaw,
+        "OpenClaw",
+        "openclaw",
+        ModuleProtocol::OpenAiResponses,
+        "/responses",
+        &CODEX_PARSER_CONFIG,
+    )
+    .await
+}
+
+pub async fn handle_openclaw_messages(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ProxyError> {
+    validate_openclaw_gateway_auth(&state, request.headers())?;
+    handle_messages_for_app(
+        state,
+        request,
+        AppType::OpenClaw,
+        "OpenClaw",
+        "openclaw",
+        Some("/openclaw"),
+    )
+    .await
+}
+
+pub async fn handle_openclaw_models(
+    State(state): State<ProxyState>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<Value>, ProxyError> {
+    validate_openclaw_gateway_auth(&state, &headers)?;
+    handle_module_models(&state, "openclaw").await
+}
+
+// --- Hermes：chat_completions / anthropic_messages / codex_responses ---
+
+pub async fn handle_hermes_chat_completions(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ProxyError> {
+    validate_hermes_gateway_auth(&state, request.headers())?;
+    handle_module_openai_compat(
+        state,
+        request,
+        AppType::Hermes,
+        "Hermes",
+        "hermes",
+        ModuleProtocol::OpenAiChat,
+        "/chat/completions",
+        &OPENAI_PARSER_CONFIG,
+    )
+    .await
+}
+
+pub async fn handle_hermes_responses(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ProxyError> {
+    validate_hermes_gateway_auth(&state, request.headers())?;
+    handle_module_openai_compat(
+        state,
+        request,
+        AppType::Hermes,
+        "Hermes",
+        "hermes",
+        ModuleProtocol::OpenAiResponses,
+        "/responses",
+        &CODEX_PARSER_CONFIG,
+    )
+    .await
+}
+
+pub async fn handle_hermes_messages(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ProxyError> {
+    validate_hermes_gateway_auth(&state, request.headers())?;
+    handle_messages_for_app(
+        state,
+        request,
+        AppType::Hermes,
+        "Hermes",
+        "hermes",
+        Some("/hermes"),
+    )
+    .await
+}
+
+pub async fn handle_hermes_models(
+    State(state): State<ProxyState>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<Value>, ProxyError> {
+    validate_hermes_gateway_auth(&state, &headers)?;
+    handle_module_models(&state, "hermes").await
 }
 
 /// Claude 格式转换处理（独有逻辑）

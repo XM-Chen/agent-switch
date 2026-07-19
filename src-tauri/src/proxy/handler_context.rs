@@ -307,6 +307,31 @@ impl RequestContext {
         self.candidates.clone()
     }
 
+    /// 只保留与当前模块命名空间 wire 协议一致的候选。
+    ///
+    /// OpenClaw/Hermes 的故障转移队列可以混合 Chat、Responses 与 Anthropic provider。
+    /// 单个客户端请求的 body/endpoint 协议已经由命名空间路径确定，不能把它原样发送给
+    /// 另一协议的候选。过滤后仍按原队列顺序故障转移；没有兼容候选时明确拒绝，绝不
+    /// fallback 到 Codex 或发送错误 wire body。
+    pub fn require_module_protocol(
+        &mut self,
+        expected: crate::proxy::providers::ModuleProtocol,
+    ) -> Result<(), ProxyError> {
+        self.candidates.retain(|candidate| {
+            crate::proxy::providers::module_canonical_protocol(&self.app_type, &candidate.provider)
+                == Some(expected)
+        });
+
+        let Some(first) = self.candidates.first() else {
+            return Err(ProxyError::InvalidRequest(format!(
+                "{} 命名空间请求协议 {expected:?} 没有兼容的供应商候选",
+                self.app_type.as_str()
+            )));
+        };
+        self.provider = first.provider.clone();
+        Ok(())
+    }
+
     /// 计算请求延迟（毫秒）
     #[inline]
     pub fn latency_ms(&self) -> u64 {
@@ -357,7 +382,14 @@ pub(crate) fn extract_gemini_model_from_path(endpoint: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_gemini_model_from_path;
+    use super::*;
+    use crate::app_config::AppType;
+    use crate::provider::Provider;
+    use crate::proxy::provider_router::RouteCandidate;
+    use crate::proxy::providers::ModuleProtocol;
+    use crate::proxy::types::RouteMode;
+    use serde_json::json;
+    use std::time::Instant;
 
     #[test]
     fn extract_model_with_action() {
@@ -430,5 +462,110 @@ mod tests {
                 .as_deref(),
             Some("gemini-2.0-flash"),
         );
+    }
+
+    fn openclaw_context(candidates: Vec<RouteCandidate>) -> RequestContext {
+        let provider = candidates
+            .first()
+            .expect("test context needs a candidate")
+            .provider
+            .clone();
+        RequestContext {
+            start_time: Instant::now(),
+            app_config: AppProxyConfig {
+                app_type: "openclaw".to_string(),
+                takeover_enabled: false,
+                route_mode: RouteMode::Direct,
+                auto_failover_enabled: true,
+                max_retries: 1,
+                streaming_first_byte_timeout: 0,
+                streaming_idle_timeout: 0,
+                non_streaming_timeout: 0,
+                circuit_failure_threshold: 5,
+                circuit_success_threshold: 2,
+                circuit_timeout_seconds: 60,
+                circuit_error_rate_threshold: 0.5,
+                circuit_min_requests: 10,
+            },
+            provider,
+            candidates,
+            aggregate_mode: false,
+            current_provider_id: String::new(),
+            request_model: "test-model".to_string(),
+            outbound_model: None,
+            tag: "OpenClaw",
+            app_type_str: "openclaw",
+            app_type: AppType::OpenClaw,
+            session_id: "test-session".to_string(),
+            session_client_provided: true,
+            rectifier_config: RectifierConfig::default(),
+            optimizer_config: OptimizerConfig::default(),
+            copilot_optimizer_config: CopilotOptimizerConfig::default(),
+            claude_client_profile_config: ClaudeClientProfileConfig::default(),
+            cc_client_device_id: String::new(),
+        }
+    }
+
+    #[test]
+    fn module_protocol_filter_preserves_only_compatible_failover_candidates() {
+        let chat = Provider::with_id(
+            "chat".to_string(),
+            "Chat".to_string(),
+            json!({
+                "baseUrl": "https://chat.example.com/v1",
+                "apiKey": "chat-key",
+                "api": "openai-completions"
+            }),
+            None,
+        );
+        let responses = Provider::with_id(
+            "responses".to_string(),
+            "Responses".to_string(),
+            json!({
+                "baseUrl": "https://responses.example.com/v1",
+                "apiKey": "responses-key",
+                "api": "openai-responses"
+            }),
+            None,
+        );
+        let mut context = openclaw_context(vec![
+            RouteCandidate {
+                provider: chat,
+                target_model: None,
+            },
+            RouteCandidate {
+                provider: responses,
+                target_model: None,
+            },
+        ]);
+
+        context
+            .require_module_protocol(ModuleProtocol::OpenAiChat)
+            .unwrap();
+        assert_eq!(context.get_candidates().len(), 1);
+        assert_eq!(context.provider.id, "chat");
+    }
+
+    #[test]
+    fn module_protocol_filter_rejects_unknown_protocol_without_fallback() {
+        let unknown = Provider::with_id(
+            "unknown".to_string(),
+            "Unknown".to_string(),
+            json!({
+                "baseUrl": "https://example.com/v1",
+                "apiKey": "key",
+                "api": "bedrock-converse"
+            }),
+            None,
+        );
+        let mut context = openclaw_context(vec![RouteCandidate {
+            provider: unknown,
+            target_model: None,
+        }]);
+
+        assert!(context
+            .require_module_protocol(ModuleProtocol::OpenAiChat)
+            .is_err());
+        assert!(context.get_candidates().is_empty());
     }
 }
