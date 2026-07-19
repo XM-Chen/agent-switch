@@ -60,6 +60,41 @@ pub fn enable_codex_official_auth_preservation() {
     .expect("enable Codex official auth preservation");
 }
 
+/// Establish `takeover_enabled=true` + `route_mode=direct` for an app so that
+/// provider switch/sync writes the real upstream live config.
+///
+/// Under the C2a three-dimensional contract, takeover defaults to OFF and
+/// AGS is hands-off (no live write). Tests whose intent is "AGS writes the
+/// selected provider to live" (the classic cc-switch behavior) must opt into
+/// direct takeover first. This is the direct-mode equivalent of the old
+/// unconditional write-on-switch default.
+///
+/// For plain `#[test]` (sync) callers only. Inside `#[tokio::test]` use
+/// [`enable_direct_takeover_async`] and `.await` it.
+#[allow(dead_code)]
+pub fn enable_direct_takeover(state: &AppState, app_type: agent_switch_lib::AppType) {
+    tokio::runtime::Runtime::new()
+        .expect("create tokio runtime for takeover setup")
+        .block_on(enable_direct_takeover_async(state, app_type));
+}
+
+/// Async form of [`enable_direct_takeover`] for use inside `#[tokio::test]`.
+#[allow(dead_code)]
+pub async fn enable_direct_takeover_async(state: &AppState, app_type: agent_switch_lib::AppType) {
+    let mut config = state
+        .db
+        .get_proxy_config_for_app(app_type.as_str())
+        .await
+        .expect("get app proxy config for direct takeover setup");
+    config.takeover_enabled = true;
+    config.route_mode = agent_switch_lib::RouteMode::Direct;
+    state
+        .db
+        .update_proxy_config_for_app(config)
+        .await
+        .expect("enable direct takeover for test setup");
+}
+
 /// 全局互斥锁，避免多测试并发写入相同的 HOME 目录。
 pub fn test_mutex() -> &'static Mutex<()> {
     static MUTEX: OnceLock<Mutex<()>> = OnceLock::new();

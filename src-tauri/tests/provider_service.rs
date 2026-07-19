@@ -2,14 +2,14 @@ use serde_json::json;
 
 use agent_switch_lib::{
     get_claude_settings_path, read_json_file, write_codex_live_atomic, AppError, AppType, McpApps,
-    McpServer, MultiAppConfig, Provider, ProviderMeta, ProviderService,
+    McpServer, MultiAppConfig, Provider, ProviderMeta, ProviderService, RouteMode,
 };
 
 #[path = "support.rs"]
 mod support;
 use support::{
     create_test_state, create_test_state_with_config, enable_codex_official_auth_preservation,
-    ensure_test_home, reset_test_fs, test_mutex,
+    enable_direct_takeover, ensure_test_home, reset_test_fs, test_mutex,
 };
 
 fn sanitize_provider_name(name: &str) -> String {
@@ -175,6 +175,9 @@ command = "say"
     );
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
+    // C2a: switch only writes live when takeover is on. This test's intent is the
+    // classic "AGS writes the selected provider to live" — opt into direct takeover.
+    enable_direct_takeover(&state, AppType::Codex);
 
     ProviderService::switch(&state, AppType::Codex, "new-provider")
         .expect("switch provider should succeed");
@@ -305,6 +308,8 @@ requires_openai_auth = true
     }
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
+    // C2a: AGS only writes live when takeover is on; direct = classic upstream write.
+    enable_direct_takeover(&state, AppType::Codex);
 
     ProviderService::switch(&state, AppType::Codex, "new-provider")
         .expect("switch provider should succeed");
@@ -442,6 +447,8 @@ requires_openai_auth = true
     }
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
+    // C2a: AGS only writes live when takeover is on; direct = classic upstream write.
+    enable_direct_takeover(&state, AppType::Codex);
 
     ProviderService::switch(&state, AppType::Codex, "bridge-provider")
         .expect("switch to bridge provider should succeed");
@@ -596,6 +603,14 @@ wire_api = "responses"
     }
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
+    // C2a Option A: direct takeover is the first ownership transition, so it captures
+    // the official pre-open live bytes. Switching the provider and then changing to
+    // proxy must keep that snapshot immutable until manual close.
+    state
+        .proxy_service
+        .set_takeover_for_app("codex", true, RouteMode::Direct)
+        .await
+        .expect("enable Codex direct takeover");
 
     let mut proxy_config = state.db.get_proxy_config().await.expect("get proxy config");
     proxy_config.listen_port = 0;
@@ -628,7 +643,7 @@ wire_api = "responses"
 
     state
         .proxy_service
-        .set_takeover_for_app("codex", true)
+        .set_takeover_for_app("codex", true, RouteMode::Proxy)
         .await
         .expect("enable Codex takeover");
     let proxy_status = state
@@ -666,21 +681,37 @@ wire_api = "responses"
         .await
         .expect("read Codex backup")
         .expect("backup exists after takeover");
-    let backup_value: serde_json::Value =
-        serde_json::from_str(&backup.original_config).expect("parse backup");
-    let backup_config = backup_value
-        .get("config")
-        .and_then(|value| value.as_str())
-        .unwrap_or_default();
+    // Option A: backup is the versioned immutable first-open snapshot, not
+    // provider-derived `{auth, config}` JSON. Decode its config file_bytes target.
+    let manifest: serde_json::Value =
+        serde_json::from_str(&backup.original_config).expect("parse snapshot manifest");
+    let config_payload = manifest
+        .get("targets")
+        .and_then(|targets| targets.as_array())
+        .and_then(|targets| {
+            targets
+                .iter()
+                .find(|target| target.get("id").and_then(|id| id.as_str()) == Some("config"))
+        })
+        .and_then(|target| target.get("payload_base64"))
+        .and_then(|payload| payload.as_str())
+        .expect("manifest has config payload");
+    use base64::Engine as _;
+    let backup_config = String::from_utf8(
+        base64::engine::general_purpose::STANDARD
+            .decode(config_payload)
+            .expect("decode config snapshot"),
+    )
+    .expect("config snapshot is utf-8");
     assert!(
-        backup_config.contains("https://api.deepseek.com/v1")
-            && backup_config.contains("deepseek-key"),
-        "takeover backup should remain the restorable DeepSeek config"
+        backup_config.contains("model_provider = \"openai\"")
+            && !backup_config.contains("https://api.deepseek.com/v1"),
+        "immutable first-open snapshot must remain the original official config"
     );
 
     state
         .proxy_service
-        .set_takeover_for_app("codex", false)
+        .set_takeover_for_app("codex", false, RouteMode::Proxy)
         .await
         .expect("disable Codex takeover");
 
@@ -694,9 +725,9 @@ wire_api = "responses"
     let restored_config = std::fs::read_to_string(agent_switch_lib::get_codex_config_path())
         .expect("read restored config");
     assert!(
-        restored_config.contains("https://api.deepseek.com/v1")
-            && restored_config.contains("deepseek-key"),
-        "disabling takeover should restore the selected DeepSeek live config"
+        restored_config.contains("model_provider = \"openai\"")
+            && !restored_config.contains("https://api.deepseek.com/v1"),
+        "disabling takeover must restore the exact pre-direct official config"
     );
     assert!(
         !restored_config.contains("PROXY_MANAGED"),
@@ -775,6 +806,8 @@ requires_openai_auth = true
     }
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
+    // C2a: AGS only writes live when takeover is on; direct = classic upstream write.
+    enable_direct_takeover(&state, AppType::Codex);
 
     ProviderService::switch(&state, AppType::Codex, "third-party")
         .expect("switch to third-party provider should succeed");
@@ -945,6 +978,10 @@ fn reapply_codex_official_live_resyncs_mcp_servers() {
     );
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
+    // C2a: takeover defaults off ⇒ switch is hands-off. This test's intent is
+    // "AGS writes the selected provider to live + projects MCP", i.e. direct
+    // takeover (official is allowed in direct; only proxy blocks official).
+    enable_direct_takeover(&state, AppType::Codex);
 
     ProviderService::switch(&state, AppType::Codex, "official-provider")
         .expect("switch to official provider");
@@ -1043,6 +1080,9 @@ fn reapply_codex_official_live_projects_mcp_despite_broken_claude_json() {
     );
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
+    // C2a: switch/reapply live writes require AGS ownership. Intent: direct
+    // official Codex live rewrite + targeted MCP re-projection.
+    enable_direct_takeover(&state, AppType::Codex);
 
     // 先切换建立"当前=官方"的前置状态，再破坏 claude 文件，
     // 让损坏只作用于被测的 reapply 路径。
@@ -1135,6 +1175,8 @@ fn switch_codex_projects_mcp_despite_broken_claude_json() {
     );
 
     let state = create_test_state_with_config(&config).expect("create test state");
+    // C2a: switch only writes live when takeover is on; direct = classic switch write.
+    enable_direct_takeover(&state, AppType::Codex);
 
     // 坏 JSON 能通过 should_sync_claude_mcp 门控（文件存在即过），
     // 但 read_mcp_servers_map 解析必然报错；codex-only 服务器也会
@@ -1286,6 +1328,8 @@ fn provider_service_switch_codex_official_accounts_write_auth_json() {
     }
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
+    // C2a: AGS only writes live when takeover is on; direct = classic upstream write.
+    enable_direct_takeover(&state, AppType::Codex);
 
     ProviderService::switch(&state, AppType::Codex, "official-b")
         .expect("switch to official account B should write auth.json");
@@ -1501,42 +1545,40 @@ fn sync_current_provider_for_app_keeps_live_takeover_and_updates_restore_backup(
 
     let mut proxy_config = futures::executor::block_on(state.db.get_proxy_config_for_app("claude"))
         .expect("get proxy config");
-    // C1: domain field is takeover_enabled (DB column still named enabled).
-    // Ownership for sync is also signaled by live backup / placeholders.
+    // C2a Option A: truth source is proxy_config (takeover_enabled × route_mode).
+    // ProxyManaged → sync refreshes proxy-safe live fields only, never rewrites
+    // the immutable first-open snapshot. Seed route_mode=proxy.
     proxy_config.takeover_enabled = true;
+    proxy_config.route_mode = RouteMode::Proxy;
     futures::executor::block_on(state.db.update_proxy_config_for_app(proxy_config))
-        .expect("enable takeover");
+        .expect("enable proxy takeover");
+
+    // Capture the seed snapshot BEFORE the sync so we can assert immutability.
+    let seed_backup = futures::executor::block_on(state.db.get_live_backup("claude"))
+        .expect("get live backup")
+        .expect("seed backup exists")
+        .original_config;
 
     ProviderService::sync_current_provider_for_app(&state, AppType::Claude)
         .expect("sync current provider should succeed");
 
+    // Proxy is NOT running in this fixture, so ProxyManaged is a pure no-op on
+    // live — the seed taken-over live must stay byte-identical.
     let live_after: serde_json::Value =
         read_json_file(&settings_path).expect("read live settings after sync");
     assert_eq!(
         live_after, taken_over_live,
-        "sync should not overwrite live config while takeover is active"
+        "sync should not overwrite live config while takeover is active and proxy is stopped"
     );
 
-    let backup = futures::executor::block_on(state.db.get_live_backup("claude"))
+    // Option A: the first-open snapshot is immutable — sync must not rewrite it.
+    let backup_after = futures::executor::block_on(state.db.get_live_backup("claude"))
         .expect("get live backup")
-        .expect("backup exists");
-    let backup_value: serde_json::Value =
-        serde_json::from_str(&backup.original_config).expect("parse backup value");
-
+        .expect("backup still exists")
+        .original_config;
     assert_eq!(
-        backup_value
-            .get("includeCoAuthoredBy")
-            .and_then(|v| v.as_bool()),
-        Some(false),
-        "restore backup should receive the updated effective config"
-    );
-    assert_eq!(
-        backup_value
-            .get("env")
-            .and_then(|v| v.get("ANTHROPIC_AUTH_TOKEN"))
-            .and_then(|v| v.as_str()),
-        Some("real-token"),
-        "restore backup should preserve the provider token rather than proxy placeholder"
+        backup_after, seed_backup,
+        "ProxyManaged sync must not rewrite the immutable first-open restore snapshot"
     );
 }
 
@@ -1630,6 +1672,22 @@ wire_api = "responses"
         ),
     )
     .expect("seed Codex live backup");
+    // C2a Option A: truth source is proxy_config. Establish ProxyManaged so the
+    // switch hot-path refreshes proxy-safe live labels WITHOUT rewriting the
+    // immutable first-open snapshot. The gateway stays stopped.
+    {
+        let mut cfg = futures::executor::block_on(state.db.get_proxy_config_for_app("codex"))
+            .expect("get codex proxy config");
+        cfg.takeover_enabled = true;
+        cfg.route_mode = RouteMode::Proxy;
+        futures::executor::block_on(state.db.update_proxy_config_for_app(cfg))
+            .expect("enable codex proxy takeover");
+    }
+
+    let seed_backup = futures::executor::block_on(state.db.get_live_backup("codex"))
+        .expect("get live backup")
+        .expect("seed backup exists")
+        .original_config;
 
     assert!(
         !futures::executor::block_on(state.proxy_service.is_running()),
@@ -1637,7 +1695,7 @@ wire_api = "responses"
     );
 
     ProviderService::switch(&state, AppType::Codex, "new-provider")
-        .expect("switch should update takeover backup instead of writing normal live config");
+        .expect("switch should update proxy-safe live labels without writing normal upstream");
 
     let auth_after: serde_json::Value =
         read_json_file(&agent_switch_lib::get_codex_auth_path()).expect("read auth.json");
@@ -1666,23 +1724,14 @@ wire_api = "responses"
         "normal provider base_url must not overwrite taken-over live config"
     );
 
-    let backup = futures::executor::block_on(state.db.get_live_backup("codex"))
+    // Option A: the first-open snapshot is immutable across hot-switches.
+    let backup_after = futures::executor::block_on(state.db.get_live_backup("codex"))
         .expect("get Codex backup")
-        .expect("backup exists");
-    let backup_value: serde_json::Value =
-        serde_json::from_str(&backup.original_config).expect("parse backup");
+        .expect("backup still exists")
+        .original_config;
     assert_eq!(
-        backup_value.get("auth"),
-        Some(&auth_after),
-        "restore backup should preserve the official OAuth auth"
-    );
-    let backup_config = backup_value
-        .get("config")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default();
-    assert!(
-        backup_config.contains("new-key") && backup_config.contains("deepseek-new"),
-        "restore backup should be rebuilt from the newly selected provider"
+        backup_after, seed_backup,
+        "hot-switch under ProxyManaged must not rewrite the immutable first-open snapshot"
     );
 
     let current = state
@@ -1801,6 +1850,8 @@ fn switch_packycode_gemini_updates_security_selected_type() {
 
     let state = create_test_state_with_config(&config).expect("create test state");
 
+    enable_direct_takeover(&state, AppType::Gemini);
+
     ProviderService::switch(&state, AppType::Gemini, "packy-gemini")
         .expect("switching to PackyCode Gemini should succeed");
 
@@ -1855,6 +1906,8 @@ fn packycode_partner_meta_triggers_security_flag_even_without_keywords() {
     }
 
     let state = create_test_state_with_config(&config).expect("create test state");
+
+    enable_direct_takeover(&state, AppType::Gemini);
 
     ProviderService::switch(&state, AppType::Gemini, "packy-meta")
         .expect("switching to partner meta provider should succeed");
@@ -1911,6 +1964,8 @@ fn switch_google_official_gemini_preserves_env_vars() {
     }
 
     let state = create_test_state_with_config(&config).expect("create test state");
+
+    enable_direct_takeover(&state, AppType::Gemini);
 
     ProviderService::switch(&state, AppType::Gemini, "google-official")
         .expect("switching to Google official Gemini should succeed");
@@ -1998,6 +2053,7 @@ fn provider_service_switch_claude_updates_live_and_state() {
     }
 
     let state = create_test_state_with_config(&config).expect("create test state");
+    enable_direct_takeover(&state, AppType::Claude);
 
     ProviderService::switch(&state, AppType::Claude, "new-provider")
         .expect("switch provider should succeed");
@@ -2100,6 +2156,8 @@ fn switch_claude_syncs_new_shared_keys_from_live_into_common_config() {
         )
         .expect("seed common config snippet");
 
+    // C2a: 直连接管使切换写真实上游 live（等价旧默认行为）。
+    enable_direct_takeover(&state, AppType::Claude);
     ProviderService::switch(&state, AppType::Claude, "b").expect("switch should succeed");
 
     // 片段应捕获到新增键，并保留已有共享键，且绝不含密钥
@@ -2222,6 +2280,9 @@ fn switch_claude_syncs_deletions_from_live_into_common_config() {
             Some(r#"{"theme":"dark","enableAllProjectMcpServers":true}"#.to_string()),
         )
         .expect("seed common config snippet");
+    // C2a: switch only rewrites live (and thus backfills the snippet from live)
+    // under takeover. Intent: AGS owns Claude live → direct takeover.
+    enable_direct_takeover(&state, AppType::Claude);
 
     ProviderService::switch(&state, AppType::Claude, "b").expect("switch should succeed");
 
@@ -2334,6 +2395,9 @@ command = "ghost-cmd"
             Some("[tui]\nnotifications = true\n".to_string()),
         )
         .expect("seed codex common config snippet");
+    // C2a: takeover off = hands-off (no live write on switch). This test's intent
+    // is "AGS writes the switched provider to live", so establish direct takeover.
+    enable_direct_takeover(&state, AppType::Codex);
 
     ProviderService::switch(&state, AppType::Codex, "b").expect("switch should succeed");
 
@@ -2484,6 +2548,9 @@ wire_api = "responses"
             Some("disable_response_storage = true\n\n[tui]\nnotifications = true\n".to_string()),
         )
         .expect("seed codex common config snippet");
+    // C2a: AGS only writes live when takeover is on; this test asserts the
+    // switch rewrites live upstream, i.e. direct-mode takeover.
+    enable_direct_takeover(&state, AppType::Codex);
 
     ProviderService::switch(&state, AppType::Codex, "b").expect("switch should succeed");
 
@@ -2705,6 +2772,9 @@ fn provider_service_switch_codex_missing_auth_returns_error() {
     }
 
     let state = create_test_state_with_config(&config).expect("create test state");
+    // C2a: only DirectUpstream/ProxyManaged hit the live-write path that validates
+    // Codex auth. Intent: "writing Codex live fails without auth" → direct takeover.
+    enable_direct_takeover(&state, AppType::Codex);
 
     let err = ProviderService::switch(&state, AppType::Codex, "invalid")
         .expect_err("switching should fail without auth");

@@ -53,6 +53,7 @@ pub use mcp::{
 };
 pub use prompt::Prompt;
 pub use provider::{Provider, ProviderMeta};
+pub use proxy::types::RouteMode;
 pub use services::{
     profile::{ProfilePayload, ProfileScope, ProfileService},
     provider::reapply_current_codex_official_live,
@@ -1371,6 +1372,7 @@ pub fn run() {
             commands::stop_proxy_with_restore,
             commands::get_proxy_takeover_status,
             commands::set_proxy_takeover_for_app,
+            commands::set_proxy_route_mode,
             commands::get_proxy_status,
             commands::get_proxy_config,
             commands::update_proxy_config,

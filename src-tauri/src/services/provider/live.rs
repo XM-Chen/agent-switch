@@ -1108,6 +1108,50 @@ fn sync_current_provider_for_app_respecting_takeover(
         return Ok(());
     };
 
+    // C2a three-module semantics: the truth source is proxy_config
+    // (takeover_enabled × route_mode), not backup presence.
+    // - Skip (takeover off): hands-off, never rewrite live (R3/D3/AC1).
+    // - DirectUpstream: write the real upstream config.
+    // - ProxyManaged: only refresh proxy-safe live display fields (Claude/Codex)
+    //   while the gateway runs; do NOT write the immutable first-open snapshot
+    //   backup (Option A: managed-expected baseline is C3's in-memory concern).
+    if matches!(app_type, AppType::Claude | AppType::Codex | AppType::Gemini) {
+        let _switch_guard =
+            futures::executor::block_on(state.proxy_service.lock_switch_for_app(app_type.as_str()));
+        let decision = state
+            .proxy_service
+            .live_write_decision_for_app_sync(app_type)
+            .map_err(AppError::Message)?;
+        return match decision {
+            crate::services::proxy::LiveWriteDecision::Skip => Ok(()),
+            crate::services::proxy::LiveWriteDecision::DirectUpstream => {
+                write_live_with_common_config(state.db.as_ref(), app_type, provider)
+            }
+            crate::services::proxy::LiveWriteDecision::ProxyManaged => {
+                if futures::executor::block_on(state.proxy_service.is_running()) {
+                    match app_type {
+                        AppType::Claude => futures::executor::block_on(
+                            state
+                                .proxy_service
+                                .sync_claude_live_from_provider_while_proxy_active(provider),
+                        )
+                        .map_err(|e| {
+                            AppError::Message(format!("同步 Claude Live 配置失败: {e}"))
+                        })?,
+                        AppType::Codex => futures::executor::block_on(
+                            state
+                                .proxy_service
+                                .sync_codex_live_from_provider_while_proxy_active(provider),
+                        )
+                        .map_err(|e| AppError::Message(format!("同步 Codex Live 配置失败: {e}")))?,
+                        _ => {}
+                    }
+                }
+                Ok(())
+            }
+        };
+    }
+
     let has_live_backup = futures::executor::block_on(state.db.get_live_backup(app_type.as_str()))
         .ok()
         .flatten()
@@ -1116,9 +1160,7 @@ fn sync_current_provider_for_app_respecting_takeover(
         .proxy_service
         .detect_takeover_in_live_config_for_app(app_type);
 
-    // `enabled` is set only after takeover writes complete. During that
-    // activation window, backup/live placeholders are the authoritative signal
-    // that normal provider sync must not rewrite the managed live file.
+    // ClaudeDesktop / other modules (C2b): keep the backup/placeholder signal.
     if has_live_backup || live_taken_over {
         if matches!(app_type, AppType::ClaudeDesktop) {
             write_live_with_common_config(state.db.as_ref(), app_type, provider)?;

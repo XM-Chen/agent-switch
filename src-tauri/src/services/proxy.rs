@@ -7,11 +7,15 @@ use crate::config::{get_claude_settings_path, read_json_file, write_json_file};
 use crate::database::Database;
 use crate::provider::Provider;
 use crate::proxy::server::ProxyServer;
+use crate::proxy::snapshot::{
+    capture_snapshot_once, restore_snapshot_and_release, CaptureSnapshotOutcome, SnapshotManifest,
+};
 use crate::proxy::switch_lock::SwitchLockManager;
 use crate::proxy::types::*;
 use crate::services::provider::{
     build_effective_settings_with_common_config, write_live_with_common_config,
 };
+use crate::services::proxy_snapshot_adapters::snapshot_adapter_for_app;
 use serde_json::{json, Map, Value};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -68,6 +72,33 @@ pub struct HotSwitchOutcome {
     pub logical_target_changed: bool,
 }
 
+/// 基于 `(takeover_enabled, route_mode)` 的三态 Live 写入判定。
+///
+/// 真相来源是 C1 的 `proxy_config`，取代旧的"有备份/占位符即视为接管"信号。
+/// provider 的保存/切换/同步路径据此决定是否写 Live 及写向何处。
+/// C2a 落地公共骨架，C2b rebase 后复用同一入口扩四模块。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveWriteDecision {
+    /// 接管关闭：Agent-Switch 不得写该模块 Live 配置，只更新 DB SSOT。
+    Skip,
+    /// 接管开启 + direct：写真实上游配置（复用 provider live 写入），不依赖网关。
+    DirectUpstream,
+    /// 接管开启 + proxy：维护网关接管态（更新受管 live，不破坏占位符）。
+    ProxyManaged,
+}
+
+impl LiveWriteDecision {
+    pub fn from_config(config: &AppProxyConfig) -> Self {
+        if !config.takeover_enabled {
+            Self::Skip
+        } else if config.route_mode == RouteMode::Proxy {
+            Self::ProxyManaged
+        } else {
+            Self::DirectUpstream
+        }
+    }
+}
+
 impl ProxyService {
     pub fn new(db: Arc<Database>) -> Self {
         Self {
@@ -117,6 +148,7 @@ impl ProxyService {
         );
     }
 
+    #[cfg(test)]
     fn apply_claude_takeover_fields_with_policy(
         config: &mut Value,
         proxy_url: &str,
@@ -507,98 +539,13 @@ impl ProxyService {
             .map_err(|e| format!("保存动态代理端口失败: {e}"))
     }
 
-    async fn start_before_takeover_if_ephemeral_port(&self) -> Result<bool, String> {
-        let config = self
-            .db
-            .get_proxy_config()
-            .await
-            .map_err(|e| format!("获取代理配置失败: {e}"))?;
-        if config.listen_port != 0 || self.is_running().await {
-            return Ok(false);
-        }
-
-        self.start().await?;
-        Ok(true)
-    }
-
-    /// 启动代理服务器（带 Live 配置接管）
+    /// 旧版“启动并批量接管三模块”兼容入口。
+    ///
+    /// C1/C2a 起网关运行态与模块接管正交：此入口只启动网关，绝不读取、备份或写入
+    /// 任一模块 Live。调用方必须通过 `set_takeover_for_app` 显式选择模块与 route_mode。
+    #[deprecated(note = "请使用 start + set_takeover_for_app 显式控制模块接管")]
     pub async fn start_with_takeover(&self) -> Result<ProxyServerInfo, String> {
-        // 1. 备份各应用的 Live 配置
-        self.backup_live_configs().await?;
-
-        // 2. 同步 Live 配置中的 Token 到数据库（确保代理能读到最新的 Token）
-        if let Err(e) = self.sync_live_to_providers().await {
-            // 同步失败时尚未写入接管配置，但备份可能包含敏感信息，尽量清理
-            if let Err(clean_err) = self.db.delete_all_live_backups().await {
-                log::warn!("清理 Live 备份失败: {clean_err}");
-            }
-            return Err(e);
-        }
-
-        // 端口 0 需要先启动代理拿到 OS 分配的真实端口，否则接管 Live 配置会写出 :0。
-        let started_proxy_before_takeover =
-            match self.start_before_takeover_if_ephemeral_port().await {
-                Ok(started) => started,
-                Err(e) => {
-                    if let Err(clean_err) = self.db.delete_all_live_backups().await {
-                        log::warn!("清理 Live 备份失败: {clean_err}");
-                    }
-                    return Err(e);
-                }
-            };
-
-        // 3. 在写入接管配置之前先落盘接管标志：
-        //    这样即使在接管过程中断电/kill，下次启动也能检测到并自动恢复。
-        if let Err(e) = self.db.set_live_takeover_active(true).await {
-            if let Err(clean_err) = self.db.delete_all_live_backups().await {
-                log::warn!("清理 Live 备份失败: {clean_err}");
-            }
-            if started_proxy_before_takeover {
-                let _ = self.stop().await;
-            }
-            return Err(format!("设置接管状态失败: {e}"));
-        }
-
-        // 4. 接管各应用的 Live 配置（写入代理地址，清空 Token）
-        if let Err(e) = self.takeover_live_configs().await {
-            // 接管失败（可能是部分写入），尝试恢复原始配置；若恢复失败则保留标志与备份，等待下次启动自动恢复。
-            log::error!("接管 Live 配置失败，尝试恢复原始配置: {e}");
-            match self.restore_live_configs().await {
-                Ok(()) => {
-                    let _ = self.db.set_live_takeover_active(false).await;
-                    let _ = self.db.delete_all_live_backups().await;
-                }
-                Err(restore_err) => {
-                    log::error!("恢复原始配置失败，将保留备份以便下次启动恢复: {restore_err}");
-                }
-            }
-            if started_proxy_before_takeover {
-                let _ = self.stop().await;
-            }
-            return Err(e);
-        }
-
-        // 5. 启动代理服务器
-        match self.start().await {
-            Ok(info) => Ok(info),
-            Err(e) => {
-                // 启动失败，恢复原始配置
-                log::error!("代理启动失败，尝试恢复原始配置: {e}");
-                match self.restore_live_configs().await {
-                    Ok(()) => {
-                        let _ = self.db.set_live_takeover_active(false).await;
-                        let _ = self.db.delete_all_live_backups().await;
-                    }
-                    Err(restore_err) => {
-                        log::error!("恢复原始配置失败，将保留备份以便下次启动恢复: {restore_err}");
-                    }
-                }
-                if started_proxy_before_takeover {
-                    let _ = self.stop().await;
-                }
-                Err(e)
-            }
-        }
+        self.start().await
     }
 
     /// 获取七模块接管状态。
@@ -621,6 +568,30 @@ impl ProxyService {
         Ok(status)
     }
 
+    /// 查询指定模块当前的 Live 写入判定（真相来源 = `proxy_config`）。
+    ///
+    /// provider 保存/切换/同步路径用它取代旧的"有备份即接管"信号。C2a 拥有此公共入口，
+    /// C2b 直接复用。
+    pub async fn live_write_decision_for_app(
+        &self,
+        app_type: &AppType,
+    ) -> Result<LiveWriteDecision, String> {
+        let config = self
+            .db
+            .get_proxy_config_for_app(app_type.as_str())
+            .await
+            .map_err(|e| format!("获取 {} 接管状态失败: {e}", app_type.as_str()))?;
+        Ok(LiveWriteDecision::from_config(&config))
+    }
+
+    /// 同步版本（profile apply / provider service 在 tokio runtime 外调用）。
+    pub fn live_write_decision_for_app_sync(
+        &self,
+        app_type: &AppType,
+    ) -> Result<LiveWriteDecision, String> {
+        futures::executor::block_on(self.live_write_decision_for_app(app_type))
+    }
+
     /// 返回会阻止用户停止网关的 proxy 模块列表。
     pub async fn proxy_route_takeovers(&self) -> Result<Vec<String>, String> {
         self.db
@@ -629,108 +600,101 @@ impl ProxyService {
             .map_err(|e| format!("查询代理路由接管状态失败: {e}"))
     }
 
-    /// 为指定应用开启/关闭 Live 接管
+    /// 为指定应用开启/关闭 Live 接管（三维语义）。
     ///
-    /// - 开启：自动启动代理服务，仅接管当前 app 的 Live 配置
-    /// - 关闭：仅恢复当前 app 的 Live 配置；若无其它接管，则自动停止代理服务
-    pub async fn set_takeover_for_app(&self, app_type: &str, enabled: bool) -> Result<(), String> {
+    /// - `enabled=true`：按 `route_mode` 写入。`direct` 写真实上游（不依赖网关，不启动
+    ///   网关）；`proxy` 确保网关运行并写本地网关入口。首次开启前用 `capture_snapshot_once`
+    ///   捕获原始文件字节（幂等，不覆盖已有快照）。
+    /// - `enabled=false`：忽略 `route_mode`，走 `restore_snapshot_and_release` 精确恢复首次
+    ///   开启前状态后原子清所有权与快照。关闭或切 direct 都不自动停网关。
+    pub async fn set_takeover_for_app(
+        &self,
+        app_type: &str,
+        enabled: bool,
+        route_mode: RouteMode,
+    ) -> Result<(), String> {
         let app = AppType::from_str(app_type).map_err(|e| format!("无效的应用类型: {e}"))?;
         let app_type_str = app.as_str();
         let _guard = self.switch_locks.lock_for_app(app_type_str).await;
 
         if enabled {
-            // 1) 代理服务未运行则自动启动
-            if !self.is_running().await {
-                self.start().await?;
-            }
+            self.enable_takeover_locked(&app, route_mode).await
+        } else {
+            self.disable_takeover_locked(&app).await
+        }
+    }
 
-            // 2) 已接管则直接返回（幂等）；但如果缺少备份或占位符残留，需要重建接管
-            let current_config = self
-                .db
-                .get_proxy_config_for_app(app_type_str)
-                .await
-                .map_err(|e| format!("获取 {app_type_str} 配置失败: {e}"))?;
+    /// 已持有 per-app 切换锁时开启接管。
+    async fn enable_takeover_locked(
+        &self,
+        app: &AppType,
+        route_mode: RouteMode,
+    ) -> Result<(), String> {
+        let app_type_str = app.as_str();
+        let current_config = self
+            .db
+            .get_proxy_config_for_app(app_type_str)
+            .await
+            .map_err(|e| format!("获取 {app_type_str} 配置失败: {e}"))?;
 
-            let mut restore_existing_backup_before_takeover = false;
-            if current_config.takeover_enabled {
-                let has_backup = match self.db.get_live_backup(app_type_str).await {
-                    Ok(v) => v.is_some(),
-                    Err(e) => {
-                        log::warn!("读取 {app_type_str} 备份失败（将继续重建接管）: {e}");
-                        false
-                    }
-                };
-                let live_matches_current_proxy =
-                    match self.live_takeover_matches_current_proxy(&app).await {
-                        Ok(value) => value,
-                        Err(e) => {
-                            log::warn!("检测 {app_type_str} 接管配置失败（将继续重建接管）: {e}");
-                            false
-                        }
-                    };
-
-                // 必须 backup 存在，且 live 确实指向当前代理地址，才算真接管。
-                // 只看占位符会把半接管/旧端口残留误判为可复用，导致开启接管后
-                // live 文件仍停留在普通供应商配置。
-                if has_backup && live_matches_current_proxy {
-                    return Ok(());
-                }
-                restore_existing_backup_before_takeover = has_backup;
-
-                log::warn!(
-                    "{app_type_str} 标记为已接管，但 backup={has_backup} live_matches_current_proxy={live_matches_current_proxy}，正在重新接管并补齐 Live"
-                );
-            }
-
-            // 3) 备份 Live 配置（严格：目标 app 不存在则报错）
-            if restore_existing_backup_before_takeover {
-                self.restore_live_config_for_app_inner(&app).await?;
+        // 已接管时不重新 capture：同模式只重建受管 live，不同模式走原子 mode switch。
+        if current_config.takeover_enabled {
+            return if current_config.route_mode == route_mode {
+                self.reapply_current_route_locked(app, route_mode).await
             } else {
-                self.backup_live_config_strict(&app).await?;
+                self.switch_route_mode_locked(app, current_config, route_mode)
+                    .await
+            };
+        }
 
-                // 4) 同步 Live Token 到数据库（仅当前 app）
-                if let Err(e) = self.sync_live_to_provider(&app).await {
-                    let _ = self.db.delete_live_backup(app_type_str).await;
-                    return Err(e);
+        let adapter = snapshot_adapter_for_app(app).ok_or_else(|| {
+            format!("{app_type_str} 尚无精确快照 adapter（C2a 只支持 claude/codex/gemini）")
+        })?;
+
+        // 首次快照必须先于任何网关/live 副作用；已有有效快照幂等保留。
+        let capture_outcome = capture_snapshot_once(&self.db, adapter.as_ref()).await?;
+        let is_fresh = capture_outcome == CaptureSnapshotOutcome::Captured;
+
+        let write_result = async {
+            if route_mode == RouteMode::Proxy {
+                if is_fresh && Self::primary_live_exists_for_app(app) {
+                    // 首次开启且 Live 原先存在：先把客户端内最新凭据同步进 DB。
+                    self.sync_live_to_provider(app).await?;
+                } else if !is_fresh {
+                    // 失败残留/旧快照重试：先恢复唯一首次快照，再从干净态重建 proxy live。
+                    self.restore_first_open_snapshot(app).await?;
                 }
             }
+            self.apply_route_mode_locked(app, route_mode).await
+        }
+        .await;
 
-            // 5) 写入接管配置（仅当前 app）
-            if let Err(e) = self.takeover_live_config_strict(&app).await {
-                log::error!("{app_type_str} 接管 Live 配置失败，尝试恢复: {e}");
-                match self.restore_live_config_for_app_inner(&app).await {
-                    Ok(()) => {
-                        // 恢复成功才清理备份，避免失败场景下丢失唯一可回滚来源
-                        let _ = self.db.delete_live_backup(app_type_str).await;
-                    }
-                    Err(restore_err) => {
-                        log::error!(
-                            "{app_type_str} 恢复 Live 配置失败，将保留备份以便下次启动恢复: {restore_err}"
-                        );
-                    }
-                }
-                return Err(e);
-            }
+        if let Err(error) = write_result {
+            return Err(self.rollback_failed_enable(app, route_mode, &error).await);
+        }
 
-            // 6) 设置 proxy_config.takeover_enabled = true
-            let mut updated_config = self
-                .db
-                .get_proxy_config_for_app(app_type_str)
-                .await
-                .map_err(|e| format!("获取 {app_type_str} 配置失败: {e}"))?;
-            updated_config.takeover_enabled = true;
-            updated_config.route_mode = RouteMode::Proxy;
-            self.db
-                .update_proxy_config_for_app(updated_config)
-                .await
-                .map_err(|e| format!("设置 {app_type_str} enabled 状态失败: {e}"))?;
+        // Live 写入成功后才提交 takeover_enabled + route_mode。提交失败同样必须回滚，
+        // 否则会出现 DB=off 但 live 已由 AGS 改写的 hands-off 违约。
+        let mut updated_config = current_config;
+        updated_config.takeover_enabled = true;
+        updated_config.route_mode = route_mode;
+        if let Err(error) = self.db.update_proxy_config_for_app(updated_config).await {
+            return Err(self
+                .rollback_failed_enable(
+                    app,
+                    route_mode,
+                    &format!("设置 {app_type_str} 接管状态失败: {error}"),
+                )
+                .await);
+        }
 
-            // 7) 兼容旧逻辑：写入 any-of 标志（失败不影响功能）
-            let _ = self.db.set_live_takeover_active(true).await;
+        // 兼容旧逻辑：写入 any-of 标志（失败不影响功能）。
+        let _ = self.db.set_live_takeover_active(true).await;
 
-            // 8) Warn if the current provider is official (risk of account ban via proxy)
+        // 只有 proxy 路由访问官方 API 才需要封号风险告警；direct 是正常直连。
+        if route_mode == RouteMode::Proxy {
             if let Ok(Some(current_id)) =
-                crate::settings::get_effective_current_provider(&self.db, &app)
+                crate::settings::get_effective_current_provider(&self.db, app)
             {
                 if let Ok(Some(provider)) = self.db.get_provider_by_id(&current_id, app_type_str) {
                     if provider.category.as_deref() == Some("official") {
@@ -746,11 +710,160 @@ impl ProxyService {
                     }
                 }
             }
-
-            return Ok(());
         }
 
-        // 关闭接管：检查 enabled 状态
+        Ok(())
+    }
+
+    async fn apply_route_mode_locked(
+        &self,
+        app: &AppType,
+        route_mode: RouteMode,
+    ) -> Result<(), String> {
+        match route_mode {
+            RouteMode::Direct => self.write_direct_upstream_for_app(app).await,
+            RouteMode::Proxy => {
+                if !self.is_running().await {
+                    self.start().await?;
+                }
+                self.takeover_live_config_strict(app).await
+            }
+        }
+    }
+
+    fn capture_transient_live_snapshot(
+        &self,
+        app: &AppType,
+        adapter: &dyn crate::proxy::snapshot::SnapshotModuleAdapter,
+    ) -> Result<SnapshotManifest, String> {
+        SnapshotManifest::new(app, adapter.capture_targets()?)
+    }
+
+    async fn mark_takeover_recovery_required(&self, app: &AppType) -> Result<(), String> {
+        let mut config = self
+            .db
+            .get_proxy_config_for_app(app.as_str())
+            .await
+            .map_err(|e| format!("读取恢复标记状态失败: {e}"))?;
+        config.takeover_enabled = true;
+        // 回滚失败时强制使用 proxy 恢复语义，确保 crash recovery 会恢复 immutable
+        // snapshot，而不是按 direct 残留放弃所有权并留下半写 live。
+        config.route_mode = RouteMode::Proxy;
+        self.db
+            .update_proxy_config_for_app(config)
+            .await
+            .map_err(|e| format!("保留恢复所需接管状态失败: {e}"))
+    }
+
+    async fn rollback_failed_enable(
+        &self,
+        app: &AppType,
+        route_mode: RouteMode,
+        operation_error: &str,
+    ) -> String {
+        log::error!(
+            "{} {:?} 接管失败，尝试恢复首次快照: {operation_error}",
+            app.as_str(),
+            route_mode
+        );
+        match self.restore_first_open_snapshot(app).await {
+            Ok(()) => match self.db.release_takeover_ownership(app.as_str()).await {
+                Ok(()) => operation_error.to_string(),
+                Err(cleanup_error) => format!(
+                    "{operation_error}；Live 已恢复，但清理接管所有权/快照失败: {cleanup_error}"
+                ),
+            },
+            Err(restore_error) => {
+                let mark_error = self.mark_takeover_recovery_required(app).await.err();
+                match mark_error {
+                    Some(mark_error) => format!(
+                        "{operation_error}；恢复首次快照失败: {restore_error}；{mark_error}"
+                    ),
+                    None => format!(
+                        "{operation_error}；恢复首次快照失败: {restore_error}；已保留接管状态与快照供重试"
+                    ),
+                }
+            }
+        }
+    }
+
+    async fn rollback_transient_route_change(
+        &self,
+        app: &AppType,
+        adapter: &dyn crate::proxy::snapshot::SnapshotModuleAdapter,
+        before: &SnapshotManifest,
+        operation_error: &str,
+    ) -> String {
+        match adapter.restore_manifest_transactional(before) {
+            Ok(()) => operation_error.to_string(),
+            Err(restore_error) => {
+                let mark_error = self.mark_takeover_recovery_required(app).await.err();
+                match mark_error {
+                    Some(mark_error) => format!(
+                        "{operation_error}；回滚模式切换前 Live 失败: {restore_error}；{mark_error}"
+                    ),
+                    None => format!(
+                        "{operation_error}；回滚模式切换前 Live 失败: {restore_error}；已切为 proxy 恢复标记并保留首次快照"
+                    ),
+                }
+            }
+        }
+    }
+
+    async fn reapply_current_route_locked(
+        &self,
+        app: &AppType,
+        route_mode: RouteMode,
+    ) -> Result<(), String> {
+        let adapter = snapshot_adapter_for_app(app)
+            .ok_or_else(|| format!("{} 尚无精确快照 adapter", app.as_str()))?;
+        let before = self.capture_transient_live_snapshot(app, adapter.as_ref())?;
+        let result = async {
+            if route_mode == RouteMode::Proxy {
+                self.restore_first_open_snapshot(app).await?;
+            }
+            self.apply_route_mode_locked(app, route_mode).await
+        }
+        .await;
+        match result {
+            Ok(()) => Ok(()),
+            Err(error) => Err(self
+                .rollback_transient_route_change(app, adapter.as_ref(), &before, &error)
+                .await),
+        }
+    }
+
+    async fn switch_route_mode_locked(
+        &self,
+        app: &AppType,
+        current_config: AppProxyConfig,
+        route_mode: RouteMode,
+    ) -> Result<(), String> {
+        let adapter = snapshot_adapter_for_app(app)
+            .ok_or_else(|| format!("{} 尚无精确快照 adapter", app.as_str()))?;
+        let before = self.capture_transient_live_snapshot(app, adapter.as_ref())?;
+
+        if let Err(error) = self.apply_route_mode_locked(app, route_mode).await {
+            return Err(self
+                .rollback_transient_route_change(app, adapter.as_ref(), &before, &error)
+                .await);
+        }
+
+        let mut updated_config = current_config;
+        updated_config.route_mode = route_mode;
+        if let Err(error) = self.db.update_proxy_config_for_app(updated_config).await {
+            let error = format!("设置 {} 路由模式失败: {error}", app.as_str());
+            return Err(self
+                .rollback_transient_route_change(app, adapter.as_ref(), &before, &error)
+                .await);
+        }
+        Ok(())
+    }
+
+    /// 已持有 per-app 切换锁时关闭接管：精确恢复首次开启前状态后原子清所有权。
+    async fn disable_takeover_locked(&self, app: &AppType) -> Result<(), String> {
+        let app_type_str = app.as_str();
+
         let current_config = self
             .db
             .get_proxy_config_for_app(app_type_str)
@@ -761,17 +874,8 @@ impl ProxyService {
             return Ok(()); // 未接管，幂等返回
         }
 
-        // proxy 模式恢复首次快照；direct 模式只放弃所有权，不写 Live。
-        if current_config.route_mode == RouteMode::Proxy {
-            self.restore_live_config_for_app_with_fallback_inner(&app)
-                .await?;
-        }
-
-        // 恢复全部成功（或 direct 明确放弃）后，原子清状态与快照。
-        self.db
-            .release_takeover_ownership(app_type_str)
-            .await
-            .map_err(|e| format!("清理 {app_type_str} 接管所有权失败: {e}"))?;
+        // direct 与 proxy 都走精确恢复（R10：回滚到首次开启前）。
+        self.restore_snapshot_and_release_for_app(app).await?;
 
         self.db
             .clear_provider_health_for_app(app_type_str)
@@ -783,11 +887,115 @@ impl ProxyService {
         Ok(())
     }
 
+    /// Whether the module has any pre-existing primary live target.
+    ///
+    /// Used during first proxy enable: if the target was absent (captured as
+    /// `existed=false`), there is no live token to sync into DB; takeover writes
+    /// from the current provider and creates the target. If it existed, parsing
+    /// remains strict so malformed user config is not silently discarded.
+    fn primary_live_exists_for_app(app: &AppType) -> bool {
+        match app {
+            AppType::Claude => get_claude_settings_path().exists(),
+            AppType::Codex => {
+                crate::codex_config::get_codex_auth_path().exists()
+                    || crate::codex_config::get_codex_config_path().exists()
+            }
+            AppType::Gemini => crate::gemini_config::get_gemini_env_path().exists(),
+            _ => false,
+        }
+    }
+
+    /// 写入某模块的真实上游 Live 配置（direct 模式）。复用 provider live 写入逻辑。
+    async fn write_direct_upstream_for_app(&self, app: &AppType) -> Result<(), String> {
+        let provider = self.require_current_provider_for_app(app)?;
+        write_live_with_common_config(self.db.as_ref(), app, &provider)
+            .map_err(|e| format!("写入 {} 真实上游配置失败: {e}", app.as_str()))
+    }
+
+    /// 从首次快照恢复 Live，但**不**清所有权/删快照（重建、失败回滚用）。
+    async fn restore_first_open_snapshot(&self, app: &AppType) -> Result<(), String> {
+        let app_type_str = app.as_str();
+        let adapter = snapshot_adapter_for_app(app)
+            .ok_or_else(|| format!("{app_type_str} 尚无精确快照 adapter"))?;
+        let Some(backup) = self
+            .db
+            .get_live_backup(app_type_str)
+            .await
+            .map_err(|e| format!("读取 {app_type_str} 快照失败: {e}"))?
+        else {
+            return Ok(()); // 无快照可恢复
+        };
+        match crate::proxy::snapshot::decode_stored_snapshot(app_type_str, &backup.original_config)?
+        {
+            crate::proxy::snapshot::DecodedSnapshot::Manifest(manifest) => {
+                adapter.restore_manifest_transactional(&manifest)
+            }
+            crate::proxy::snapshot::DecodedSnapshot::Legacy(legacy) => {
+                adapter.restore_legacy(&legacy)
+            }
+        }
+    }
+
+    /// 精确恢复首次快照后原子清所有权与快照（关闭接管用）。
+    /// 无快照时只清所有权，避免卡在 enabled=true 的不一致态。
+    async fn restore_snapshot_and_release_for_app(&self, app: &AppType) -> Result<(), String> {
+        let app_type_str = app.as_str();
+        let has_backup = self
+            .db
+            .get_live_backup(app_type_str)
+            .await
+            .map_err(|e| format!("读取 {app_type_str} 快照失败: {e}"))?
+            .is_some();
+
+        if has_backup {
+            let adapter = snapshot_adapter_for_app(app)
+                .ok_or_else(|| format!("{app_type_str} 尚无精确快照 adapter"))?;
+            restore_snapshot_and_release(&self.db, adapter.as_ref()).await
+        } else {
+            self.db
+                .release_takeover_ownership(app_type_str)
+                .await
+                .map_err(|e| format!("清理 {app_type_str} 接管所有权失败: {e}"))
+        }
+    }
+
+    /// 在 direct↔proxy 间切换某模块的路由模式（仅 `takeover_enabled=true` 时生效）。
+    ///
+    /// **不重新 capture 快照**（首次快照 immutable，AC4）：只把 Live 从当前模式重写为
+    /// 目标模式。切 proxy 前确保网关运行、写 proxy 入口；切 direct 写真实上游。只改当前
+    /// 模块（R5）。目标模式与当前一致时幂等返回。
+    pub async fn switch_route_mode(
+        &self,
+        app_type: &str,
+        route_mode: RouteMode,
+    ) -> Result<(), String> {
+        let app = AppType::from_str(app_type).map_err(|e| format!("无效的应用类型: {e}"))?;
+        let app_type_str = app.as_str();
+        let _guard = self.switch_locks.lock_for_app(app_type_str).await;
+
+        let current_config = self
+            .db
+            .get_proxy_config_for_app(app_type_str)
+            .await
+            .map_err(|e| format!("获取 {app_type_str} 配置失败: {e}"))?;
+
+        if !current_config.takeover_enabled {
+            return Err(format!("{app_type_str} 未接管，无法切换路由模式"));
+        }
+        if current_config.route_mode == route_mode {
+            return Ok(()); // 模式未变，幂等返回
+        }
+
+        self.switch_route_mode_locked(&app, current_config, route_mode)
+            .await
+    }
+
     /// Synchronously disable one app's takeover without stopping the proxy process.
     /// Profile apply runs outside a Tokio runtime and needs the live config restored
     /// before it can switch the underlying provider.
     pub fn disable_takeover_for_app_sync(&self, app_type: &AppType) -> Result<(), String> {
         let app_type_str = app_type.as_str();
+        let _guard = futures::executor::block_on(self.switch_locks.lock_for_app(app_type_str));
 
         let config = futures::executor::block_on(self.db.get_proxy_config_for_app(app_type_str))
             .map_err(|e| format!("获取 {app_type_str} 配置失败: {e}"))?;
@@ -796,16 +1004,8 @@ impl ProxyService {
             return Ok(());
         }
 
-        // proxy 恢复首次快照；direct 只放弃所有权，不写 Live。
-        if config.route_mode == RouteMode::Proxy {
-            futures::executor::block_on(
-                self.restore_live_config_for_app_with_fallback_inner(app_type),
-            )
-            .map_err(|e| format!("恢复 {app_type_str} Live 配置失败: {e}"))?;
-        }
-
-        futures::executor::block_on(self.db.release_takeover_ownership(app_type_str))
-            .map_err(|e| format!("清理 {app_type_str} 接管所有权失败: {e}"))?;
+        // direct 与 proxy 都走精确恢复（R10）。
+        futures::executor::block_on(self.restore_snapshot_and_release_for_app(app_type))?;
 
         futures::executor::block_on(self.db.clear_provider_health_for_app(app_type_str))
             .map_err(|e| format!("清除 {app_type_str} 健康状态失败: {e}"))?;
@@ -1043,6 +1243,8 @@ impl ProxyService {
         Ok(())
     }
 
+    #[cfg(test)]
+    #[allow(dead_code)] // 仅保留旧批量接管回归夹具；生产入口已退役
     async fn sync_live_to_providers(&self) -> Result<(), String> {
         if let Ok(live_config) = self.read_claude_live() {
             self.sync_live_config_to_provider(&AppType::Claude, &live_config)
@@ -1127,6 +1329,7 @@ impl ProxyService {
     }
 
     /// 备份各应用的 Live 配置
+    #[cfg(test)]
     async fn backup_live_configs(&self) -> Result<(), String> {
         // Claude
         if let Ok(config) = self.read_claude_live() {
@@ -1178,7 +1381,11 @@ impl ProxyService {
         Ok(())
     }
 
-    /// 备份指定应用的 Live 配置（严格模式：目标配置不存在则返回错误）
+    /// 旧版严格备份回归夹具。
+    ///
+    /// 生产 enable 路径只允许 `capture_snapshot_once` + 模块 adapter；此旧 JSON
+    /// 备份函数仅编译进测试，防止 C2b 或后续代码误用并覆盖 immutable snapshot。
+    #[cfg(test)]
     async fn backup_live_config_strict(&self, app_type: &AppType) -> Result<(), String> {
         let (app_type_str, config) = match app_type {
             AppType::Claude => ("claude", self.read_claude_live()?),
@@ -1253,6 +1460,8 @@ impl ProxyService {
     /// - `/v1beta/*` → Gemini
     ///
     /// 因此不需要在 URL 中添加应用前缀。
+    #[cfg(test)]
+    #[allow(dead_code)] // 旧批量回归夹具的唯一入口；生产代码只允许逐模块接管
     async fn takeover_live_configs(&self) -> Result<(), String> {
         let (proxy_url, proxy_codex_base_url) = self.build_proxy_urls().await?;
 
@@ -1319,16 +1528,24 @@ impl ProxyService {
         Ok(())
     }
 
-    /// 接管指定应用的 Live 配置（严格模式：目标配置不存在则返回错误）
+    /// 接管指定应用的 Live 配置。
+    ///
+    /// 原目标存在时严格解析现有 live（保留客户端内的非供应商字段）；原目标不存在时
+    /// 以当前 provider 的 effective settings 为基线创建受管文件。首次快照已在调用前
+    /// 记录 `existed=false`，关闭接管会删除该文件并恢复为不存在（R10）。
     async fn takeover_live_config_strict(&self, app_type: &AppType) -> Result<(), String> {
         let (proxy_url, proxy_codex_base_url) = self.build_proxy_urls().await?;
 
         match app_type {
             AppType::Claude => {
-                let mut live_config = self.read_claude_live()?;
                 let claude_provider = self.require_current_provider_for_app(&AppType::Claude)?;
                 let claude_provider =
                     self.claude_provider_with_effective_settings(&claude_provider)?;
+                let mut live_config = if Self::primary_live_exists_for_app(&AppType::Claude) {
+                    self.read_claude_live()?
+                } else {
+                    claude_provider.settings_config.clone()
+                };
                 Self::apply_claude_takeover_fields_for_provider(
                     &mut live_config,
                     &proxy_url,
@@ -1338,17 +1555,31 @@ impl ProxyService {
                 log::info!("Claude Live 配置已接管，代理地址: {proxy_url}");
             }
             AppType::Codex => {
-                let mut live_config = self.read_codex_live()?;
+                let codex_provider = self.require_current_provider_for_app(&AppType::Codex)?;
+                let mut live_config = if Self::primary_live_exists_for_app(&AppType::Codex) {
+                    self.read_codex_live()?
+                } else {
+                    build_effective_settings_with_common_config(
+                        self.db.as_ref(),
+                        &AppType::Codex,
+                        &codex_provider,
+                    )
+                    .map_err(|e| format!("构建 codex 有效配置失败: {e}"))?
+                };
 
                 if let Some(auth) = live_config.get_mut("auth").and_then(|v| v.as_object_mut()) {
                     auth.insert("OPENAI_API_KEY".to_string(), json!(PROXY_TOKEN_PLACEHOLDER));
+                } else if let Some(root) = live_config.as_object_mut() {
+                    root.insert(
+                        "auth".to_string(),
+                        json!({ "OPENAI_API_KEY": PROXY_TOKEN_PLACEHOLDER }),
+                    );
                 }
 
                 let config_str = live_config
                     .get("config")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let codex_provider = self.require_current_provider_for_app(&AppType::Codex)?;
                 let updated_config = Self::apply_codex_proxy_toml_config_for_provider(
                     config_str,
                     &proxy_codex_base_url,
@@ -1364,7 +1595,17 @@ impl ProxyService {
                 log::info!("Codex Live 配置已接管，代理地址: {proxy_codex_base_url}");
             }
             AppType::Gemini => {
-                let mut live_config = self.read_gemini_live()?;
+                let gemini_provider = self.require_current_provider_for_app(&AppType::Gemini)?;
+                let mut live_config = if Self::primary_live_exists_for_app(&AppType::Gemini) {
+                    self.read_gemini_live()?
+                } else {
+                    build_effective_settings_with_common_config(
+                        self.db.as_ref(),
+                        &AppType::Gemini,
+                        &gemini_provider,
+                    )
+                    .map_err(|e| format!("构建 gemini 有效配置失败: {e}"))?
+                };
 
                 if let Some(env) = live_config.get_mut("env").and_then(|v| v.as_object_mut()) {
                     env.insert("GOOGLE_GEMINI_BASE_URL".to_string(), json!(&proxy_url));
@@ -1386,6 +1627,8 @@ impl ProxyService {
     }
 
     /// 接管指定应用的 Live 配置（尽力而为：配置不存在/读取失败则跳过）
+    #[cfg(test)]
+    #[allow(dead_code)] // 旧批量接管回归夹具的内部步骤
     async fn takeover_live_config_best_effort(&self, app_type: &AppType) -> Result<(), String> {
         let (proxy_url, proxy_codex_base_url) = self.build_proxy_urls().await?;
 
@@ -1466,50 +1709,9 @@ impl ProxyService {
         Ok(())
     }
 
-    fn decode_legacy_live_backup(app_type: &str, raw: &str) -> Result<Value, String> {
-        match crate::proxy::snapshot::decode_stored_snapshot(app_type, raw)? {
-            crate::proxy::snapshot::DecodedSnapshot::Legacy(legacy) => {
-                serde_json::from_str(&legacy.original_config)
-                    .map_err(|error| format!("解析 {app_type} 旧版备份失败: {error}"))
-            }
-            crate::proxy::snapshot::DecodedSnapshot::Manifest(_) => Err(format!(
-                "{app_type} 已使用版本化精确快照，但模块恢复 adapter 尚未接入；已保留快照"
-            )),
-        }
-    }
-
-    async fn restore_live_config_for_app_inner(&self, app_type: &AppType) -> Result<(), String> {
-        match app_type {
-            AppType::Claude => {
-                if let Ok(Some(backup)) = self.db.get_live_backup("claude").await {
-                    let config =
-                        Self::decode_legacy_live_backup("claude", &backup.original_config)?;
-                    self.write_claude_live(&config)?;
-                    log::info!("Claude Live 配置已恢复");
-                }
-            }
-            AppType::Codex => {
-                if let Ok(Some(backup)) = self.db.get_live_backup("codex").await {
-                    let config = Self::decode_legacy_live_backup("codex", &backup.original_config)?;
-                    self.write_codex_live(&config)?;
-                    log::info!("Codex Live 配置已恢复");
-                }
-            }
-            AppType::Gemini => {
-                if let Ok(Some(backup)) = self.db.get_live_backup("gemini").await {
-                    let config =
-                        Self::decode_legacy_live_backup("gemini", &backup.original_config)?;
-                    self.write_gemini_live(&config)?;
-                    log::info!("Gemini Live 配置已恢复");
-                }
-            }
-            _ => {}
-        }
-
-        Ok(())
-    }
-
     /// 恢复原始 Live 配置
+    #[cfg(test)]
+    #[allow(dead_code)] // 旧批量接管失败回归夹具；生产恢复走逐模块 adapter
     async fn restore_live_configs(&self) -> Result<(), String> {
         let mut errors = Vec::new();
 
@@ -1551,19 +1753,37 @@ impl ProxyService {
             .await
             .map_err(|e| format!("获取 {app_type_str} Live 备份失败: {e}"))?;
         if let Some(backup) = backup {
-            let config = Self::decode_legacy_live_backup(app_type_str, &backup.original_config)?;
+            // C2a：版本化精确快照走 adapter 逐字节恢复（proxy 残留恢复），恢复成功即返回。
+            // decode 分流：Manifest → adapter；无版本旧 JSON → legacy 兜底逻辑。
+            match crate::proxy::snapshot::decode_stored_snapshot(
+                app_type_str,
+                &backup.original_config,
+            )? {
+                crate::proxy::snapshot::DecodedSnapshot::Manifest(manifest) => {
+                    let adapter = snapshot_adapter_for_app(app_type).ok_or_else(|| {
+                        format!("{app_type_str} 存在版本化快照，但精确恢复 adapter 尚未接入；已保留快照")
+                    })?;
+                    adapter.restore_manifest_transactional(&manifest)?;
+                    log::info!("{app_type_str} Live 配置已从版本化快照恢复");
+                    return Ok(());
+                }
+                crate::proxy::snapshot::DecodedSnapshot::Legacy(legacy) => {
+                    let config: Value = serde_json::from_str(&legacy.original_config)
+                        .map_err(|error| format!("解析 {app_type_str} 旧版备份失败: {error}"))?;
 
-            // 备份若是代理占位符（异常历史：上次 stop 失败导致 Live 留在了代理状态，
-            // 下次接管时又被错误地备份成"原始 Live"），不能直接用 — 否则 stop 后
-            // Live 永远卡在 127.0.0.1:42567。落到下面的 SSOT 兜底重建。
-            if Self::live_has_proxy_placeholder_for_app(app_type, &config) {
-                log::warn!(
-                    "{app_type_str} 备份本身已是代理占位符（异常历史状态），跳过备份，改走 SSOT 重建 Live"
-                );
-            } else {
-                self.write_live_config_for_app(app_type, &config)?;
-                log::info!("{app_type_str} Live 配置已从备份恢复");
-                return Ok(());
+                    // 备份若是代理占位符（异常历史：上次 stop 失败导致 Live 留在了代理状态，
+                    // 下次接管时又被错误地备份成"原始 Live"），不能直接用 — 否则 stop 后
+                    // Live 永远卡在 127.0.0.1:42567。落到下面的 SSOT 兜底重建。
+                    if Self::live_has_proxy_placeholder_for_app(app_type, &config) {
+                        log::warn!(
+                            "{app_type_str} 备份本身已是代理占位符（异常历史状态），跳过备份，改走 SSOT 重建 Live"
+                        );
+                    } else {
+                        self.write_live_config_for_app(app_type, &config)?;
+                        log::info!("{app_type_str} Live 配置已从旧版备份恢复");
+                        return Ok(());
+                    }
+                }
             }
         }
 
@@ -1688,10 +1908,12 @@ impl ProxyService {
             || rest.starts_with("::")
     }
 
+    #[cfg(test)]
     fn proxy_urls_match(actual: &str, expected: &str) -> bool {
         actual.trim().trim_end_matches('/') == expected.trim().trim_end_matches('/')
     }
 
+    #[cfg(test)]
     fn codex_config_has_base_url_matching(
         config_text: &str,
         predicate: impl Fn(&str) -> bool,
@@ -1723,6 +1945,7 @@ impl ProxyService {
             .is_some_and(predicate)
     }
 
+    #[cfg(test)]
     async fn live_takeover_matches_current_proxy(
         &self,
         app_type: &AppType,
@@ -2126,14 +2349,12 @@ impl ProxyService {
                 .as_deref()
                 != Some(provider_id);
 
-        let has_backup = self
-            .db
-            .get_live_backup(app_type_enum.as_str())
-            .await
-            .map_err(|e| format!("读取 {app_type} 备份失败: {e}"))?
-            .is_some();
+        // Option A (C2a): the restore snapshot in proxy_live_backup is the IMMUTABLE
+        // first-open capture. Hot-switch under ProxyManaged only refreshes the
+        // proxy-safe live display (Claude/Codex labels follow the selected provider
+        // while endpoints stay local). It never rewrites the snapshot slot — the
+        // "managed expected" baseline is C3's in-memory concern.
         let live_taken_over = self.detect_takeover_in_live_config_for_app(&app_type_enum);
-        let should_sync_backup = has_backup || live_taken_over;
 
         self.db
             .set_current_provider(app_type_enum.as_str(), provider_id)
@@ -2141,40 +2362,15 @@ impl ProxyService {
         crate::settings::set_current_provider(&app_type_enum, Some(provider_id))
             .map_err(|e| format!("更新本地当前供应商失败: {e}"))?;
 
-        if should_sync_backup {
-            self.update_live_backup_from_provider_inner(app_type, &provider)
+        if matches!(app_type_enum, AppType::Claude) {
+            self.sync_claude_live_from_provider_while_proxy_active(&provider)
                 .await?;
-
-            if matches!(app_type_enum, AppType::Claude) {
-                self.sync_claude_live_from_provider_while_proxy_active(&provider)
-                    .await?;
-            } else if live_taken_over && matches!(app_type_enum, AppType::Codex) {
-                self.sync_codex_live_from_provider_while_proxy_active(&provider)
-                    .await?;
-            }
-        }
-
-        if has_backup && !live_taken_over && matches!(app_type_enum, AppType::Codex) {
-            let effective_settings = build_effective_settings_with_common_config(
-                self.db.as_ref(),
-                &AppType::Codex,
-                &provider,
-            )
-            .map_err(|e| format!("构建 Codex 有效配置失败: {e}"))?;
-            let auth = effective_settings
-                .get("auth")
-                .ok_or_else(|| "Codex 供应商缺少 auth 配置".to_string())?;
-            let config_str = effective_settings.get("config").and_then(|v| v.as_str());
-            let profile = crate::proxy::providers::resolve_codex_catalog_tool_profile(&provider);
-
-            crate::codex_config::write_codex_provider_live_with_catalog(
-                &effective_settings,
-                provider.category.as_deref(),
-                auth,
-                config_str,
-                profile,
-            )
-            .map_err(|e| format!("写入 Codex 配置失败: {e}"))?;
+        } else if live_taken_over && matches!(app_type_enum, AppType::Codex) {
+            // Even when the gateway is stopped, if live still carries the proxy
+            // placeholder we refresh the Codex-visible provider label so the
+            // client menu tracks the selected provider.
+            self.sync_codex_live_from_provider_while_proxy_active(&provider)
+                .await?;
         }
 
         if let Some(server) = self.server.read().await.as_ref() {
@@ -2480,68 +2676,8 @@ impl ProxyService {
     }
 
     fn write_codex_live_verbatim(&self, config: &Value) -> Result<(), String> {
-        use crate::codex_config::{get_codex_auth_path, get_codex_config_path};
-
-        let auth = config.get("auth");
-        let config_str = config.get("config").and_then(|v| v.as_str());
-
-        // Decide the config.toml text ONCE, before splitting on auth. A stored
-        // Codex backup comes in two shapes needing opposite handling:
-        //  - snapshot backup (`read_codex_live_settings`): no inline `modelCatalog`;
-        //    the config text already carries the live `model_catalog_json` pointer
-        //    → keep raw, or projection would strip it.
-        //  - provider-rebuilt backup (`update_live_backup_from_provider`): inline
-        //    `modelCatalog` (DB SSOT) with a pointer-less config text → project,
-        //    or the mapping is lost on restore.
-        // The projection decision is orthogonal to auth: a provider-rebuilt backup
-        // can pair an inline `modelCatalog` with empty/absent `auth.json` (the key
-        // living in the config's `experimental_bearer_token`). Computing it up here
-        // keeps every config-writing branch — write-auth, delete-auth, no-auth —
-        // consistent instead of letting the empty-auth path skip projection.
-        // Verbatim restore has no Provider in hand (we only have the stored
-        // backup config), so the catalog tool profile can't be recovered here.
-        // Default to ProxyChat: a restored native-direct backup keeps its inline
-        // modelCatalog but would not get apply_patch re-stripped until the next
-        // provider switch rewrites it via write_live_snapshot. Acceptable known
-        // limitation (restore-of-deleted-provider-backup only).
-        let prepared_cfg = config_str
-            .map(|cfg| {
-                crate::codex_config::prepare_codex_live_config_text_with_optional_catalog(
-                    config,
-                    cfg,
-                    crate::codex_config::CodexCatalogToolProfile::ProxyChat,
-                )
-            })
-            .transpose()
-            .map_err(|e| format!("写入 Codex 配置失败: {e}"))?;
-
-        match (auth, prepared_cfg.as_deref()) {
-            (Some(auth), Some(cfg)) => {
-                let auth_path = get_codex_auth_path();
-                if auth.as_object().is_some_and(|obj| obj.is_empty()) {
-                    let _ = crate::config::delete_file(&auth_path);
-                    let config_path = get_codex_config_path();
-                    crate::config::write_text_file(&config_path, cfg)
-                        .map_err(|e| format!("写入 Codex config 失败: {e}"))?;
-                } else {
-                    crate::codex_config::write_codex_live_atomic(auth, Some(cfg))
-                        .map_err(|e| format!("写入 Codex 配置失败: {e}"))?;
-                }
-            }
-            (Some(auth), None) => {
-                let auth_path = get_codex_auth_path();
-                write_json_file(&auth_path, auth)
-                    .map_err(|e| format!("写入 Codex auth 失败: {e}"))?;
-            }
-            (None, Some(cfg)) => {
-                let config_path = get_codex_config_path();
-                crate::config::write_text_file(&config_path, cfg)
-                    .map_err(|e| format!("写入 Codex config 失败: {e}"))?;
-            }
-            (None, None) => {}
-        }
-
-        Ok(())
+        crate::codex_config::write_codex_live_verbatim(config)
+            .map_err(|e| format!("写入 Codex 配置失败: {e}"))
     }
 
     fn read_gemini_live(&self) -> Result<Value, String> {
@@ -2640,35 +2776,24 @@ impl ProxyService {
             *server_guard = Some(new_server);
             log::info!("代理配置已更新，服务器已自动重启应用最新配置");
 
-            // 如果当前存在任意 app 的 Live 接管，需要同步更新 Live 中的代理地址（否则客户端仍指向旧端口）
+            // 网关地址变更后，只重写 SSOT 明确为 takeover+proxy 的三模块；逐模块加锁并
+            // 使用严格 writer，避免 best-effort 静默留下旧端口或与 provider 写入竞态。
             drop(server_guard);
-            if let Ok(takeover) = self.get_takeover_status().await {
-                let mut updated_any = false;
-
-                if takeover.claude.takeover_enabled
-                    && takeover.claude.route_mode == RouteMode::Proxy
-                {
-                    self.takeover_live_config_best_effort(&AppType::Claude)
-                        .await?;
+            let mut updated_any = false;
+            for app in [AppType::Claude, AppType::Codex, AppType::Gemini] {
+                let _guard = self.switch_locks.lock_for_app(app.as_str()).await;
+                let config = self
+                    .db
+                    .get_proxy_config_for_app(app.as_str())
+                    .await
+                    .map_err(|e| format!("读取 {} 接管状态失败: {e}", app.as_str()))?;
+                if config.takeover_enabled && config.route_mode == RouteMode::Proxy {
+                    self.takeover_live_config_strict(&app).await?;
                     updated_any = true;
                 }
-                if takeover.codex.takeover_enabled && takeover.codex.route_mode == RouteMode::Proxy
-                {
-                    self.takeover_live_config_best_effort(&AppType::Codex)
-                        .await?;
-                    updated_any = true;
-                }
-                if takeover.gemini.takeover_enabled
-                    && takeover.gemini.route_mode == RouteMode::Proxy
-                {
-                    self.takeover_live_config_best_effort(&AppType::Gemini)
-                        .await?;
-                    updated_any = true;
-                }
-
-                if updated_any {
-                    log::info!("已同步更新 Live 配置中的代理地址");
-                }
+            }
+            if updated_any {
+                log::info!("已同步更新 Live 配置中的代理地址");
             }
 
             return Ok(());
@@ -3259,10 +3384,11 @@ mod tests {
             }))
             .expect("seed claude live config");
 
-        let info = service
-            .start_with_takeover()
+        let info = service.start().await.expect("start proxy gateway");
+        service
+            .set_takeover_for_app("claude", true, RouteMode::Proxy)
             .await
-            .expect("start proxy with takeover");
+            .expect("enable Claude proxy takeover explicitly");
         assert_ne!(info.port, 0, "OS should assign a concrete port");
 
         let stored_config = db.get_proxy_config().await.expect("read proxy config");
@@ -3287,6 +3413,108 @@ mod tests {
             .stop_with_restore()
             .await
             .expect("stop proxy and restore live config");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn c2a_route_modes_keep_gateway_and_first_open_snapshot_independent() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+
+        let db = Arc::new(Database::memory().expect("init db"));
+        use_ephemeral_proxy_port(&db).await;
+        let service = ProxyService::new(db.clone());
+        let provider = Provider::with_id(
+            "p1".to_string(),
+            "P1".to_string(),
+            json!({
+                "env": {
+                    "ANTHROPIC_API_KEY": "provider-key",
+                    "ANTHROPIC_BASE_URL": "https://upstream.example"
+                }
+            }),
+            None,
+        );
+        db.save_provider("claude", &provider)
+            .expect("save provider");
+        db.set_current_provider("claude", "p1")
+            .expect("set db current provider");
+        crate::settings::set_current_provider(&AppType::Claude, Some("p1"))
+            .expect("set local current provider");
+
+        let settings_path = get_claude_settings_path();
+        std::fs::create_dir_all(settings_path.parent().expect("settings parent"))
+            .expect("create settings directory");
+        let original =
+            b"{\n  \"env\": {\"ANTHROPIC_API_KEY\": \"original\"},\n  \"custom\": 1\n}\n";
+        std::fs::write(&settings_path, original).expect("seed original settings");
+
+        service
+            .set_takeover_for_app("claude", true, RouteMode::Direct)
+            .await
+            .expect("enable direct takeover");
+        assert!(
+            !service.is_running().await,
+            "direct takeover must not start gateway"
+        );
+        let snapshot = db
+            .get_live_backup("claude")
+            .await
+            .expect("read snapshot")
+            .expect("snapshot exists")
+            .original_config;
+
+        service
+            .switch_route_mode("claude", RouteMode::Proxy)
+            .await
+            .expect("switch to proxy");
+        assert!(service.is_running().await, "proxy route must start gateway");
+        assert_eq!(
+            db.get_live_backup("claude")
+                .await
+                .expect("read snapshot")
+                .expect("snapshot exists")
+                .original_config,
+            snapshot,
+            "route switch must not recapture or overwrite first-open snapshot"
+        );
+
+        service
+            .switch_route_mode("claude", RouteMode::Direct)
+            .await
+            .expect("switch back to direct");
+        assert!(
+            service.is_running().await,
+            "switching direct must not stop an independently running gateway"
+        );
+        let direct_live: Value = read_json_file(&settings_path).expect("read direct live");
+        assert_eq!(
+            direct_live["env"]["ANTHROPIC_BASE_URL"],
+            "https://upstream.example"
+        );
+
+        service
+            .set_takeover_for_app("claude", false, RouteMode::Direct)
+            .await
+            .expect("disable takeover");
+        assert_eq!(
+            std::fs::read(&settings_path).expect("read restored settings"),
+            original
+        );
+        assert!(
+            !db.get_proxy_config_for_app("claude")
+                .await
+                .expect("read takeover state")
+                .takeover_enabled
+        );
+        assert!(
+            db.get_live_backup("claude")
+                .await
+                .expect("read snapshot")
+                .is_none(),
+            "successful exact restore must release snapshot"
+        );
+        service.stop().await.expect("stop independent gateway");
     }
 
     #[test]
@@ -3607,7 +3835,7 @@ wire_api = "responses"
             .expect("set local current provider");
 
         service
-            .set_takeover_for_app("codex", true)
+            .set_takeover_for_app("codex", true, RouteMode::Proxy)
             .await
             .expect("enable Codex takeover");
 
@@ -3620,7 +3848,7 @@ wire_api = "responses"
         );
 
         service
-            .set_takeover_for_app("codex", false)
+            .set_takeover_for_app("codex", false, RouteMode::Proxy)
             .await
             .expect("disable Codex takeover");
         crate::settings::update_settings(crate::settings::AppSettings::default())
@@ -3688,7 +3916,7 @@ wire_api = "responses"
 
         state
             .proxy_service
-            .set_takeover_for_app("codex", true)
+            .set_takeover_for_app("codex", true, RouteMode::Proxy)
             .await
             .expect("enable Codex takeover");
 
@@ -3703,29 +3931,49 @@ wire_api = "responses"
             "post-change provider sync must not rewrite Codex auth.json during takeover"
         );
 
+        // C2a Option A: the restore backup is now the IMMUTABLE first-open
+        // versioned snapshot manifest (byte-exact original files), no longer a
+        // provider-derived `{auth, config}` JSON. Decode the manifest and assert
+        // its `auth` target round-trips to the original OAuth material, and its
+        // `config` target carries the original DeepSeek key.
         let backup = db
             .get_live_backup("codex")
             .await
             .expect("get live backup")
             .expect("backup exists");
-        let backup_value: Value =
-            serde_json::from_str(&backup.original_config).expect("parse backup");
+        let manifest = crate::proxy::snapshot::SnapshotManifest::decode(&backup.original_config)
+            .expect("backup must be a versioned snapshot manifest");
+        let auth_bytes = manifest
+            .targets
+            .iter()
+            .find(|t| t.id() == "auth")
+            .expect("manifest has auth target")
+            .file_payload()
+            .expect("decode auth payload")
+            .expect("auth existed at first open");
+        let backup_auth: Value =
+            serde_json::from_slice(&auth_bytes).expect("parse captured auth.json bytes");
         assert_eq!(
-            backup_value.get("auth"),
-            Some(&oauth_auth),
-            "provider-derived takeover backup should preserve official OAuth auth"
+            backup_auth, oauth_auth,
+            "immutable first-open snapshot should capture the original official OAuth auth verbatim"
         );
+        let config_bytes = manifest
+            .targets
+            .iter()
+            .find(|t| t.id() == "config")
+            .expect("manifest has config target")
+            .file_payload()
+            .expect("decode config payload")
+            .expect("config existed at first open");
+        let backup_config = String::from_utf8(config_bytes).expect("config.toml is utf-8");
         assert!(
-            backup_value
-                .get("config")
-                .and_then(|value| value.as_str())
-                .is_some_and(|config| config.contains("deepseek-key")),
-            "provider token should be carried by config.toml in the restore backup"
+            backup_config.contains("deepseek-key"),
+            "first-open config.toml snapshot should carry the original provider token"
         );
 
         state
             .proxy_service
-            .set_takeover_for_app("codex", false)
+            .set_takeover_for_app("codex", false, RouteMode::Proxy)
             .await
             .expect("disable Codex takeover");
         let restored_auth: Value =
@@ -3936,7 +4184,7 @@ wire_api = "responses"
             .expect("mark Codex takeover enabled");
 
         service
-            .set_takeover_for_app("codex", true)
+            .set_takeover_for_app("codex", true, RouteMode::Proxy)
             .await
             .expect("rebuild Codex takeover");
 
@@ -3989,7 +4237,7 @@ wire_api = "responses"
         );
 
         service
-            .set_takeover_for_app("codex", false)
+            .set_takeover_for_app("codex", false, RouteMode::Proxy)
             .await
             .expect("disable Codex takeover");
         crate::settings::update_settings(crate::settings::AppSettings::default())
@@ -4627,14 +4875,17 @@ model = "gpt-5.1-codex"
             Some("b")
         );
 
-        // 断言：Live 备份已更新为目标供应商配置（用于 stop_with_restore 恢复）
+        // Option A: hot-switch updates current provider but NEVER rewrites the
+        // immutable first-open restore snapshot. Managed-expected baseline is C3.
         let backup = db
             .get_live_backup("claude")
             .await
             .expect("get live backup")
             .expect("backup exists");
-        let expected = serde_json::to_string(&provider_b.settings_config).expect("serialize");
-        assert_eq!(backup.original_config, expected);
+        assert_eq!(
+            backup.original_config, "{\"env\":{}}",
+            "proxy target switch must preserve the first-open restore snapshot"
+        );
     }
 
     #[tokio::test]
@@ -4791,12 +5042,14 @@ model = "gpt-5.1-codex"
             "subagent model should follow the target provider during hot switch"
         );
 
+        // Option A: proxy-safe live refresh follows provider B, while the
+        // immutable first-open snapshot remains provider A.
         let backup = db
             .get_live_backup("claude")
             .await
             .expect("get live backup")
             .expect("backup exists");
-        let expected = serde_json::to_string(&provider_b.settings_config).expect("serialize");
+        let expected = serde_json::to_string(&provider_a.settings_config).expect("serialize");
         assert_eq!(backup.original_config, expected);
     }
 
@@ -4884,18 +5137,22 @@ model = "gpt-5.1-codex"
             Some("c".to_string())
         );
 
+        // Option A: concurrent hot-switches still serialize current-provider
+        // updates, but they never rewrite the first-open restore snapshot.
         let backup = db
             .get_live_backup("claude")
             .await
             .expect("get live backup")
             .expect("backup exists");
-        let expected = serde_json::to_string(&provider_c.settings_config).expect("serialize");
-        assert_eq!(backup.original_config, expected);
+        assert_eq!(
+            backup.original_config, "{\"env\":{}}",
+            "serialized hot-switches must preserve the first-open restore snapshot"
+        );
     }
 
     #[tokio::test]
     #[serial]
-    async fn restore_waits_for_hot_switch_and_restores_latest_backup() {
+    async fn restore_waits_for_hot_switch_and_restores_first_open_snapshot() {
         use tokio::time::{sleep, Duration};
 
         let _home = TempHome::new();
@@ -4966,16 +5223,20 @@ model = "gpt-5.1-codex"
             Some("b".to_string())
         );
 
+        // Option A: restore waits for the in-flight hot-switch (serialized by the
+        // per-app switch lock), then restores the IMMUTABLE first-open snapshot
+        // (provider A). The hot-switch's current-provider update to B stands, but
+        // the restore-snapshot source is provider A, not the latest hot-switch.
         let backup = db
             .get_live_backup("claude")
             .await
             .expect("get live backup")
             .expect("backup exists");
-        let expected = serde_json::to_string(&provider_b.settings_config).expect("serialize");
+        let expected = serde_json::to_string(&provider_a.settings_config).expect("serialize");
         assert_eq!(backup.original_config, expected);
         assert_eq!(
             service.read_claude_live().expect("read live"),
-            provider_b.settings_config
+            provider_a.settings_config
         );
     }
 
@@ -5171,7 +5432,7 @@ base_url = "https://new.example/v1"
 
     #[tokio::test]
     #[serial]
-    async fn hot_switch_codex_provider_preserves_provider_model_provider_in_backup_and_restore() {
+    async fn hot_switch_codex_provider_preserves_first_open_backup_and_proxy_label() {
         let _home = TempHome::new();
         crate::settings::reload_settings().expect("reload settings");
 
@@ -5266,10 +5527,12 @@ requires_openai_auth = true
             .expect("backup config string");
         let parsed_backup: toml::Value =
             toml::from_str(backup_config).expect("parse backup config");
+        // Option A: hot-switch must not rewrite the immutable first-open backup
+        // (provider A / RightCode). Only the proxy-safe live label follows B.
         assert_eq!(
             parsed_backup.get("model_provider").and_then(|v| v.as_str()),
-            Some("aihubmix"),
-            "provider-derived restore backup should preserve the provider's model_provider"
+            Some("rightcode"),
+            "first-open restore backup should remain provider A"
         );
         let backup_model_providers = parsed_backup
             .get("model_providers")
@@ -5278,11 +5541,11 @@ requires_openai_auth = true
         assert!(backup_model_providers.get("custom").is_none());
         assert_eq!(
             backup_model_providers
-                .get("aihubmix")
+                .get("rightcode")
                 .and_then(|v| v.get("base_url"))
                 .and_then(|v| v.as_str()),
-            Some("https://aihubmix.example/v1"),
-            "provider id should point at the hot-switched provider endpoint"
+            Some("https://rightcode.example/v1"),
+            "first-open backup should retain provider A endpoint"
         );
 
         let live = service.read_codex_live().expect("read Codex live config");
@@ -5328,15 +5591,15 @@ requires_openai_auth = true
         let parsed_live: toml::Value = toml::from_str(live_config).expect("parse live config");
         assert_eq!(
             parsed_live.get("model_provider").and_then(|v| v.as_str()),
-            Some("aihubmix"),
-            "restored Codex live config should preserve the provider's model_provider"
+            Some("rightcode"),
+            "restore should return to the immutable first-open provider A config"
         );
         assert_eq!(
             live.get("auth")
                 .and_then(|auth| auth.get("OPENAI_API_KEY"))
                 .and_then(|v| v.as_str()),
-            Some("aihubmix-key"),
-            "restore should still use the hot-switched provider auth"
+            Some("rightcode-key"),
+            "restore should use the first-open provider A auth"
         );
     }
 
@@ -5663,6 +5926,20 @@ requires_openai_auth = true
         .await
         .expect("seed restored backup");
 
+        // C2a: the truth source for whether a switch writes live is proxy_config,
+        // not backup presence. This test's intent is "AGS owns Codex live and a
+        // switch rewrites the selected provider's real upstream config (with
+        // catalog)" — that is takeover_enabled=true + route_mode=direct.
+        let mut codex_cfg = db
+            .get_proxy_config_for_app("codex")
+            .await
+            .expect("get codex proxy config");
+        codex_cfg.takeover_enabled = true;
+        codex_cfg.route_mode = RouteMode::Direct;
+        db.update_proxy_config_for_app(codex_cfg)
+            .await
+            .expect("enable codex direct takeover");
+
         crate::services::provider::ProviderService::switch(&state, AppType::Codex, "b")
             .expect("provider switch to provider b");
         state.proxy_service.stop().await.expect("stop proxy server");
@@ -5798,6 +6075,19 @@ requires_openai_auth = true
         )
         .await
         .expect("seed restored backup");
+
+        // C2a: the truth source for whether a provider switch writes live is
+        // proxy_config, not backup presence. This scenario (switch writes the new
+        // provider's real upstream catalog to live) is direct-mode takeover.
+        let mut codex_config = db
+            .get_proxy_config_for_app("codex")
+            .await
+            .expect("get codex proxy config");
+        codex_config.takeover_enabled = true;
+        codex_config.route_mode = RouteMode::Direct;
+        db.update_proxy_config_for_app(codex_config)
+            .await
+            .expect("enable direct takeover for codex");
 
         let catalog_path = crate::codex_config::get_codex_model_catalog_path();
         if catalog_path.exists() {
