@@ -1228,6 +1228,23 @@ fn current_platform_paths() -> Result<ClaudeDesktopPaths, AppError> {
     }
 }
 
+/// C2b snapshot 契约：返回 Claude Desktop 接管涉及的四个文件的稳定 target id 与当前路径。
+///
+/// target id 是模块内稳定逻辑名（不落用户绝对路径进 DB），顺序与 `snapshot_files`
+/// 保持一致（normal_config / threep_config / profile / meta）。快照 adapter 用它
+/// 逐字节 capture / restore；恢复时按当前平台重新解析路径，避免用户目录迁移问题。
+///
+/// 不支持的平台返回错误——Claude Desktop 只在 macOS/Windows 存在。
+pub fn snapshot_target_paths() -> Result<Vec<(&'static str, PathBuf)>, AppError> {
+    let paths = current_platform_paths()?;
+    Ok(vec![
+        ("normal_config", paths.normal_config_path),
+        ("threep_config", paths.threep_config_path),
+        ("profile", paths.profile_path),
+        ("meta", paths.meta_path),
+    ])
+}
+
 #[cfg(target_os = "macos")]
 fn macos_paths_from_home(home: &Path) -> ClaudeDesktopPaths {
     let app_support = home.join("Library").join("Application Support");

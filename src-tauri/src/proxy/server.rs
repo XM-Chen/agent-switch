@@ -305,6 +305,40 @@ impl ProxyServer {
                 "/claude-desktop/v1/messages",
                 post(handlers::handle_claude_desktop_messages),
             )
+            // OpenCode 本地 gateway（独立 provider namespace，OpenAI Chat Completions 兼容）
+            .route(
+                "/opencode/v1/chat/completions",
+                post(handlers::handle_opencode_chat_completions),
+            )
+            .route("/opencode/v1/models", get(handlers::handle_opencode_models))
+            // OpenClaw 本地 gateway（独立 provider namespace，按 provider `api` 字段分流协议）
+            .route(
+                "/openclaw/v1/chat/completions",
+                post(handlers::handle_openclaw_chat_completions),
+            )
+            .route(
+                "/openclaw/v1/responses",
+                post(handlers::handle_openclaw_responses),
+            )
+            .route(
+                "/openclaw/v1/messages",
+                post(handlers::handle_openclaw_messages),
+            )
+            .route("/openclaw/v1/models", get(handlers::handle_openclaw_models))
+            // Hermes 本地 gateway（独立 provider namespace，按 provider `api_mode` 字段分流协议）
+            .route(
+                "/hermes/v1/chat/completions",
+                post(handlers::handle_hermes_chat_completions),
+            )
+            .route(
+                "/hermes/v1/messages",
+                post(handlers::handle_hermes_messages),
+            )
+            .route(
+                "/hermes/v1/responses",
+                post(handlers::handle_hermes_responses),
+            )
+            .route("/hermes/v1/models", get(handlers::handle_hermes_models))
             // OpenAI Chat Completions API (Codex CLI，支持带前缀和不带前缀)
             .route("/chat/completions", post(handlers::handle_chat_completions))
             .route(
@@ -391,5 +425,60 @@ impl ProxyServer {
             .provider_router
             .reset_provider_breaker(provider_id, app_type)
             .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use http::{Method, Request, StatusCode};
+
+    async fn route_status(router: &Router, method: Method, path: &str) -> StatusCode {
+        let mut router = router.clone();
+        let request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header(http::header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"model":"test"}"#))
+            .unwrap();
+        tower::Service::call(&mut router, request)
+            .await
+            .unwrap()
+            .status()
+    }
+
+    #[tokio::test]
+    async fn c2b_namespaced_routes_exist_and_all_enforce_gateway_auth() {
+        let db = Arc::new(Database::memory().unwrap());
+        let server = ProxyServer::new(ProxyConfig::default(), db, None);
+        let router = server.build_router();
+
+        let routes = [
+            (Method::POST, "/opencode/v1/chat/completions"),
+            (Method::GET, "/opencode/v1/models"),
+            (Method::POST, "/openclaw/v1/chat/completions"),
+            (Method::POST, "/openclaw/v1/responses"),
+            (Method::POST, "/openclaw/v1/messages"),
+            (Method::GET, "/openclaw/v1/models"),
+            (Method::POST, "/hermes/v1/chat/completions"),
+            (Method::POST, "/hermes/v1/messages"),
+            (Method::POST, "/hermes/v1/responses"),
+            (Method::GET, "/hermes/v1/models"),
+        ];
+
+        for (method, path) in routes {
+            assert_eq!(
+                route_status(&router, method, path).await,
+                StatusCode::UNAUTHORIZED,
+                "route {path} must exist and reject missing gateway auth before provider routing"
+            );
+        }
+
+        // 冻结矩阵没有 OpenCode Messages 路由；不得意外扩大公开 API 面。
+        assert_eq!(
+            route_status(&router, Method::POST, "/opencode/v1/messages").await,
+            StatusCode::NOT_FOUND
+        );
     }
 }
