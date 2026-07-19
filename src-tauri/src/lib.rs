@@ -490,8 +490,11 @@ pub fn run() {
 
             let app_state = AppState::new(db);
 
-            // 设置 AppHandle 用于代理故障转移时的 UI 更新
+            // 设置 AppHandle 用于代理故障转移和外部配置变化的 UI 更新
             app_state.proxy_service.set_app_handle(app.handle().clone());
+            app_state
+                .external_config_monitor
+                .set_app_handle(app.handle().clone());
 
             // ============================================================
             // 按表独立判断的导入逻辑（各类数据独立检查，互不影响）
@@ -1043,6 +1046,13 @@ pub fn run() {
 
                 initialize_common_config_snippets(&state);
 
+                // 仅在 crash recovery 与 common snippet 初始化完成后启动一次外部配置监控。
+                match state.external_config_monitor.start().await {
+                    Ok(true) => log::info!("七模块外部配置 monitor 已启动"),
+                    Ok(false) => log::debug!("七模块外部配置 monitor 已在本进程启动，跳过重复启动"),
+                    Err(error) => log::error!("启动七模块外部配置 monitor 失败: {error}"),
+                }
+
                 // CC 聚合模型缓存调度：防抖增量刷新 + 每日 04:00(上海) 全量 + 启动补跑
                 crate::services::model_cache::start_schedulers(state.db.clone());
 
@@ -1371,6 +1381,7 @@ pub fn run() {
             commands::stop_proxy_server,
             commands::stop_proxy_with_restore,
             commands::get_proxy_takeover_status,
+            commands::get_external_config_status,
             commands::set_proxy_takeover_for_app,
             commands::set_proxy_route_mode,
             commands::get_proxy_status,
@@ -1683,6 +1694,13 @@ pub fn run() {
 /// proxy 恢复成功后原子清状态与快照；direct 不写 Live，只放弃所有权。
 pub async fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
     if let Some(state) = app_handle.try_state::<store::AppState>() {
+        // 必须先停轮询并等待 worker 退出，避免接管恢复过程被误判为外部变化。
+        match state.external_config_monitor.stop().await {
+            Ok(true) => log::info!("七模块外部配置 monitor 已停止"),
+            Ok(false) => {}
+            Err(error) => log::error!("停止七模块外部配置 monitor 失败: {error}"),
+        }
+
         if let Err(error) = state.proxy_service.stop_with_restore_keep_state().await {
             // 恢复失败时状态与快照会保留，供下次启动重试。
             log::error!("退出清理未全部完成: {error}");
