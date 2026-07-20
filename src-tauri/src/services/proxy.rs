@@ -14,13 +14,14 @@ use crate::proxy::snapshot::{
 use crate::proxy::snapshot_adapters::snapshot_adapter_for as c2b_snapshot_adapter_for;
 use crate::proxy::switch_lock::SwitchLockManager;
 use crate::proxy::types::*;
+use crate::services::external_config_monitor::{capture_managed_expected, ExternalConfigMonitor};
 use crate::services::provider::{
     build_effective_settings_with_common_config, write_live_with_common_config,
 };
 use crate::services::proxy_snapshot_adapters::snapshot_adapter_for_app as c2a_snapshot_adapter_for;
 use serde_json::{json, Map, Value};
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock as StdRwLock, Weak};
 use tauri::Emitter;
 use tokio::sync::RwLock;
 
@@ -67,11 +68,23 @@ pub struct ProxyService {
     /// AppHandle，用于传递给 ProxyServer 以支持故障转移时的 UI 更新
     app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
     switch_locks: SwitchLockManager,
+    /// C3 monitor 反向通知使用 Weak，避免 `ProxyService -> monitor -> ProxyService` 强引用环。
+    external_config_monitor: Arc<StdRwLock<Option<Weak<ExternalConfigMonitor>>>>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HotSwitchOutcome {
     pub logical_target_changed: bool,
+}
+
+/// 一次已在 C2 per-app switch lock 内开始的 AGS live 写入。
+///
+/// token 只在外层 orchestrator 创建；底层 atomic writer 与 locked helper 不得自行创建，
+/// 避免非可重入 switch lock / generation 被重复进入。
+pub(crate) struct ManagedWriteToken {
+    app_type: AppType,
+    generation: u64,
+    monitor: Arc<ExternalConfigMonitor>,
 }
 
 /// 基于 `(takeover_enabled, route_mode)` 的三态 Live 写入判定。
@@ -108,6 +121,7 @@ impl ProxyService {
             server: Arc::new(RwLock::new(None)),
             app_handle: Arc::new(RwLock::new(None)),
             switch_locks: SwitchLockManager::new(),
+            external_config_monitor: Arc::new(StdRwLock::new(None)),
         }
     }
 
@@ -457,7 +471,7 @@ impl ProxyService {
     ///
     /// 两侧 adapter 仍各自拥有模块目标实现；这里只做唯一 dispatcher 的组合，不复制
     /// manifest/capture/restore 语义。
-    fn snapshot_adapter_for_app(
+    pub(crate) fn snapshot_adapter_for_app(
         app_type: &AppType,
     ) -> Result<Option<Box<dyn SnapshotModuleAdapter>>, String> {
         if let Some(adapter) = c2a_snapshot_adapter_for(app_type) {
@@ -577,6 +591,164 @@ impl ProxyService {
             build_effective_settings_with_common_config(self.db.as_ref(), app_type, &provider)
                 .map_err(|error| format!("构建 {} 有效配置失败: {error}", app_type.as_str()))?;
         Ok(provider)
+    }
+
+    /// 连接 C3 monitor 的 Weak 通知出口。所有 ProxyService clone 共享同一槽位。
+    pub(crate) fn set_external_config_monitor(&self, monitor: Weak<ExternalConfigMonitor>) {
+        match self.external_config_monitor.write() {
+            Ok(mut slot) => *slot = Some(monitor),
+            Err(error) => log::error!("设置 external config monitor 失败: {error}"),
+        }
+    }
+
+    fn external_config_monitor(&self) -> Result<Option<Arc<ExternalConfigMonitor>>, String> {
+        Ok(self
+            .external_config_monitor
+            .read()
+            .map_err(|error| format!("读取 external config monitor 失败: {error}"))?
+            .as_ref()
+            .and_then(Weak::upgrade))
+    }
+
+    /// 在已持有 C2 per-app switch lock 的最外层写入事务开始 generation。
+    pub(crate) async fn begin_managed_write_locked(
+        &self,
+        app_type: &AppType,
+    ) -> Result<Option<ManagedWriteToken>, String> {
+        let Some(monitor) = self.external_config_monitor()? else {
+            return Ok(None);
+        };
+        let generation = monitor.begin_managed_write(app_type).await?;
+        Ok(Some(ManagedWriteToken {
+            app_type: app_type.clone(),
+            generation,
+            monitor,
+        }))
+    }
+
+    /// 成功写完全部 module targets 后，在释放 switch lock 前提交稳定全文。
+    pub(crate) async fn finish_managed_write_locked(
+        &self,
+        token: Option<ManagedWriteToken>,
+    ) -> Result<(), String> {
+        let Some(token) = token else {
+            return Ok(());
+        };
+        let capture = match capture_managed_expected(&token.app_type, token.generation) {
+            Ok(capture) => capture,
+            Err(capture_error) => {
+                // capture 失败也必须释放 in-flight；没有稳定全文时保守保留旧 expected。
+                let abort_error = token
+                    .monitor
+                    .abort_managed_write(&token.app_type, token.generation, None, None)
+                    .await
+                    .err();
+                return Err(match abort_error {
+                    Some(abort_error) => format!(
+                        "写后采集 {} 受管配置失败: {capture_error}；清理 generation 失败: {abort_error}",
+                        token.app_type.as_str()
+                    ),
+                    None => format!(
+                        "写后采集 {} 受管配置失败: {capture_error}",
+                        token.app_type.as_str()
+                    ),
+                });
+            }
+        };
+        if let Err(finish_error) = token
+            .monitor
+            .finish_managed_write(&token.app_type, token.generation, capture.targets)
+            .await
+        {
+            let abort_error = token
+                .monitor
+                .abort_managed_write(&token.app_type, token.generation, None, None)
+                .await
+                .err();
+            return Err(match abort_error {
+                Some(abort_error) => format!(
+                    "提交 {} managed expected 失败: {finish_error}；清理 generation 失败: {abort_error}",
+                    token.app_type.as_str()
+                ),
+                None => format!(
+                    "提交 {} managed expected 失败: {finish_error}",
+                    token.app_type.as_str()
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    /// 写入失败且 C2 补偿已经返回后，刷新补偿后的稳定全文并幂等清除 in-flight。
+    pub(crate) async fn abort_managed_write_locked(
+        &self,
+        token: Option<ManagedWriteToken>,
+    ) -> Result<(), String> {
+        let Some(token) = token else {
+            return Ok(());
+        };
+        let capture_result = capture_managed_expected(&token.app_type, token.generation);
+        let targets = capture_result
+            .as_ref()
+            .ok()
+            .map(|capture| capture.targets.clone());
+        let takeover_enabled = self
+            .db
+            .get_proxy_config_for_app(token.app_type.as_str())
+            .await
+            .ok()
+            .map(|config| config.takeover_enabled);
+        let abort_result = token
+            .monitor
+            .abort_managed_write(&token.app_type, token.generation, takeover_enabled, targets)
+            .await;
+
+        match (capture_result, abort_result) {
+            (Ok(_), Ok(())) => Ok(()),
+            (Err(capture_error), Ok(())) => Err(format!(
+                "补偿后采集 {} 受管配置失败: {capture_error}",
+                token.app_type.as_str()
+            )),
+            (Ok(_), Err(abort_error)) => Err(abort_error),
+            (Err(capture_error), Err(abort_error)) => Err(format!(
+                "补偿后采集 {} 受管配置失败: {capture_error}；清理 generation 失败: {abort_error}",
+                token.app_type.as_str()
+            )),
+        }
+    }
+
+    pub(crate) fn begin_managed_write_locked_sync(
+        &self,
+        app_type: &AppType,
+    ) -> Result<Option<ManagedWriteToken>, String> {
+        futures::executor::block_on(self.begin_managed_write_locked(app_type))
+    }
+
+    pub(crate) fn finish_managed_write_locked_sync(
+        &self,
+        token: Option<ManagedWriteToken>,
+    ) -> Result<(), String> {
+        futures::executor::block_on(self.finish_managed_write_locked(token))
+    }
+
+    pub(crate) fn abort_managed_write_locked_sync(
+        &self,
+        token: Option<ManagedWriteToken>,
+    ) -> Result<(), String> {
+        futures::executor::block_on(self.abort_managed_write_locked(token))
+    }
+
+    async fn notify_takeover_disabled(
+        &self,
+        app_type: &AppType,
+        ownership_was_enabled: bool,
+    ) -> Result<(), String> {
+        if let Some(monitor) = self.external_config_monitor()? {
+            monitor
+                .takeover_disabled(app_type, ownership_was_enabled)
+                .await?;
+        }
+        Ok(())
     }
 
     /// 设置 AppHandle（在应用初始化时调用）
@@ -746,8 +918,22 @@ impl ProxyService {
         let _guard = self.switch_locks.lock_for_app(app_type_str).await;
 
         if enabled {
-            self.enable_takeover_locked(&app, route_mode).await
+            let token = self.begin_managed_write_locked(&app).await?;
+            match self.enable_takeover_locked(&app, route_mode).await {
+                Ok(()) => self.finish_managed_write_locked(token).await,
+                Err(operation_error) => {
+                    let cleanup_error = self.abort_managed_write_locked(token).await.err();
+                    Err(match cleanup_error {
+                        Some(cleanup_error) => format!(
+                            "{operation_error}；清理 {} managed write 失败: {cleanup_error}",
+                            app.as_str()
+                        ),
+                        None => operation_error,
+                    })
+                }
+            }
         } else {
+            // restore/release 是 ownership 生命周期关闭，不是新的 managed expected。
             self.disable_takeover_locked(&app).await
         }
     }
@@ -1010,7 +1196,8 @@ impl ProxyService {
             .map_err(|e| format!("获取 {app_type_str} 配置失败: {e}"))?;
 
         if !current_config.takeover_enabled {
-            return Ok(()); // 未接管，幂等返回
+            // ownership 已关闭时保持命令幂等；若 monitor 仍有旧 managed 冲突则顺手清理。
+            return self.notify_takeover_disabled(app, false).await;
         }
 
         // direct 与 proxy 都走精确恢复（R10：回滚到首次开启前）。
@@ -1023,6 +1210,7 @@ impl ProxyService {
 
         // 关闭接管或切到 direct 不自动停止网关。
         let _ = self.db.set_live_takeover_active(false).await;
+        self.notify_takeover_disabled(app, true).await?;
         Ok(())
     }
 
@@ -1142,8 +1330,23 @@ impl ProxyService {
             self.validate_proxy_capability_for_app(&app)?;
         }
 
-        self.switch_route_mode_locked(&app, current_config, route_mode)
+        let token = self.begin_managed_write_locked(&app).await?;
+        match self
+            .switch_route_mode_locked(&app, current_config, route_mode)
             .await
+        {
+            Ok(()) => self.finish_managed_write_locked(token).await,
+            Err(operation_error) => {
+                let cleanup_error = self.abort_managed_write_locked(token).await.err();
+                Err(match cleanup_error {
+                    Some(cleanup_error) => format!(
+                        "{operation_error}；清理 {} managed write 失败: {cleanup_error}",
+                        app.as_str()
+                    ),
+                    None => operation_error,
+                })
+            }
+        }
     }
 
     /// Synchronously disable one app's takeover without stopping the proxy process.
@@ -1157,7 +1360,7 @@ impl ProxyService {
             .map_err(|e| format!("获取 {app_type_str} 配置失败: {e}"))?;
 
         if !config.takeover_enabled {
-            return Ok(());
+            return futures::executor::block_on(self.notify_takeover_disabled(app_type, false));
         }
 
         // direct 与 proxy 都走精确恢复（R10）。
@@ -1166,6 +1369,7 @@ impl ProxyService {
         futures::executor::block_on(self.db.clear_provider_health_for_app(app_type_str))
             .map_err(|e| format!("清除 {app_type_str} 健康状态失败: {e}"))?;
         let _ = futures::executor::block_on(self.db.set_live_takeover_active(false));
+        futures::executor::block_on(self.notify_takeover_disabled(app_type, true))?;
 
         Ok(())
     }
@@ -1626,6 +1830,21 @@ impl ProxyService {
         Ok(format!("{}/{}", proxy_origin.trim_end_matches('/'), suffix))
     }
 
+    /// 返回 C3 精确 route parser 应匹配的当前模块网关 base URL。
+    ///
+    /// 地址复用接管 writer 的运行时端口解析和命名空间 helper，避免 parser 另建一套
+    /// 端口/路径规则。
+    pub(crate) async fn expected_gateway_url(&self, app_type: &AppType) -> Result<String, String> {
+        let (proxy_origin, codex_base_url) = self.build_proxy_urls().await?;
+        match app_type {
+            AppType::Claude | AppType::Gemini => Ok(proxy_origin),
+            AppType::Codex => Ok(codex_base_url),
+            AppType::ClaudeDesktop | AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => {
+                Self::namespaced_proxy_base_url(&proxy_origin, app_type)
+            }
+        }
+    }
+
     fn gateway_token_for_live(&self) -> Result<String, String> {
         crate::claude_desktop_config::get_or_create_gateway_token(self.db.as_ref())
             .map_err(|error| format!("获取本地网关 token 失败: {error}"))
@@ -1997,6 +2216,7 @@ impl ProxyService {
         }
     }
 
+    #[cfg(test)]
     async fn restore_live_config_for_app_with_fallback(
         &self,
         app_type: &AppType,
@@ -2468,6 +2688,11 @@ impl ProxyService {
 
         for app in AppType::all() {
             let app_type = app.as_str();
+            // Crash recovery is one ownership transaction per module: inspect state,
+            // restore/abandon, release ownership, and clear monitor state under the same
+            // existing switch lock. Calling the public restore wrapper here would acquire
+            // this non-reentrant lock twice, so use the locked inner helper below.
+            let _guard = self.switch_locks.lock_for_app(app_type).await;
             let config = match self.db.get_proxy_config_for_app(app_type).await {
                 Ok(config) => config,
                 Err(error) => {
@@ -2484,8 +2709,15 @@ impl ProxyService {
             };
             // direct 只放弃所有权，不恢复首次快照，也不改写当前真实上游。
             if config.takeover_enabled && config.route_mode == RouteMode::Direct {
-                if let Err(error) = abandon_snapshot_ownership(&self.db, &app).await {
-                    errors.push(format!("放弃 {app_type} direct 所有权失败: {error}"));
+                match abandon_snapshot_ownership(&self.db, &app).await {
+                    Ok(()) => {
+                        if let Err(error) = self.notify_takeover_disabled(&app, true).await {
+                            errors.push(format!("清理 {app_type} monitor 状态失败: {error}"));
+                        }
+                    }
+                    Err(error) => {
+                        errors.push(format!("放弃 {app_type} direct 所有权失败: {error}"))
+                    }
                 }
                 continue;
             }
@@ -2500,15 +2732,23 @@ impl ProxyService {
 
             // backup/占位符代表确有 proxy 残留；仅凭历史 enabled 不写 Live。
             if has_backup || recoverable_proxy_residue {
-                if let Err(error) = self.restore_live_config_for_app_with_fallback(&app).await {
+                if let Err(error) = self
+                    .restore_live_config_for_app_with_fallback_inner(&app)
+                    .await
+                {
                     errors.push(format!("恢复 {app_type} proxy 残留失败: {error}"));
                     continue;
                 }
             }
 
             if config.takeover_enabled || has_backup || recoverable_proxy_residue {
-                if let Err(error) = self.db.release_takeover_ownership(app_type).await {
-                    errors.push(format!("清理 {app_type} 接管所有权失败: {error}"));
+                match self.db.release_takeover_ownership(app_type).await {
+                    Ok(()) => {
+                        if let Err(error) = self.notify_takeover_disabled(&app, true).await {
+                            errors.push(format!("清理 {app_type} monitor 状态失败: {error}"));
+                        }
+                    }
+                    Err(error) => errors.push(format!("清理 {app_type} 接管所有权失败: {error}")),
                 }
             }
         }
@@ -2931,8 +3171,45 @@ impl ProxyService {
         app_type: &str,
         provider_id: &str,
     ) -> Result<HotSwitchOutcome, String> {
-        let _guard = self.switch_locks.lock_for_app(app_type).await;
-        self.hot_switch_provider_inner(app_type, provider_id).await
+        let app = AppType::from_str(app_type).map_err(|_| format!("无效的应用类型: {app_type}"))?;
+        let _guard = self.switch_locks.lock_for_app(app.as_str()).await;
+        let writes_managed_live = match app {
+            AppType::Claude => true,
+            AppType::Codex => self.detect_takeover_in_live_config_for_app(&AppType::Codex),
+            AppType::Gemini => false,
+            AppType::ClaudeDesktop | AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => {
+                let takeover = self
+                    .db
+                    .get_proxy_config_for_app(app.as_str())
+                    .await
+                    .map_err(|error| format!("读取 {} 接管状态失败: {error}", app.as_str()))?;
+                takeover.takeover_enabled && takeover.route_mode == RouteMode::Proxy
+            }
+        };
+        let token = if writes_managed_live {
+            self.begin_managed_write_locked(&app).await?
+        } else {
+            None
+        };
+        match self
+            .hot_switch_provider_inner(app.as_str(), provider_id)
+            .await
+        {
+            Ok(outcome) => {
+                self.finish_managed_write_locked(token).await?;
+                Ok(outcome)
+            }
+            Err(operation_error) => {
+                let cleanup_error = self.abort_managed_write_locked(token).await.err();
+                Err(match cleanup_error {
+                    Some(cleanup_error) => format!(
+                        "{operation_error}；清理 {} managed write 失败: {cleanup_error}",
+                        app.as_str()
+                    ),
+                    None => operation_error,
+                })
+            }
+        }
     }
 
     pub(crate) async fn hot_switch_provider_inner(
@@ -3471,7 +3748,20 @@ impl ProxyService {
                     .await
                     .map_err(|e| format!("读取 {} 接管状态失败: {e}", app.as_str()))?;
                 if config.takeover_enabled && config.route_mode == RouteMode::Proxy {
-                    self.takeover_live_config_strict(&app).await?;
+                    let token = self.begin_managed_write_locked(&app).await?;
+                    match self.takeover_live_config_strict(&app).await {
+                        Ok(()) => self.finish_managed_write_locked(token).await?,
+                        Err(operation_error) => {
+                            let cleanup_error = self.abort_managed_write_locked(token).await.err();
+                            return Err(match cleanup_error {
+                                Some(cleanup_error) => format!(
+                                    "{operation_error}；清理 {} managed write 失败: {cleanup_error}",
+                                    app.as_str()
+                                ),
+                                None => operation_error,
+                            });
+                        }
+                    }
                     updated_any = true;
                 }
             }

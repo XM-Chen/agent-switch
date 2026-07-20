@@ -1240,6 +1240,8 @@ fn sync_all_enabled_reports_broken_app_but_projects_the_rest() {
     );
 
     let state = create_test_state_with_config(&config).expect("create test state");
+    enable_direct_takeover(&state, AppType::Claude);
+    enable_direct_takeover(&state, AppType::Codex);
 
     let claude_json = agent_switch_lib::get_claude_mcp_path();
     std::fs::write(&claude_json, "{ not valid json").expect("seed broken claude json");

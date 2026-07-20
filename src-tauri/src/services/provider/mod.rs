@@ -17,7 +17,7 @@ use crate::database::{validate_cost_multiplier, validate_pricing_source};
 use crate::error::AppError;
 use crate::provider::{Provider, UsageResult};
 use crate::services::mcp::McpService;
-use crate::services::proxy::LiveWriteDecision;
+use crate::services::proxy::{LiveWriteDecision, ManagedWriteToken};
 use crate::settings::CustomEndpoint;
 use crate::store::AppState;
 
@@ -86,31 +86,38 @@ pub fn reapply_current_codex_official_live(state: &AppState) -> Result<bool, App
                 .proxy_service
                 .detect_takeover_in_live_config_for_app(&AppType::Codex);
             if futures::executor::block_on(state.proxy_service.is_running()) || live_taken_over {
-                futures::executor::block_on(
-                    state
-                        .proxy_service
-                        .sync_codex_live_from_provider_while_proxy_active(provider),
-                )
-                .map_err(|e| AppError::Message(format!("同步 Codex Live 配置失败: {e}")))?;
+                ProviderService::with_managed_write_locked(state, &AppType::Codex, || {
+                    futures::executor::block_on(
+                        state
+                            .proxy_service
+                            .sync_codex_live_from_provider_while_proxy_active(provider),
+                    )
+                    .map_err(|e| AppError::Message(format!("同步 Codex Live 配置失败: {e}")))
+                })?;
             }
             return Ok(true);
         }
         LiveWriteDecision::DirectUpstream => {}
     }
 
-    live::write_live_with_common_config(&state.db, &AppType::Codex, provider)?;
-    // 重写 live 会整体替换 config.toml（有意设计），[mcp_servers] 随之丢失，
-    // 写完必须立刻从 DB 重新投影启用的 MCP。只投影 Codex 而非
-    // sync_all_enabled：后者按 AppType::all() 顺序逐应用短路，排在 Codex
-    // 前面的无关应用 live 损坏（如 ~/.claude.json 坏 JSON）会阻断 Codex
-    // 的重投影，让刚被清掉的 [mcp_servers] 无人补回。
-    // 投影失败降级为警告：走到这里 live 已按新开关状态落盘，开关事实上
-    // 已生效；若把错误上抛，save_settings 会回滚开关设置，制造"设置=旧值、
-    // live=新桶"的会话分裂——正是该回滚要防止的状态。MCP 投影可自愈
-    // （下次切换 / 任一 MCP 启停操作都会重新投影）。
-    if let Err(err) = McpService::sync_enabled_for_app(state, &AppType::Codex) {
-        log::warn!("统一会话开关重写 live 后重投影 Codex MCP 失败（将在下次同步时自愈）: {err}");
-    }
+    ProviderService::with_managed_write_locked(state, &AppType::Codex, || {
+        live::write_live_with_common_config(&state.db, &AppType::Codex, provider)?;
+        // 重写 live 会整体替换 config.toml（有意设计），[mcp_servers] 随之丢失，
+        // 写完必须立刻从 DB 重新投影启用的 MCP。只投影 Codex 而非
+        // sync_all_enabled：后者按 AppType::all() 顺序逐应用短路，排在 Codex
+        // 前面的无关应用 live 损坏（如 ~/.claude.json 坏 JSON）会阻断 Codex
+        // 的重投影，让刚被清掉的 [mcp_servers] 无人补回。
+        // 投影失败降级为警告：走到这里 live 已按新开关状态落盘，开关事实上
+        // 已生效；若把错误上抛，save_settings 会回滚开关设置，制造"设置=旧值、
+        // live=新桶"的会话分裂——正是该回滚要防止的状态。MCP 投影可自愈
+        // （下次切换 / 任一 MCP 启停操作都会重新投影）。
+        if let Err(err) = McpService::sync_enabled_for_app_locked(state, &AppType::Codex) {
+            log::warn!(
+                "统一会话开关重写 live 后重投影 Codex MCP 失败（将在下次同步时自愈）: {err}"
+            );
+        }
+        Ok(())
+    })?;
     Ok(true)
 }
 
@@ -2643,6 +2650,41 @@ requires_openai_auth = true
 }
 
 impl ProviderService {
+    /// 在调用方已持有模块 switch lock 时，把一组同步 live 写入纳入同一 managed generation。
+    /// closure 必须在返回错误前完成既有 C2 补偿；本 helper 随后 abort 并刷新稳定全文。
+    fn with_managed_write_locked<T>(
+        state: &AppState,
+        app_type: &AppType,
+        operation: impl FnOnce() -> Result<T, AppError>,
+    ) -> Result<T, AppError> {
+        let token: Option<ManagedWriteToken> = state
+            .proxy_service
+            .begin_managed_write_locked_sync(app_type)
+            .map_err(AppError::Message)?;
+        match operation() {
+            Ok(value) => {
+                state
+                    .proxy_service
+                    .finish_managed_write_locked_sync(token)
+                    .map_err(AppError::Message)?;
+                Ok(value)
+            }
+            Err(operation_error) => {
+                let cleanup_error = state
+                    .proxy_service
+                    .abort_managed_write_locked_sync(token)
+                    .err();
+                match cleanup_error {
+                    Some(cleanup_error) => Err(AppError::Message(format!(
+                        "{operation_error}；清理 {} managed write 失败: {cleanup_error}",
+                        app_type.as_str()
+                    ))),
+                    None => Err(operation_error),
+                }
+            }
+        }
+    }
+
     fn normalize_provider_if_claude(app_type: &AppType, provider: &mut Provider) {
         if matches!(app_type, AppType::Claude) {
             let mut v = provider.settings_config.clone();
@@ -2850,6 +2892,10 @@ impl ProviderService {
         Self::validate_provider_settings(&app_type, &provider)?;
         normalize_provider_common_config_for_storage(state.db.as_ref(), &app_type, &mut provider)?;
         Self::normalize_usage_script_credential_overrides(&app_type, &mut provider);
+        // add 是本模块最外层 orchestrator；从接管判定到 DB/current/live 完成始终
+        // 持有同一个 C2 switch lock，分支内不得再次获取该非可重入锁。
+        let _switch_guard =
+            futures::executor::block_on(state.proxy_service.lock_switch_for_app(app_type.as_str()));
 
         // Capture C2b DB/current state before any save. A proxy-safe live refresh happens
         // after the provider row/current pointer change, so failures must restore the whole
@@ -2922,7 +2968,9 @@ impl ProviderService {
             match decision {
                 LiveWriteDecision::Skip => {}
                 LiveWriteDecision::DirectUpstream => {
-                    write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
+                    Self::with_managed_write_locked(state, &app_type, || {
+                        write_live_with_common_config(state.db.as_ref(), &app_type, &provider)
+                    })?;
                     Self::set_provider_live_config_managed(&mut provider, true);
                     state.db.save_provider(app_type.as_str(), &provider)?;
                 }
@@ -2936,33 +2984,34 @@ impl ProviderService {
                             .as_deref()
                             == Some(provider.id.as_str());
                     if is_current {
-                        let _switch_guard = futures::executor::block_on(
-                            state.proxy_service.lock_switch_for_app(app_type.as_str()),
-                        );
-                        if let Err(error) = state
-                            .proxy_service
-                            .hot_switch_c2b_provider_sync(&app_type, &provider.id)
-                        {
-                            let operation_error =
-                                AppError::Message(format!("写入代理受管 Live 配置失败: {error}"));
-                            if let Some((
-                                previous_provider,
-                                previous_db_current,
-                                previous_settings_current,
-                            )) = c2b_previous_state.as_ref()
+                        Self::with_managed_write_locked(state, &app_type, || {
+                            if let Err(error) = state
+                                .proxy_service
+                                .hot_switch_c2b_provider_sync(&app_type, &provider.id)
                             {
-                                return Err(Self::rollback_c2b_provider_mutation(
-                                    state,
-                                    &app_type,
-                                    previous_provider.as_ref(),
-                                    &provider.id,
-                                    previous_db_current.as_deref(),
-                                    previous_settings_current.as_deref(),
-                                    operation_error,
+                                let operation_error = AppError::Message(format!(
+                                    "写入代理受管 Live 配置失败: {error}"
                                 ));
+                                if let Some((
+                                    previous_provider,
+                                    previous_db_current,
+                                    previous_settings_current,
+                                )) = c2b_previous_state.as_ref()
+                                {
+                                    return Err(Self::rollback_c2b_provider_mutation(
+                                        state,
+                                        &app_type,
+                                        previous_provider.as_ref(),
+                                        &provider.id,
+                                        previous_db_current.as_deref(),
+                                        previous_settings_current.as_deref(),
+                                        operation_error,
+                                    ));
+                                }
+                                return Err(operation_error);
                             }
-                            return Err(operation_error);
-                        }
+                            Ok(())
+                        })?;
                         Self::set_provider_live_config_managed(&mut provider, true);
                         state.db.save_provider(app_type.as_str(), &provider)?;
                     }
@@ -2995,6 +3044,9 @@ impl ProviderService {
         let mut provider = provider;
         let original_id = original_id.unwrap_or(provider.id.as_str()).to_string();
         let provider_id_changed = original_id != provider.id;
+        // update 是本模块最外层 orchestrator；locked helper 只消费该锁，禁止嵌套获取。
+        let _switch_guard =
+            futures::executor::block_on(state.proxy_service.lock_switch_for_app(app_type.as_str()));
         let existing_provider = state
             .db
             .get_provider_by_id(&original_id, app_type.as_str())?;
@@ -3119,22 +3171,26 @@ impl ProviderService {
                     variant.category,
                 )?;
                 if is_current && matches!(decision, LiveWriteDecision::DirectUpstream) {
-                    crate::services::OmoService::write_provider_config_to_file(&provider, variant)?;
-                }
-                if let Err(err) = state.db.save_provider(app_type.as_str(), &provider) {
-                    if is_current && matches!(decision, LiveWriteDecision::DirectUpstream) {
-                        if let Err(rollback_err) =
-                            crate::services::OmoService::write_config_to_file(state, variant)
-                        {
-                            log::warn!(
-                                "Failed to roll back {} config after DB save error: {}",
-                                variant.label,
-                                rollback_err
-                            );
+                    return Self::with_managed_write_locked(state, &app_type, || {
+                        crate::services::OmoService::write_provider_config_to_file(
+                            &provider, variant,
+                        )?;
+                        if let Err(err) = state.db.save_provider(app_type.as_str(), &provider) {
+                            if let Err(rollback_err) =
+                                crate::services::OmoService::write_config_to_file(state, variant)
+                            {
+                                log::warn!(
+                                    "Failed to roll back {} config after DB save error: {}",
+                                    variant.label,
+                                    rollback_err
+                                );
+                            }
+                            return Err(err);
                         }
-                    }
-                    return Err(err);
+                        Ok(true)
+                    });
                 }
+                state.db.save_provider(app_type.as_str(), &provider)?;
                 return Ok(true);
             }
 
@@ -3163,33 +3219,33 @@ impl ProviderService {
                         .as_deref()
                         == Some(provider.id.as_str());
                 if is_current {
-                    let _switch_guard = futures::executor::block_on(
-                        state.proxy_service.lock_switch_for_app(app_type.as_str()),
-                    );
-                    if let Err(error) = state
-                        .proxy_service
-                        .hot_switch_c2b_provider_sync(&app_type, &provider.id)
-                    {
-                        let operation_error =
-                            AppError::Message(format!("刷新代理受管 Live 配置失败: {error}"));
-                        if let Some((
-                            previous_provider,
-                            previous_db_current,
-                            previous_settings_current,
-                        )) = c2b_previous_state.as_ref()
+                    Self::with_managed_write_locked(state, &app_type, || {
+                        if let Err(error) = state
+                            .proxy_service
+                            .hot_switch_c2b_provider_sync(&app_type, &provider.id)
                         {
-                            return Err(Self::rollback_c2b_provider_mutation(
-                                state,
-                                &app_type,
-                                previous_provider.as_ref(),
-                                &provider.id,
-                                previous_db_current.as_deref(),
-                                previous_settings_current.as_deref(),
-                                operation_error,
-                            ));
+                            let operation_error =
+                                AppError::Message(format!("刷新代理受管 Live 配置失败: {error}"));
+                            if let Some((
+                                previous_provider,
+                                previous_db_current,
+                                previous_settings_current,
+                            )) = c2b_previous_state.as_ref()
+                            {
+                                return Err(Self::rollback_c2b_provider_mutation(
+                                    state,
+                                    &app_type,
+                                    previous_provider.as_ref(),
+                                    &provider.id,
+                                    previous_db_current.as_deref(),
+                                    previous_settings_current.as_deref(),
+                                    operation_error,
+                                ));
+                            }
+                            return Err(operation_error);
                         }
-                        return Err(operation_error);
-                    }
+                        Ok(())
+                    })?;
                 }
                 return Ok(true);
             }
@@ -3212,7 +3268,9 @@ impl ProviderService {
             if !live_config_managed {
                 return Ok(true);
             }
-            write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
+            Self::with_managed_write_locked(state, &app_type, || {
+                write_live_with_common_config(state.db.as_ref(), &app_type, &provider)
+            })?;
             return Ok(true);
         }
 
@@ -3245,8 +3303,6 @@ impl ProviderService {
         app_type: &AppType,
         provider: &Provider,
     ) -> Result<(), AppError> {
-        let _switch_guard =
-            futures::executor::block_on(state.proxy_service.lock_switch_for_app(app_type.as_str()));
         let decision = state
             .proxy_service
             .live_write_decision_for_app_sync(app_type)
@@ -3255,51 +3311,62 @@ impl ProviderService {
         match decision {
             crate::services::proxy::LiveWriteDecision::Skip => Ok(()),
             crate::services::proxy::LiveWriteDecision::DirectUpstream => {
-                write_live_with_common_config(state.db.as_ref(), app_type, provider)?;
-                if let Err(err) = McpService::sync_enabled_for_app(state, app_type) {
-                    log::warn!(
-                        "保存供应商后重投影 {app_type:?} MCP 失败（将在下次同步时自愈）: {err}"
-                    );
-                }
-                Ok(())
+                Self::with_managed_write_locked(state, app_type, || {
+                    write_live_with_common_config(state.db.as_ref(), app_type, provider)?;
+                    if let Err(err) = McpService::sync_enabled_for_app_locked(state, app_type) {
+                        log::warn!(
+                            "保存供应商后重投影 {app_type:?} MCP 失败（将在下次同步时自愈）: {err}"
+                        );
+                    }
+                    Ok(())
+                })
             }
             crate::services::proxy::LiveWriteDecision::ProxyManaged => {
                 match app_type {
                     AppType::Claude
                         if futures::executor::block_on(state.proxy_service.is_running()) =>
                     {
-                        futures::executor::block_on(
-                            state
-                                .proxy_service
-                                .sync_claude_live_from_provider_while_proxy_active(provider),
-                        )
-                        .map_err(|e| {
-                            AppError::Message(format!("同步 Claude Live 配置失败: {e}"))
+                        Self::with_managed_write_locked(state, app_type, || {
+                            futures::executor::block_on(
+                                state
+                                    .proxy_service
+                                    .sync_claude_live_from_provider_while_proxy_active(provider),
+                            )
+                            .map_err(|e| {
+                                AppError::Message(format!("同步 Claude Live 配置失败: {e}"))
+                            })
                         })?;
                     }
                     AppType::Codex
                         if futures::executor::block_on(state.proxy_service.is_running()) =>
                     {
-                        futures::executor::block_on(
-                            state
-                                .proxy_service
-                                .sync_codex_live_from_provider_while_proxy_active(provider),
-                        )
-                        .map_err(|e| AppError::Message(format!("同步 Codex Live 配置失败: {e}")))?;
+                        Self::with_managed_write_locked(state, app_type, || {
+                            futures::executor::block_on(
+                                state
+                                    .proxy_service
+                                    .sync_codex_live_from_provider_while_proxy_active(provider),
+                            )
+                            .map_err(|e| {
+                                AppError::Message(format!("同步 Codex Live 配置失败: {e}"))
+                            })
+                        })?;
                     }
                     AppType::ClaudeDesktop
                     | AppType::OpenCode
                     | AppType::OpenClaw
                     | AppType::Hermes => {
-                        state
-                            .proxy_service
-                            .hot_switch_c2b_provider_sync(app_type, &provider.id)
-                            .map_err(|e| {
-                                AppError::Message(format!(
-                                    "同步 {} 代理受管 Live 配置失败: {e}",
-                                    app_type.as_str()
-                                ))
-                            })?;
+                        Self::with_managed_write_locked(state, app_type, || {
+                            state
+                                .proxy_service
+                                .hot_switch_c2b_provider_sync(app_type, &provider.id)
+                                .map(|_| ())
+                                .map_err(|e| {
+                                    AppError::Message(format!(
+                                        "同步 {} 代理受管 Live 配置失败: {e}",
+                                        app_type.as_str()
+                                    ))
+                                })
+                        })?;
                     }
                     _ => {}
                 }
@@ -3347,7 +3414,9 @@ impl ProviderService {
                     )?;
                     state.db.delete_provider(app_type.as_str(), id)?;
                     if was_current {
-                        crate::services::OmoService::delete_config_file(variant)?;
+                        Self::with_managed_write_locked(state, &app_type, || {
+                            crate::services::OmoService::delete_config_file(variant)
+                        })?;
                     }
                     return Ok(());
                 }
@@ -3364,12 +3433,15 @@ impl ProviderService {
                 .as_ref()
                 .and_then(Self::provider_live_config_managed);
             if Self::check_live_config_exists(&app_type, id, live_managed)? {
-                match app_type {
-                    AppType::OpenCode => remove_opencode_provider_from_live(id)?,
-                    AppType::OpenClaw => remove_openclaw_provider_from_live(id)?,
-                    AppType::Hermes => remove_hermes_provider_from_live(id)?,
-                    _ => {}
-                }
+                Self::with_managed_write_locked(state, &app_type, || {
+                    match app_type {
+                        AppType::OpenCode => remove_opencode_provider_from_live(id)?,
+                        AppType::OpenClaw => remove_openclaw_provider_from_live(id)?,
+                        AppType::Hermes => remove_hermes_provider_from_live(id)?,
+                        _ => {}
+                    }
+                    Ok(())
+                })?;
             }
             state.db.delete_provider(app_type.as_str(), id)?;
             return Ok(());
@@ -3415,48 +3487,53 @@ impl ProviderService {
             return Ok(());
         }
 
-        match app_type {
-            AppType::OpenCode => {
-                let provider_category = state
-                    .db
-                    .get_provider_by_id(id, app_type.as_str())?
-                    .and_then(|p| p.category);
+        Self::with_managed_write_locked(state, &app_type, || {
+            match app_type {
+                AppType::OpenCode => {
+                    let provider_category = state
+                        .db
+                        .get_provider_by_id(id, app_type.as_str())?
+                        .and_then(|p| p.category);
 
-                let omo_variant = match provider_category.as_deref() {
-                    Some("omo") => Some(&crate::services::omo::STANDARD),
-                    Some("omo-slim") => Some(&crate::services::omo::SLIM),
-                    _ => None,
-                };
-                if let Some(variant) = omo_variant {
-                    state
-                        .db
-                        .clear_omo_provider_current(app_type.as_str(), id, variant.category)?;
-                    let still_has_current = state
-                        .db
-                        .get_current_omo_provider("opencode", variant.category)?
-                        .is_some();
-                    if still_has_current {
-                        crate::services::OmoService::write_config_to_file(state, variant)?;
+                    let omo_variant = match provider_category.as_deref() {
+                        Some("omo") => Some(&crate::services::omo::STANDARD),
+                        Some("omo-slim") => Some(&crate::services::omo::SLIM),
+                        _ => None,
+                    };
+                    if let Some(variant) = omo_variant {
+                        state.db.clear_omo_provider_current(
+                            app_type.as_str(),
+                            id,
+                            variant.category,
+                        )?;
+                        let still_has_current = state
+                            .db
+                            .get_current_omo_provider("opencode", variant.category)?
+                            .is_some();
+                        if still_has_current {
+                            crate::services::OmoService::write_config_to_file(state, variant)?;
+                        } else {
+                            crate::services::OmoService::delete_config_file(variant)?;
+                        }
                     } else {
-                        crate::services::OmoService::delete_config_file(variant)?;
+                        remove_opencode_provider_from_live(id)?;
                     }
-                } else {
-                    remove_opencode_provider_from_live(id)?;
+                }
+                AppType::OpenClaw => {
+                    remove_openclaw_provider_from_live(id)?;
+                }
+                AppType::Hermes => {
+                    remove_hermes_provider_from_live(id)?;
+                }
+                _ => {
+                    return Err(AppError::Message(format!(
+                        "App {} does not support remove from live config",
+                        app_type.as_str()
+                    )));
                 }
             }
-            AppType::OpenClaw => {
-                remove_openclaw_provider_from_live(id)?;
-            }
-            AppType::Hermes => {
-                remove_hermes_provider_from_live(id)?;
-            }
-            _ => {
-                return Err(AppError::Message(format!(
-                    "App {} does not support remove from live config",
-                    app_type.as_str()
-                )));
-            }
-        }
+            Ok(())
+        })?;
 
         if let Some(mut provider) = state.db.get_provider_by_id(id, app_type.as_str())? {
             Self::set_provider_live_config_managed(&mut provider, false);
@@ -3517,29 +3594,32 @@ impl ProviderService {
                     app_type.as_str(),
                     id
                 );
-                if matches!(
+                let writes_managed_live = matches!(
                     app_type,
-                    AppType::ClaudeDesktop
+                    AppType::Claude
+                        | AppType::ClaudeDesktop
                         | AppType::OpenCode
                         | AppType::OpenClaw
                         | AppType::Hermes
-                ) {
-                    state
+                ) || matches!(app_type, AppType::Codex)
+                    && state
                         .proxy_service
-                        .hot_switch_c2b_provider_sync(&app_type, id)
-                        .map_err(|e| AppError::Message(format!("热切换失败: {e}")))?;
+                        .detect_takeover_in_live_config_for_app(&AppType::Codex);
+                if writes_managed_live {
+                    Self::with_managed_write_locked(state, &app_type, || {
+                        Self::switch_proxy_managed_locked(state, &app_type, id)
+                    })
                 } else {
-                    futures::executor::block_on(
-                        state
-                            .proxy_service
-                            .hot_switch_provider_inner(app_type.as_str(), id),
-                    )
-                    .map_err(|e| AppError::Message(format!("热切换失败: {e}")))?;
+                    // Gemini 与已被外部改离 proxy 占位的 Codex 不会在 hot-switch 中写
+                    // live；不得用一次纯 DB/current 切换静默接受现有外部冲突。
+                    Self::switch_proxy_managed_locked(state, &app_type, id)
                 }
-                Ok(SwitchResult::default())
             }
             LiveWriteDecision::DirectUpstream => {
-                Self::switch_normal(state, app_type, id, &providers)
+                let direct_app = app_type.clone();
+                Self::with_managed_write_locked(state, &app_type, || {
+                    Self::switch_normal(state, direct_app, id, &providers)
+                })
             }
             LiveWriteDecision::Skip => {
                 if matches!(
@@ -3556,6 +3636,32 @@ impl ProviderService {
                 Self::switch_db_only_current(state, &app_type, id)
             }
         }
+    }
+
+    /// 已持有 switch lock 的 proxy 热切换本体；managed generation 由调用方按是否实际
+    /// 写 live 决定，避免 Gemini/外变 Codex 的纯 current 切换误清冲突。
+    fn switch_proxy_managed_locked(
+        state: &AppState,
+        app_type: &AppType,
+        id: &str,
+    ) -> Result<SwitchResult, AppError> {
+        if matches!(
+            app_type,
+            AppType::ClaudeDesktop | AppType::OpenCode | AppType::OpenClaw | AppType::Hermes
+        ) {
+            state
+                .proxy_service
+                .hot_switch_c2b_provider_sync(app_type, id)
+                .map_err(|e| AppError::Message(format!("热切换失败: {e}")))?;
+        } else {
+            futures::executor::block_on(
+                state
+                    .proxy_service
+                    .hot_switch_provider_inner(app_type.as_str(), id),
+            )
+            .map_err(|e| AppError::Message(format!("热切换失败: {e}")))?;
+        }
+        Ok(SwitchResult::default())
     }
 
     /// Hands-off switch (takeover disabled): update the current-provider pointer
@@ -3718,7 +3824,7 @@ impl ProviderService {
         // 走到这里 DB is_current 与 live 都已落盘，切换事实上已成功；
         // 投影失败上抛会让前端报"切换失败"制造分裂假象，故降级为警告
         // （MCP 投影可自愈：下次切换 / 任一 MCP 启停都会重新投影）。
-        if let Err(err) = McpService::sync_enabled_for_app(state, &app_type) {
+        if let Err(err) = McpService::sync_enabled_for_app_locked(state, &app_type) {
             log::warn!("切换供应商后重投影 {app_type:?} MCP 失败（将在下次同步时自愈）: {err}");
         }
 

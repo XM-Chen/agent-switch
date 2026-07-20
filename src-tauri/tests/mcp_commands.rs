@@ -6,14 +6,99 @@ use serde_json::json;
 use agent_switch_lib::{
     get_claude_mcp_path, get_claude_mcp_status, get_claude_settings_path,
     import_default_config_test_hook, read_claude_mcp_config, update_settings, AppError,
-    AppSettings, AppType, McpApps, McpServer, McpService, MultiAppConfig,
+    AppSettings, AppType, McpApps, McpServer, McpService, MultiAppConfig, RouteMode,
 };
 
 #[path = "support.rs"]
 mod support;
 use support::{
-    create_test_state, create_test_state_with_config, ensure_test_home, reset_test_fs, test_mutex,
+    create_test_state, create_test_state_with_config, enable_direct_takeover, ensure_test_home,
+    reset_test_fs, test_mutex,
 };
+
+fn set_takeover_mode(state: &agent_switch_lib::AppState, app: AppType, route_mode: RouteMode) {
+    futures::executor::block_on(async {
+        let mut config = state
+            .db
+            .get_proxy_config_for_app(app.as_str())
+            .await
+            .expect("get proxy config");
+        config.takeover_enabled = true;
+        config.route_mode = route_mode;
+        state
+            .db
+            .update_proxy_config_for_app(config)
+            .await
+            .expect("set takeover mode");
+    });
+}
+
+fn embedded_mcp_server(command: &str) -> McpServer {
+    McpServer {
+        id: "managed-mcp".to_string(),
+        name: "Managed MCP".to_string(),
+        server: json!({
+            "type": "stdio",
+            "command": command,
+            "args": ["managed"]
+        }),
+        apps: McpApps {
+            claude: false,
+            codex: true,
+            gemini: false,
+            opencode: true,
+            hermes: true,
+        },
+        description: None,
+        homepage: None,
+        docs: None,
+        tags: Vec::new(),
+    }
+}
+
+fn seed_embedded_mcp_targets(
+    home: &std::path::Path,
+) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+    let codex_path = home.join(".codex").join("config.toml");
+    let opencode_path = home.join(".config").join("opencode").join("opencode.json");
+    let hermes_path = agent_switch_lib::hermes_config::get_hermes_config_path();
+    for path in [&codex_path, &opencode_path, &hermes_path] {
+        fs::create_dir_all(path.parent().expect("target parent")).expect("create target dir");
+    }
+    fs::write(
+        &codex_path,
+        r#"model_provider = "ags_proxy"
+
+[model_providers.ags_proxy]
+base_url = "http://127.0.0.1:42567/v1"
+experimental_bearer_token = "gateway-token"
+"#,
+    )
+    .expect("seed codex target");
+    fs::write(
+        &opencode_path,
+        serde_json::to_vec_pretty(&json!({
+            "$schema": "https://opencode.ai/config.json",
+            "provider": {
+                "ags-proxy": {
+                    "npm": "@ai-sdk/openai-compatible",
+                    "options": {
+                        "baseURL": "http://127.0.0.1:42567/opencode/v1",
+                        "apiKey": "gateway-token"
+                    }
+                }
+            }
+        }))
+        .expect("serialize opencode target"),
+    )
+    .expect("seed opencode target");
+    fs::write(
+        &hermes_path,
+        "model: ags-proxy\ncustom_providers:\n  ags-proxy:\n    base_url: http://127.0.0.1:42567/hermes/v1\n    api_key: gateway-token\n",
+    )
+    .expect("seed hermes target");
+    (codex_path, opencode_path, hermes_path)
+}
 
 #[test]
 fn import_default_config_claude_persists_provider() {
@@ -382,6 +467,7 @@ fn set_mcp_enabled_for_codex_writes_live_config() {
     );
 
     let state = create_test_state_with_config(&config).expect("create test state");
+    enable_direct_takeover(&state, AppType::Codex);
 
     // v3.7.0: 使用 toggle_app 替代 set_enabled
     McpService::toggle_app(&state, "codex-server", AppType::Codex, true)
@@ -421,6 +507,7 @@ fn enabling_codex_mcp_skips_when_codex_dir_missing() {
     );
 
     let state = create_test_state().expect("create test state");
+    enable_direct_takeover(&state, AppType::Codex);
 
     // 先插入一个未启用 Codex 的 MCP 服务器（避免 upsert 触发同步）
     McpService::upsert_server(
@@ -468,6 +555,7 @@ fn upsert_mcp_server_disabling_app_removes_from_claude_live_config() {
 
     // 先创建一个启用 Claude 的 MCP 服务器
     let state = support::create_test_state().expect("create test state");
+    enable_direct_takeover(&state, AppType::Claude);
     McpService::upsert_server(
         &state,
         McpServer {
@@ -633,6 +721,7 @@ fn enabling_gemini_mcp_skips_when_gemini_dir_missing() {
     );
 
     let state = create_test_state().expect("create test state");
+    enable_direct_takeover(&state, AppType::Gemini);
 
     // 先插入一个未启用 Gemini 的 MCP 服务器（避免 upsert 触发同步）
     McpService::upsert_server(
@@ -688,6 +777,7 @@ fn enabling_claude_mcp_skips_when_claude_config_absent() {
     );
 
     let state = create_test_state().expect("create test state");
+    enable_direct_takeover(&state, AppType::Claude);
 
     // 先插入一个未启用 Claude 的 MCP 服务器（避免 upsert 触发同步）
     McpService::upsert_server(
@@ -745,6 +835,7 @@ fn explicit_default_claude_dir_keeps_default_split_mcp_path() {
     );
 
     let state = create_test_state().expect("create test state");
+    enable_direct_takeover(&state, AppType::Claude);
     McpService::upsert_server(
         &state,
         McpServer {
@@ -801,6 +892,7 @@ fn custom_claude_dir_writes_mcp_inside_config_dir() {
     );
 
     let state = create_test_state().expect("create test state");
+    enable_direct_takeover(&state, AppType::Claude);
     McpService::upsert_server(
         &state,
         McpServer {
@@ -880,6 +972,7 @@ fn custom_claude_dir_sync_does_not_copy_default_profile() {
     );
 
     let state = create_test_state().expect("create test state");
+    enable_direct_takeover(&state, AppType::Claude);
     McpService::upsert_server(
         &state,
         McpServer {
@@ -1018,6 +1111,7 @@ fn sync_all_enabled_removes_known_disabled_but_preserves_unknown_live_entries() 
     .expect("seed claude mcp");
 
     let state = create_test_state().expect("create test state");
+    enable_direct_takeover(&state, AppType::Claude);
 
     state
         .db
@@ -1084,5 +1178,243 @@ fn sync_all_enabled_removes_known_disabled_but_preserves_unknown_live_entries() 
     assert!(
         servers.contains_key("external-only"),
         "live entries unknown to DB should be preserved"
+    );
+}
+
+#[test]
+fn mcp_off_toggle_upsert_delete_are_live_hands_off() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let (codex_path, opencode_path, hermes_path) = seed_embedded_mcp_targets(home);
+    let before = [
+        fs::read(&codex_path).expect("read codex baseline"),
+        fs::read(&opencode_path).expect("read opencode baseline"),
+        fs::read(&hermes_path).expect("read hermes baseline"),
+    ];
+    let state = create_test_state().expect("create test state");
+
+    let mut server = embedded_mcp_server("echo");
+    server.apps = McpApps::default();
+    state
+        .db
+        .save_mcp_server(&server)
+        .expect("seed disabled MCP");
+    for app in [AppType::Codex, AppType::OpenCode, AppType::Hermes] {
+        McpService::toggle_app(&state, &server.id, app, true).expect("toggle while hands-off");
+    }
+    assert_eq!(fs::read(&codex_path).unwrap(), before[0]);
+    assert_eq!(fs::read(&opencode_path).unwrap(), before[1]);
+    assert_eq!(fs::read(&hermes_path).unwrap(), before[2]);
+
+    McpService::upsert_server(&state, embedded_mcp_server("printf"))
+        .expect("upsert while hands-off");
+    McpService::delete_server(&state, "managed-mcp").expect("delete while hands-off");
+    assert_eq!(fs::read(&codex_path).unwrap(), before[0]);
+    assert_eq!(fs::read(&opencode_path).unwrap(), before[1]);
+    assert_eq!(fs::read(&hermes_path).unwrap(), before[2]);
+
+    let statuses = futures::executor::block_on(state.external_config_monitor.get_status())
+        .expect("get monitor status");
+    for app in ["codex", "opencode", "hermes"] {
+        let status = statuses
+            .iter()
+            .find(|status| status.app_type == app)
+            .expect("embedded app status");
+        assert_eq!(status.generation, 0, "hands-off must not begin {app} token");
+        assert!(!status.conflict);
+    }
+}
+
+#[test]
+fn mcp_direct_updates_expected_for_embedded_targets_and_preserves_snapshot() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let (codex_path, opencode_path, hermes_path) = seed_embedded_mcp_targets(home);
+    let state = create_test_state().expect("create test state");
+    for app in [AppType::Codex, AppType::OpenCode, AppType::Hermes] {
+        set_takeover_mode(&state, app.clone(), RouteMode::Direct);
+        futures::executor::block_on(
+            state
+                .db
+                .save_live_backup(app.as_str(), "immutable-snapshot"),
+        )
+        .expect("save immutable marker");
+    }
+
+    McpService::upsert_server(&state, embedded_mcp_server("echo")).expect("direct upsert MCP");
+    assert!(fs::read_to_string(&codex_path)
+        .unwrap()
+        .contains("managed-mcp"));
+    assert!(fs::read_to_string(&opencode_path)
+        .unwrap()
+        .contains("managed-mcp"));
+    assert!(fs::read_to_string(&hermes_path)
+        .unwrap()
+        .contains("managed-mcp"));
+
+    let first_statuses = futures::executor::block_on(state.external_config_monitor.get_status())
+        .expect("get direct statuses");
+    for app in ["codex", "opencode", "hermes"] {
+        let status = first_statuses
+            .iter()
+            .find(|status| status.app_type == app)
+            .expect("embedded app status");
+        assert!(status.generation > 0, "{app} expected should be committed");
+        assert!(!status.conflict);
+    }
+
+    McpService::toggle_app(&state, "managed-mcp", AppType::Codex, false)
+        .expect("direct toggle removes Codex MCP");
+    assert!(!fs::read_to_string(&codex_path)
+        .unwrap()
+        .contains("managed-mcp"));
+
+    let mut updated = embedded_mcp_server("printf");
+    updated.apps.codex = false;
+    McpService::upsert_server(&state, updated).expect("direct update MCP");
+    assert!(fs::read_to_string(&opencode_path)
+        .unwrap()
+        .contains("printf"));
+    assert!(fs::read_to_string(&hermes_path).unwrap().contains("printf"));
+    McpService::delete_server(&state, "managed-mcp").expect("direct delete MCP");
+    assert!(!fs::read_to_string(&opencode_path)
+        .unwrap()
+        .contains("managed-mcp"));
+    assert!(!fs::read_to_string(&hermes_path)
+        .unwrap()
+        .contains("managed-mcp"));
+
+    for app in [AppType::Codex, AppType::OpenCode, AppType::Hermes] {
+        let backup = futures::executor::block_on(state.db.get_live_backup(app.as_str()))
+            .expect("read immutable marker")
+            .expect("marker exists");
+        assert_eq!(backup.original_config, "immutable-snapshot");
+    }
+}
+
+#[test]
+fn mcp_proxy_merge_preserves_each_gateway_namespace_and_token() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let (codex_path, opencode_path, hermes_path) = seed_embedded_mcp_targets(home);
+    let state = create_test_state().expect("create test state");
+    for app in [AppType::Codex, AppType::OpenCode, AppType::Hermes] {
+        set_takeover_mode(&state, app, RouteMode::Proxy);
+    }
+
+    McpService::upsert_server(&state, embedded_mcp_server("echo")).expect("proxy merge MCP");
+
+    let codex = fs::read_to_string(&codex_path).expect("read codex proxy target");
+    assert!(codex.contains("http://127.0.0.1:42567/v1"));
+    assert!(codex.contains("gateway-token"));
+    assert!(codex.contains("managed-mcp"));
+
+    let opencode: serde_json::Value =
+        serde_json::from_slice(&fs::read(&opencode_path).unwrap()).expect("parse opencode target");
+    assert_eq!(
+        opencode
+            .pointer("/provider/ags-proxy/options/baseURL")
+            .and_then(|value| value.as_str()),
+        Some("http://127.0.0.1:42567/opencode/v1")
+    );
+    assert_eq!(
+        opencode
+            .pointer("/provider/ags-proxy/options/apiKey")
+            .and_then(|value| value.as_str()),
+        Some("gateway-token")
+    );
+    assert!(opencode.pointer("/mcp/managed-mcp").is_some());
+
+    let hermes = fs::read_to_string(&hermes_path).expect("read hermes proxy target");
+    assert!(hermes.contains("http://127.0.0.1:42567/hermes/v1"));
+    assert!(hermes.contains("gateway-token"));
+    assert!(hermes.contains("managed-mcp"));
+
+    let statuses = futures::executor::block_on(state.external_config_monitor.get_status())
+        .expect("get proxy statuses");
+    for app in ["codex", "opencode", "hermes"] {
+        let status = statuses
+            .iter()
+            .find(|status| status.app_type == app)
+            .expect("embedded app status");
+        assert!(status.generation > 0);
+        assert!(!status.conflict);
+        assert_eq!(status.route_mode, RouteMode::Proxy);
+    }
+}
+
+#[test]
+fn mcp_writer_failure_aborts_generation_and_preserves_existing_conflict() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let (codex_path, _, _) = seed_embedded_mcp_targets(home);
+    let state = create_test_state().expect("create test state");
+    set_takeover_mode(&state, AppType::Codex, RouteMode::Direct);
+    let mut server = embedded_mcp_server("echo");
+    server.apps.opencode = false;
+    server.apps.hermes = false;
+    McpService::upsert_server(&state, server.clone()).expect("initialize Codex expected");
+
+    let rt = tokio::runtime::Runtime::new().expect("create monitor runtime");
+    rt.block_on(async {
+        state
+            .external_config_monitor
+            .start()
+            .await
+            .expect("start monitor");
+        tokio::time::sleep(std::time::Duration::from_millis(650)).await;
+        fs::write(&codex_path, "model = [\n").expect("write external invalid TOML");
+        tokio::time::sleep(std::time::Duration::from_millis(1_400)).await;
+        let status = state
+            .external_config_monitor
+            .get_status()
+            .await
+            .expect("get conflict status")
+            .into_iter()
+            .find(|status| status.app_type == "codex")
+            .expect("codex status");
+        assert!(
+            status.conflict,
+            "external invalid TOML should create conflict"
+        );
+
+        server.server["command"] = json!("printf");
+        let error = McpService::upsert_server(&state, server.clone())
+            .expect_err("invalid TOML must fail MCP writer");
+        assert!(error.to_string().contains("config.toml"));
+        let failed_status = state
+            .external_config_monitor
+            .get_status()
+            .await
+            .expect("get failed status")
+            .into_iter()
+            .find(|status| status.app_type == "codex")
+            .expect("codex status");
+        assert!(
+            failed_status.conflict,
+            "failed self-write must not silently clear conflict"
+        );
+        state
+            .external_config_monitor
+            .stop()
+            .await
+            .expect("stop monitor");
+    });
+
+    fs::write(&codex_path, "model = \"recovered\"\n").expect("repair config TOML");
+    McpService::sync_enabled_for_app(&state, &AppType::Codex)
+        .expect("next managed write proves no in-flight leak");
+    let status = futures::executor::block_on(state.external_config_monitor.get_status())
+        .expect("get resolved status")
+        .into_iter()
+        .find(|status| status.app_type == "codex")
+        .expect("codex status");
+    assert!(
+        !status.conflict,
+        "successful explicit write becomes new expected"
     );
 }
