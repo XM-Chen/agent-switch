@@ -8,6 +8,7 @@
 - 本地网关启动/停止命令；
 - 七模块接管状态、`route_mode` 或前后端 wire 类型；
 - live 配置接管、异常恢复、退出清理或精确快照；
+- 七模块外部配置检测、冲突 generation、accept/reject 或 managed-write 抑制；
 - failover/profile 更新应用级代理配置。
 
 七模块固定为 `AppType::as_str()` 的规范值：`claude`、`claude-desktop`、`codex`、`gemini`、`opencode`、`openclaw`、`hermes`。
@@ -300,4 +301,207 @@ commit_takeover_state().await?;
 ```sql
 -- v15 在 savepoint 中整表重建，并保留历史语义。
 CASE WHEN enabled = 1 THEN 'proxy' ELSE 'direct' END
+```
+
+## Scenario: C3 外部配置检测与冲突处理
+
+### 1. Scope / Trigger
+
+修改以下任一内容前必须遵守本节：
+
+- 七模块 live 外部变化检测、防抖轮询或 worker 生命周期；
+- managed expected / conflict / generation 状态；
+- `external-config-changed` 事件或外部配置查询/接受/拒绝命令；
+- 精确 route parser（`external_route_detection`）；
+- AGS 自写 generation 抑制（ProxyService、ProviderService、MCP、Profile、import/S3/WebDAV/common config）。
+
+C3 只交付后端检测、内存冲突、事件、状态查询与 accept/reject。UI 对话框与查询失效消费在 C4。
+
+### 2. Signatures
+
+```rust
+// 事件
+const EXTERNAL_CONFIG_CHANGED_EVENT: &str = "external-config-changed";
+
+// wire camelCase
+struct ExternalConfigChangedPayload {
+    app_type: String,        // appType，规范值如 "claude-desktop"
+    generation: u64,
+    conflict: bool,
+    takeover_enabled: bool,  // takeoverEnabled
+}
+
+struct ExternalConfigModuleStatus {
+    app_type: String,
+    generation: u64,
+    conflict: bool,
+    takeover_enabled: bool,
+    route_mode: RouteMode,   // routeMode
+}
+
+// IPC
+get_external_config_status()
+    -> Result<Vec<ExternalConfigModuleStatus>, String>;
+accept_external_config_change(app_type: String, generation: u64)
+    -> Result<(), String>;
+reject_external_config_change(app_type: String, generation: u64)
+    -> Result<(), String>;
+
+// 外层 orchestrator：调用方必须已持有 C2 per-app switch lock
+struct ManagedWriteToken { app_type: AppType, generation: u64, ... }
+
+ProxyService::begin_managed_write_locked(app)
+    -> Result<Option<ManagedWriteToken>, String>;
+ProxyService::finish_managed_write_locked(token)
+    -> Result<(), String>;
+ProxyService::abort_managed_write_locked(token)
+    -> Result<(), String>;
+// 同步 leaf（MCP/Provider）使用 *_locked_sync 变体
+
+// 精确 route parser：只消费 capture 字节，不读 live 文件
+parse_actual_route(app, capture, proxy_service, db)
+    -> Result<RouteMode, String>;
+
+// 导入后置同步：必须接真实 AppState
+run_post_import_sync(app_state: &AppState) -> Result<(), AppError>;
+```
+
+- 事件与状态 **不** 携带文件全文、密钥、managed expected payload。
+- 结构化错误 JSON 至少含 `code`；已落地：
+  - `externalConfigStaleGeneration`
+  - `externalConfigConflictNotFound`
+  - `externalConfigTakeoverInactive`
+- 默认轮询：poll `500ms`、防抖 `200ms`、full scan `5s`；mtime/len 只是候选。
+
+### 3. Contracts
+
+**两个对象必须分离：**
+
+| 对象 | 存储 | 生命周期 | 可变性 |
+|---|---|---|---|
+| immutable restore snapshot | `proxy_live_backup.original_config` | 首次开启捕获；关闭时恢复 | 接管会话内不可变；C3 只读 |
+| managed expected | 内存 | 接管开启时初始化；关闭/退出清 | 随 AGS 自写或 accept 更新；含全文+指纹+generation |
+
+**检测：**
+
+- 标准库 metadata 快扫 + 周期 full scan；禁止依赖 mtime/len 唯一真相。
+- 同一模块连续两次相同 full capture 且过防抖窗口后才提交。
+- 多 target 一次锁内采集；中间半写不得发事件。
+- OpenCode 只监控 `opencode.json`，永不读/写 `opencode.db`。
+- target id 复用 C2 adapter：Claude `settings`；Codex `auth/config/model_catalog`；Gemini `.env`；Claude Desktop `normal_config/threep_config/profile/meta`；OpenCode `opencode.json`；OpenClaw `openclaw.json`；Hermes `config.yaml`。
+
+**判定：**
+
+- `takeover_enabled=false`：只刷新 `last_observed`/generation，发 `conflict=false`；绝不写 live、provider/current/route DB。
+- `takeover_enabled=true` 且 observed != expected：建/更新冲突，保留**首次** conflict.expected；后台永不自动接受或拒绝。
+- observed == expected 或 managed write in-flight：抑制事件；observed 重新等于 expected **不会**自动清已有冲突。
+- 冲突期间再次外变：刷新 observed 并推进 generation，首次 expected 不变。
+
+**route parser：**
+
+- 精确等于当前网关 origin/namespace => `Proxy`。
+- 同网关 host 但 port/path/namespace 错、`localhost.evil` 等伪装主机 => 拒绝。
+- 其它合法 HTTP(S)、可解析的非当前网关入口，**包括自托管私网/localhost** => `Direct`。
+- 失败不得猜 Direct。OpenCode/OpenClaw/Hermes 只看当前 provider fragment；Claude Desktop 只看当前 profile/meta。
+
+**accept：** 锁内二次校验 generation/conflict 后先 parse observed；成功后只更新 `route_mode`（保持接管开启）与内存 expected/last_observed/generation，清 conflict，发 `conflict=false`。不写 live/provider/snapshot。DB 失败则内存不提交。
+
+**reject：** adapter 事务式恢复 conflict.expected；existed=false 删除；多目标失败补偿。成功后稳定 capture 必须逐字节等于 expected，再推进 generation 并清 conflict。失败保留 conflict/expected/generation/ownership/snapshot。
+
+**自写抑制：** 所有 AGS live 写在已持有同一 `SwitchLockManager` per-app 锁的外层 orchestrator 上 `begin_managed_write_locked → write → finish/abort`。锁不可重入；leaf writer 禁止再取锁/token。成功 finish 在放锁前更新 expected 并清 conflict；失败先 C2 回滚再 abort，不得泄漏 in-flight。abort 时即使 capture 失败也必须清 in-flight；既有 conflict 可推进 generation，避免 UI 永久 stale。import/S3/WebDAV 后置同步必须复用真实 `AppState`，禁止 `AppState::new(db)` 隔离实例。
+
+**生命周期：**
+
+- setup：`reset_proxy_runtime_mirror` → `recover_from_crash` → common snippet 初始化 → `external_config_monitor.start()` 一次。
+- 退出/显式 restart/更新安装：`cleanup_before_exit` 先 `stop` 并 await join，再 `stop_with_restore_keep_state`。
+- `start` 幂等且“一生一次”；`stop` 后不隐式重启。
+- 纯 `RESTART_EXIT_CODE` 默认路径不跑自定义清理；`restart_app` / `install_update_and_restart` 必须先显式 `cleanup_before_exit`。
+
+### 4. Validation & Error Matrix
+
+| 条件 | 行为 |
+|---|---|
+| accept/reject generation 过期 | `externalConfigStaleGeneration`；无副作用 |
+| accept/reject 时当前无冲突 | `externalConfigConflictNotFound`；无副作用 |
+| accept/reject 时接管已关 | `externalConfigTakeoverInactive`；无副作用 |
+| accept 时 route 无法可靠解析 | 错误；conflict/expected/route_mode/live/snapshot 不变 |
+| accept 时 DB 更新 route_mode 失败 | 错误；内存 conflict 保持 |
+| reject 恢复任一 target 失败 | 错误；adapter 补偿；conflict/snapshot/ownership 保持 |
+| reject 后 capture != expected | 错误；冲突保留 |
+| managed write begin 重入 | 错误；不得覆盖活跃 generation |
+| finish 的 generation 不匹配 | 错误；不得提交 expected；必要时 abort 清 in-flight |
+| abort 且 capture 无效 | 仍必须清 in-flight；已有 conflict 保留并可推进 generation |
+| worker 读失败/临时缺失 | 重试；不 emit、不写 DB、不清 snapshot |
+| takeover off 外变 | 仅 refresh 事件；live/providers 表不变 |
+| 生产 import 后同步构造隔离 AppState | 禁止 |
+
+### 5. Good / Base / Bad Cases
+
+- **Good**：接管 Claude 后外部改 `settings.json` → 冲突事件；accept 后 route_mode 同步、expected 更新、immutable snapshot 不变；reject 逐字节恢复后 poll 不立即复发。
+- **Good**：OpenCode proxy 下 MCP 投影只改 `opencode.json` MCP 段，保留 `/opencode/v1` 与 gateway token；expected 更新且无外变事件。
+- **Good**：SQL/S3/WebDAV 导入后用真实 AppState 同步；takeover off 不写 live。
+- **Base**：未接管七模块外变只发 refresh；providers 表与 live 不被监听流程写入。
+- **Base**：自托管 `http://10.0.0.5:8080/v1` 或 `http://localhost:9000/v1` 可被 accept 为 Direct。
+- **Base**：冲突期间 observed 又改回 expected 时，冲突仍保留，等待用户 accept/reject 或后续 AGS 显式写成功清冲突。
+- **Bad**：用 crash bool detector 或 prefix URL 判断 route。
+- **Bad**：把 managed expected 写入 `proxy_live_backup` 或新建持久冲突表。
+- **Bad**：leaf writer 与 orchestrator 双重 `lock_switch_for_app` / begin。
+- **Bad**：import 后 `AppState::new(db)` 绕过运行中 monitor。
+
+### 6. Tests Required
+
+- 七模块修改/创建/删除：防抖后每模块一次事件；多文件只发稳定一次。
+- 同 len/mtime 但内容变化：周期 full scan 仍能检出。
+- takeover off：refresh 且 live/providers 不变。
+- takeover on：冲突保留首次 expected；immutable snapshot 字节不变；observed==expected 不自动清冲突。
+- route parser：七模块 exact Proxy/Direct；`localhost.evil`、旧端口、错 namespace、畸形/混合/缺 target/当前 provider 缺失拒绝；自托管私网/localhost Direct。
+- accept/reject：成功路径、stale generation、conflict missing、takeover inactive、parse/DB/restore 失败无副作用；reject 后无立即复发。
+- managed write：Proxy/Provider/MCP 成功抑制事件；失败 abort 清 in-flight、保留 conflict；无 generation 泄漏。
+- worker start 幂等、stop join；crash recovery + 退出路径先停 monitor。
+- import/S3/WebDAV 共用真实 AppState；OpenCode 不碰 `opencode.db`。
+- TempHome + serial/global lock。
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// 把 managed expected 塞进 immutable snapshot 槽
+db.save_live_backup(app, &managed_expected_json).await?;
+
+// import 后断开运行时 monitor
+let isolated = AppState::new(db.clone());
+run_post_import_sync(&isolated)?;
+
+// leaf 再取不可重入锁 / 重复 begin
+let _outer = proxy.lock_switch_for_app(app).await;
+write_leaf_that_also_locks_or_begins(app)?; // deadlock / re-entry
+```
+
+#### Correct
+
+```rust
+// crash recovery 与 common snippet 后启动一次；退出先 stop/join
+proxy.recover_from_crash().await?;
+initialize_common_config_snippets(&state);
+monitor.start().await?;
+// ...
+// cleanup_before_exit 内：
+monitor.stop().await?;
+proxy.stop_with_restore_keep_state().await?;
+
+// 外层锁 + 单 token 包完整写事务
+let _guard = proxy.lock_switch_for_app(app.as_str()).await;
+let token = proxy.begin_managed_write_locked(&app).await?;
+match write_all_targets() {
+    Ok(()) => proxy.finish_managed_write_locked(token).await?,
+    Err(e) => {
+        rollback();
+        let _ = proxy.abort_managed_write_locked(token).await;
+        return Err(e);
+    }
+}
+
+// 生产后置同步复用真实 AppState
+run_post_import_sync(&app_state)?;
 ```
