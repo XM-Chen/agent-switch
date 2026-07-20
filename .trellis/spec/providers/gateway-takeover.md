@@ -505,3 +505,99 @@ match write_all_targets() {
 // 生产后置同步复用真实 AppState
 run_post_import_sync(&app_state)?;
 ```
+
+## Scenario: C4 前端网关/接管/route_mode 与冲突消费
+
+### 1. Scope / Trigger
+
+修改以下任一前端内容前必须遵守本节：
+
+- 代理面板/顶栏的网关开关、七模块接管开关或 `route_mode` 控件；
+- `external-config-changed` 事件桥、冲突队列或阻塞对话框；
+- 停止网关 `proxyRoutesActive` 错误的解析与展示；
+- 七模块 wire 类型或 `claude-desktop -> claudeDesktop` 映射的前端消费。
+
+C4 只在前端消费 C1–C3 契约（SSOT 在后端），不新增/修改任何 Rust 行为，不复制受管配置或冲突全文，不新增第三种自动解决策略。
+
+### 2. Signatures
+
+```ts
+// 错误解析：兼容 JSON 字符串与对象两种形态，仅在识别到 code 时返回
+parseProxyInvokeError(error: unknown): ProxyStopError | null;
+
+// 事件桥（单例挂 App 根）
+useExternalConfigBridge(): {
+  conflictQueue: { appType: string; generation: number }[];
+  currentConflict: { appType: string; generation: number } | undefined;
+  dequeueConflict: (appType: string) => void;
+};
+
+// API（camelCase invoke 封装）
+setProxyTakeoverForApp(appType, enabled, routeMode?)  // 开启时传已保存 routeMode 或 direct
+setProxyRouteMode(appType, routeMode)
+getExternalConfigStatus() / acceptExternalConfigChange(appType, generation)
+  / rejectExternalConfigChange(appType, generation)
+```
+
+### 3. Contracts（消费侧）
+
+- **三维正交 UI**：网关开关 ⊥ 每模块 `takeoverEnabled` ⊥ 每模块 `routeMode`。网关 `isRunning` 不得门控接管区渲染；接管区七模块**始终可见可用**。
+- **顶栏**：中性「接管/恢复配置」，覆盖七模块当前 `activeApp`；开启时读该模块已保存 `routeMode`（无则 `direct`）；不再受 `enableLocalProxy` 门控。route 选择只在设置面板。
+- **定向失效**：事件到达按 `appType` 只失效 `["proxyTakeoverStatus"]`、`["externalConfigStatus"]`、`["providers", appType]`、`["appProxyConfig", appType]`；禁止 `["providers"]` 全局抖动。`appType` 用规范 kebab 值，与 provider query key（含 `claude-desktop`）直接对齐。
+- **冲突队列**：单队列，一次处理一个模块；`conflict=true` 按 app upsert（同 app 新 generation 覆盖旧项）；`conflict=false` 只移除队列中该 app 且 `generation <= 事件 generation` 的项（避免误清更新的冲突）。
+- **阻塞对话框**：只展示队头；两条路径「接受外部更改」`accept_...`、「用 Agent-Switch 覆盖」`reject_...`；禁止 Esc/遮罩关闭与第三选项；后端成功后才失效 + 出队并采用后端同步的 `routeMode`；失败展示原因、保留冲突、不出队不关闭。
+- **停止保护**：停网关失败若 `code === "proxyRoutesActive"`，展示后端返回的 `modules` 列表，不改任何模块状态、不自动切 direct 或关接管。
+
+### 4. Validation & Error Matrix
+
+| 条件 | 前端行为 |
+|---|---|
+| stop 返回 `proxyRoutesActive` | 展示 modules；模块状态不变 |
+| stop 错误非 JSON/无 code | `parseProxyInvokeError` 返回 null，交给通用 extractErrorMessage |
+| 事件 `conflict=true` 且同 app 已在队列 | upsert 覆盖 generation，不重复入队 |
+| 事件 `conflict=false` 但队列项 generation > 事件 generation | 保留冲突项（不误清） |
+| accept/reject 后端返回错误 | 保留对话框与冲突项，展示原因，不出队 |
+| accept/reject 后端成功 | 定向失效 + 出队；`routeMode` 以后端同步为准 |
+
+### 5. Good / Base / Bad Cases
+
+- **Good**：Codex proxy 下停网关，前端展示含 codex 的模块列表且不改状态；关闭接管后再停成功。
+- **Good**：外改 `claude-desktop` → 阻塞对话框；reject 成功后只失效该模块查询并出队，无全局抖动。
+- **Base**：网关停止时接管区七模块仍可见可用；切某模块 routeMode 只失效该模块查询。
+- **Bad**：把接管区包在 `isRunning` 的条件渲染里，或顶栏仍受 `enableLocalProxy` 门控。
+- **Bad**：事件到达 `invalidateQueries(["providers"])` 全局刷新。
+- **Bad**：对话框允许 Esc 关闭即当作已解决，或前端本地推断 routeMode 而不等后端同步。
+
+### 6. Tests Required
+
+- `useProxyStatus`：mock 为 `{ takeoverEnabled, routeMode }`；开启接管传 routeMode；stop 被 `proxyRoutesActive` 阻挡时展示模块列表且状态不变。
+- `useExternalConfigBridge`：hydrate 入队；upsert 覆盖 generation；`conflict=false` 按 generation 守卫出队；事件仅定向失效对应 appType，无重复订阅。
+- `ExternalConfigConflictDialog`：两按钮分别调 accept/reject；失败保留冲突不关闭；成功出队。
+- `pnpm typecheck` 覆盖七模块与 external-config 载荷类型。
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+// 接管区被网关运行态门控，且事件全局失效
+{isRunning && <TakeoverSection />}
+onExternalConfigChanged={() => queryClient.invalidateQueries()};
+
+// 前端本地推断 routeMode、遮罩关闭即算解决
+setLocalRouteMode("direct");
+<Dialog onOpenChange={close} />;
+```
+
+#### Correct
+
+```tsx
+// 接管区始终渲染；事件按 appType 定向失效
+<TakeoverSection modules={SEVEN_MODULES} />
+invalidateForApp(payload.appType); // 仅该模块相关 key
+
+// 后端成功后才出队并采用后端同步 routeMode；失败保留冲突
+await acceptExternalConfigChange(appType, generation);
+invalidateForApp(appType);
+dequeueConflict(appType);
+```
