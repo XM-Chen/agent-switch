@@ -6,18 +6,95 @@ use crate::error::AppError;
 use crate::mcp;
 use crate::store::AppState;
 
+const MCP_APPS_IN_ORDER: [AppType; 5] = [
+    AppType::Claude,
+    AppType::Codex,
+    AppType::Gemini,
+    AppType::OpenCode,
+    AppType::Hermes,
+];
+
 /// MCP 相关业务逻辑（v3.7.0 统一结构）
 pub struct McpService;
 
 impl McpService {
+    /// 只有这三个应用把 MCP 与 C3 监控目标放在同一文件中。
+    /// Claude (`~/.claude.json`) 与 Gemini (`settings.json`) 的 MCP 文件不在
+    /// C3 target registry 中，因此写它们时只复用 per-app lock，不创建无关 generation。
+    fn mcp_writes_monitored_target(app: &AppType) -> bool {
+        matches!(app, AppType::Codex | AppType::OpenCode | AppType::Hermes)
+    }
+
+    /// MCP 顶层 live 写入口。调用方不得已经持有同一应用的 switch lock；
+    /// ProviderService 等已有外层事务的路径必须调用 `*_locked` 变体。
+    fn with_app_live_write<T>(
+        state: &AppState,
+        app: &AppType,
+        operation: impl FnOnce() -> Result<T, AppError>,
+    ) -> Result<Option<T>, AppError> {
+        let _switch_guard =
+            futures::executor::block_on(state.proxy_service.lock_switch_for_app(app.as_str()));
+        let decision = state
+            .proxy_service
+            .live_write_decision_for_app_sync(app)
+            .map_err(AppError::Message)?;
+        if matches!(decision, crate::services::proxy::LiveWriteDecision::Skip) {
+            return Ok(None);
+        }
+
+        let token = if Self::mcp_writes_monitored_target(app) {
+            state
+                .proxy_service
+                .begin_managed_write_locked_sync(app)
+                .map_err(AppError::Message)?
+        } else {
+            None
+        };
+
+        match operation() {
+            Ok(value) => {
+                state
+                    .proxy_service
+                    .finish_managed_write_locked_sync(token)
+                    .map_err(AppError::Message)?;
+                Ok(Some(value))
+            }
+            Err(operation_error) => {
+                let cleanup_error = state
+                    .proxy_service
+                    .abort_managed_write_locked_sync(token)
+                    .err();
+                match cleanup_error {
+                    Some(cleanup_error) => Err(AppError::Message(format!(
+                        "{operation_error}；清理 {} MCP managed write 失败: {cleanup_error}",
+                        app.as_str()
+                    ))),
+                    None => Err(operation_error),
+                }
+            }
+        }
+    }
+
+    fn aggregate_app_failures(action: &str, failures: Vec<String>) -> Result<(), AppError> {
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(AppError::Message(format!(
+                "部分应用 MCP {action}失败: {}",
+                failures.join("; ")
+            )))
+        }
+    }
     /// 获取所有 MCP 服务器（统一结构）
     pub fn get_all_servers(state: &AppState) -> Result<IndexMap<String, McpServer>, AppError> {
         state.db.get_all_mcp_servers()
     }
 
-    /// 添加或更新 MCP 服务器
+    /// 添加或更新 MCP 服务器。
+    ///
+    /// DB SSOT 先落盘；live 按固定应用顺序逐个投影。跨应用失败不阻断后续应用，
+    /// 每个已完成应用都已独立提交稳定 expected，最终错误准确列出失败应用。
     pub fn upsert_server(state: &AppState, server: McpServer) -> Result<(), AppError> {
-        // 读取旧状态：用于处理“编辑时取消勾选某个应用”的场景（需要从对应 live 配置中移除）
         let prev_apps = state
             .db
             .get_all_mcp_servers()?
@@ -27,42 +104,44 @@ impl McpService {
 
         state.db.save_mcp_server(&server)?;
 
-        // 处理禁用：若旧版本启用但新版本取消，则需要从该应用的 live 配置移除
-        if prev_apps.claude && !server.apps.claude {
-            Self::remove_server_from_app(state, &server.id, &AppType::Claude)?;
-        }
-        if prev_apps.codex && !server.apps.codex {
-            Self::remove_server_from_app(state, &server.id, &AppType::Codex)?;
-        }
-        if prev_apps.gemini && !server.apps.gemini {
-            Self::remove_server_from_app(state, &server.id, &AppType::Gemini)?;
-        }
-        if prev_apps.opencode && !server.apps.opencode {
-            Self::remove_server_from_app(state, &server.id, &AppType::OpenCode)?;
-        }
-        if prev_apps.hermes && !server.apps.hermes {
-            Self::remove_server_from_app(state, &server.id, &AppType::Hermes)?;
+        let mut failures = Vec::new();
+        for app in MCP_APPS_IN_ORDER {
+            let result = if server.apps.is_enabled_for(&app) {
+                Self::sync_server_to_app(state, &server, &app)
+            } else if prev_apps.is_enabled_for(&app) {
+                Self::remove_server_from_app(state, &server.id, &app)
+            } else {
+                Ok(())
+            };
+            if let Err(error) = result {
+                failures.push(format!("{}: {error}", app.as_str()));
+            }
         }
 
-        // 同步到各个启用的应用
-        Self::sync_server_to_apps(state, &server)?;
-
-        Ok(())
+        Self::aggregate_app_failures("更新", failures)
     }
 
-    /// 删除 MCP 服务器
+    /// 删除 MCP 服务器。与 upsert 相同，所有曾启用应用按固定顺序各自完成
+    /// lock/generation 后再汇总失败，避免前一个应用失败让后续 expected 留在旧代次。
     pub fn delete_server(state: &AppState, id: &str) -> Result<bool, AppError> {
         let server = state.db.get_all_mcp_servers()?.shift_remove(id);
 
-        if let Some(server) = server {
-            state.db.delete_mcp_server(id)?;
+        let Some(server) = server else {
+            return Ok(false);
+        };
+        state.db.delete_mcp_server(id)?;
 
-            // 从所有应用的 live 配置中移除
-            Self::remove_server_from_all_apps(state, id, &server)?;
-            Ok(true)
-        } else {
-            Ok(false)
+        let mut failures = Vec::new();
+        for app in MCP_APPS_IN_ORDER {
+            if !server.apps.is_enabled_for(&app) {
+                continue;
+            }
+            if let Err(error) = Self::remove_server_from_app(state, id, &app) {
+                failures.push(format!("{}: {error}", app.as_str()));
+            }
         }
+        Self::aggregate_app_failures("删除", failures)?;
+        Ok(true)
     }
 
     /// 切换指定应用的启用状态
@@ -89,25 +168,19 @@ impl McpService {
         Ok(())
     }
 
-    /// 将 MCP 服务器同步到所有启用的应用
-    fn sync_server_to_apps(_state: &AppState, server: &McpServer) -> Result<(), AppError> {
-        for app in server.apps.enabled_apps() {
-            Self::sync_server_to_app_no_config(server, &app)?;
-        }
-
-        Ok(())
-    }
-
-    /// 将 MCP 服务器同步到指定应用
+    /// 将 MCP 服务器同步到指定应用；这是未持锁调用方的顶层入口。
     fn sync_server_to_app(
-        _state: &AppState,
+        state: &AppState,
         server: &McpServer,
         app: &AppType,
     ) -> Result<(), AppError> {
-        Self::sync_server_to_app_no_config(server, app)
+        Self::with_app_live_write(state, app, || Self::sync_server_to_app_locked(server, app))?;
+        Ok(())
     }
 
-    fn sync_server_to_app_no_config(server: &McpServer, app: &AppType) -> Result<(), AppError> {
+    /// 原始模块 writer。调用方必须已经持有该应用的 switch lock；若 MCP 位于
+    /// C3 监控目标中，调用方还必须持有覆盖整个事务的 managed token。
+    fn sync_server_to_app_locked(server: &McpServer, app: &AppType) -> Result<(), AppError> {
         match app {
             AppType::Claude => {
                 mcp::sync_single_server_to_claude(&Default::default(), &server.id, &server.server)?;
@@ -116,7 +189,6 @@ impl McpService {
                 log::debug!("Claude Desktop 3P profiles do not use CC Switch MCP sync, skipping");
             }
             AppType::Codex => {
-                // Codex uses TOML format, must use the correct function
                 mcp::sync_single_server_to_codex(&Default::default(), &server.id, &server.server)?;
             }
             AppType::Gemini => {
@@ -130,8 +202,6 @@ impl McpService {
                 )?;
             }
             AppType::OpenClaw => {
-                // OpenClaw MCP support is still in development (Issue #4834)
-                // Skip for now
                 log::debug!("OpenClaw MCP support is still in development, skipping sync");
             }
             AppType::Hermes => {
@@ -141,20 +211,12 @@ impl McpService {
         Ok(())
     }
 
-    /// 从所有曾启用过该服务器的应用中移除
-    fn remove_server_from_all_apps(
-        state: &AppState,
-        id: &str,
-        server: &McpServer,
-    ) -> Result<(), AppError> {
-        // 从所有曾启用的应用中移除
-        for app in server.apps.enabled_apps() {
-            Self::remove_server_from_app(state, id, &app)?;
-        }
+    fn remove_server_from_app(state: &AppState, id: &str, app: &AppType) -> Result<(), AppError> {
+        Self::with_app_live_write(state, app, || Self::remove_server_from_app_locked(id, app))?;
         Ok(())
     }
 
-    fn remove_server_from_app(_state: &AppState, id: &str, app: &AppType) -> Result<(), AppError> {
+    fn remove_server_from_app_locked(id: &str, app: &AppType) -> Result<(), AppError> {
         match app {
             AppType::Claude => mcp::remove_server_from_claude(id)?,
             AppType::ClaudeDesktop => {
@@ -162,16 +224,11 @@ impl McpService {
             }
             AppType::Codex => mcp::remove_server_from_codex(id)?,
             AppType::Gemini => mcp::remove_server_from_gemini(id)?,
-            AppType::OpenCode => {
-                mcp::remove_server_from_opencode(id)?;
-            }
+            AppType::OpenCode => mcp::remove_server_from_opencode(id)?,
             AppType::OpenClaw => {
-                // OpenClaw MCP support is still in development
                 log::debug!("OpenClaw MCP support is still in development, skipping remove");
             }
-            AppType::Hermes => {
-                mcp::remove_server_from_hermes(id)?;
-            }
+            AppType::Hermes => mcp::remove_server_from_hermes(id)?,
         }
         Ok(())
     }
@@ -183,11 +240,9 @@ impl McpService {
     /// 应用的 MCP 状态陈旧。全部跑完后若有失败，聚合成一个错误上报，
     /// 保留调用方的可见性。
     pub fn sync_all_enabled(state: &AppState) -> Result<(), AppError> {
-        let servers = Self::get_all_servers(state)?;
-
         let mut failures: Vec<String> = Vec::new();
         for app in AppType::all() {
-            if let Err(err) = Self::project_servers_to_app(state, &servers, &app) {
+            if let Err(err) = Self::sync_enabled_for_app(state, &app) {
                 log::warn!("同步 MCP 到 {app:?} 失败: {err}");
                 failures.push(format!("{}: {err}", app.as_str()));
             }
@@ -203,16 +258,27 @@ impl McpService {
         }
     }
 
-    /// 只把启用状态投影到单个应用。某个应用的 live 被整体重写后用它做
-    /// 定向重投影，避免把无关应用的失败面（如 ~/.claude.json 坏 JSON）
-    /// 牵连进目标应用的关键路径。
+    /// 顶层单应用投影：消费 takeover SSOT，并在一个 per-app lock/token 中
+    /// 完成该应用全部 MCP diff。off 时只保留 DB 标志，live 完全 hands-off。
     pub fn sync_enabled_for_app(state: &AppState, app: &AppType) -> Result<(), AppError> {
         let servers = Self::get_all_servers(state)?;
-        Self::project_servers_to_app(state, &servers, app)
+        Self::with_app_live_write(state, app, || {
+            Self::project_servers_to_app_locked(&servers, app)
+        })?;
+        Ok(())
     }
 
-    fn project_servers_to_app(
+    /// ProviderService 等已持有同应用 switch lock + managed token 的组合事务入口。
+    /// 禁止从普通命令直接调用，否则会绕过 takeover 权限。
+    pub(crate) fn sync_enabled_for_app_locked(
         state: &AppState,
+        app: &AppType,
+    ) -> Result<(), AppError> {
+        let servers = Self::get_all_servers(state)?;
+        Self::project_servers_to_app_locked(&servers, app)
+    }
+
+    fn project_servers_to_app_locked(
         servers: &IndexMap<String, McpServer>,
         app: &AppType,
     ) -> Result<(), AppError> {
@@ -222,9 +288,9 @@ impl McpService {
 
         for server in servers.values() {
             if server.apps.is_enabled_for(app) {
-                Self::sync_server_to_app(state, server, app)?;
+                Self::sync_server_to_app_locked(server, app)?;
             } else {
-                Self::remove_server_from_app(state, &server.id, app)?;
+                Self::remove_server_from_app_locked(&server.id, app)?;
             }
         }
 
@@ -268,15 +334,7 @@ impl McpService {
     /// [已废弃] 同步启用的 MCP 到指定应用（兼容旧 API）
     #[deprecated(since = "3.7.0", note = "Use sync_all_enabled instead")]
     pub fn sync_enabled(state: &AppState, app: AppType) -> Result<(), AppError> {
-        let servers = Self::get_all_servers(state)?;
-
-        for server in servers.values() {
-            if server.apps.is_enabled_for(&app) {
-                Self::sync_server_to_app(state, server, &app)?;
-            }
-        }
-
-        Ok(())
+        Self::sync_enabled_for_app(state, &app)
     }
 
     /// 从 Claude 导入 MCP（v3.7.0 已更新为统一结构）

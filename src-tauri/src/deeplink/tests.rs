@@ -1,6 +1,6 @@
 //! Deep link module tests
 
-use super::mcp::parse_mcp_apps;
+use super::mcp::{import_mcp_from_deeplink, parse_mcp_apps};
 use super::parser::parse_deeplink_url;
 use super::prompt::import_prompt_from_deeplink;
 use super::provider::parse_and_merge_config;
@@ -757,6 +757,64 @@ fn test_parse_mcp_deeplink() {
     assert_eq!(request.apps.unwrap(), "claude,codex");
     assert_eq!(request.config.unwrap(), config_b64);
     assert!(request.enabled.unwrap());
+}
+
+#[test]
+#[serial_test::serial]
+fn test_mcp_import_uses_real_state_takeover_and_monitor() {
+    let _home = TestHomeGuard::new();
+    crate::settings::reload_settings().expect("reload isolated settings");
+    let db = Arc::new(Database::memory().expect("create memory database"));
+    let state = AppState::new(db.clone());
+    let config_path = crate::codex_config::get_codex_config_path();
+    std::fs::create_dir_all(config_path.parent().unwrap()).expect("create codex dir");
+    let user_owned = b"user_owned = true\n";
+    std::fs::write(&config_path, user_owned).expect("seed hands-off config");
+
+    let off_config = BASE64_STANDARD
+        .encode(r#"{"mcpServers":{"off-import":{"type":"stdio","command":"echo"}}}"#);
+    let off_request = parse_deeplink_url(&format!(
+        "agentswitch://v1/import?resource=mcp&apps=codex&config={off_config}"
+    ))
+    .expect("parse off request");
+    let imported = import_mcp_from_deeplink(&state, off_request).expect("import while off");
+    assert_eq!(imported.imported_count, 1);
+    assert_eq!(std::fs::read(&config_path).unwrap(), user_owned);
+    let off_status = futures::executor::block_on(state.external_config_monitor.get_status())
+        .expect("get off status")
+        .into_iter()
+        .find(|status| status.app_type == "codex")
+        .expect("codex status");
+    assert_eq!(off_status.generation, 0);
+
+    futures::executor::block_on(async {
+        let mut proxy = db
+            .get_proxy_config_for_app("codex")
+            .await
+            .expect("get proxy config");
+        proxy.takeover_enabled = true;
+        proxy.route_mode = crate::proxy::types::RouteMode::Direct;
+        db.update_proxy_config_for_app(proxy)
+            .await
+            .expect("enable direct takeover");
+    });
+    let direct_config = BASE64_STANDARD
+        .encode(r#"{"mcpServers":{"direct-import":{"type":"stdio","command":"printf"}}}"#);
+    let direct_request = parse_deeplink_url(&format!(
+        "agentswitch://v1/import?resource=mcp&apps=codex&config={direct_config}"
+    ))
+    .expect("parse direct request");
+    let imported = import_mcp_from_deeplink(&state, direct_request).expect("import while direct");
+    assert_eq!(imported.imported_count, 1);
+    let live = std::fs::read_to_string(&config_path).expect("read direct live");
+    assert!(live.contains("direct-import"));
+    let direct_status = futures::executor::block_on(state.external_config_monitor.get_status())
+        .expect("get direct status")
+        .into_iter()
+        .find(|status| status.app_type == "codex")
+        .expect("codex status");
+    assert!(direct_status.generation > 0);
+    assert!(!direct_status.conflict);
 }
 
 #[test]

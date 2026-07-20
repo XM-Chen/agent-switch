@@ -292,11 +292,10 @@ pub async fn update_toml_common_config_snippet(
     .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub async fn set_common_config_snippet(
+fn set_common_config_snippet_inner(
     app_type: String,
     snippet: String,
-    state: tauri::State<'_, crate::store::AppState>,
+    state: &AppState,
 ) -> Result<(), String> {
     let is_cleared = snippet.trim().is_empty();
     let old_snippet = state
@@ -315,7 +314,7 @@ pub async fn set_common_config_snippet(
         {
             let app = AppType::from_str(&app_type).map_err(|e| e.to_string())?;
             crate::services::provider::ProviderService::migrate_legacy_common_config_usage(
-                state.inner(),
+                state,
                 app,
                 legacy_snippet,
             )
@@ -334,11 +333,10 @@ pub async fn set_common_config_snippet(
 
     if matches!(app_type.as_str(), "claude" | "codex" | "gemini") {
         let app = AppType::from_str(&app_type).map_err(|e| e.to_string())?;
-        crate::services::provider::ProviderService::sync_current_provider_for_app(
-            state.inner(),
-            app,
-        )
-        .map_err(|e| e.to_string())?;
+        // Batch 4A 的 ProviderService 顶层入口已经持有 per-app lock/token；此处
+        // 不得再包一层 managed generation。
+        crate::services::provider::ProviderService::sync_current_provider_for_app(state, app)
+            .map_err(|e| e.to_string())?;
     }
 
     if app_type == "omo"
@@ -348,11 +346,8 @@ pub async fn set_common_config_snippet(
             .map_err(|e| e.to_string())?
             .is_some()
     {
-        crate::services::OmoService::write_config_to_file(
-            state.inner(),
-            &crate::services::omo::STANDARD,
-        )
-        .map_err(|e| e.to_string())?;
+        crate::services::OmoService::write_config_to_file(state, &crate::services::omo::STANDARD)
+            .map_err(|e| e.to_string())?;
     }
     if app_type == "omo-slim"
         && state
@@ -361,18 +356,39 @@ pub async fn set_common_config_snippet(
             .map_err(|e| e.to_string())?
             .is_some()
     {
-        crate::services::OmoService::write_config_to_file(
-            state.inner(),
-            &crate::services::omo::SLIM,
-        )
-        .map_err(|e| e.to_string())?;
+        crate::services::OmoService::write_config_to_file(state, &crate::services::omo::SLIM)
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
+#[tauri::command]
+pub async fn set_common_config_snippet(
+    app_type: String,
+    snippet: String,
+    state: tauri::State<'_, crate::store::AppState>,
+) -> Result<(), String> {
+    set_common_config_snippet_inner(app_type, snippet, state.inner())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::validate_common_config_snippet;
+    use super::{set_common_config_snippet_inner, validate_common_config_snippet};
+    use crate::app_config::AppType;
+    use crate::database::Database;
+    use crate::provider::{Provider, ProviderMeta};
+    use crate::proxy::types::RouteMode;
+    use crate::store::AppState;
+    use serde_json::json;
+    use std::ffi::OsString;
+    use std::sync::Arc;
+
+    fn restore_env(name: &str, value: Option<OsString>) {
+        match value {
+            Some(value) => std::env::set_var(name, value),
+            None => std::env::remove_var(name),
+        }
+    }
 
     #[test]
     fn validate_common_config_snippet_accepts_comment_only_codex_snippet() {
@@ -388,6 +404,99 @@ mod tests {
             err.contains("TOML") || err.contains("toml") || err.contains("格式"),
             "expected TOML validation error, got {err}"
         );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn common_snippet_sync_uses_provider_guard_without_false_conflict() {
+        let previous_test_home = std::env::var_os("AGENT_SWITCH_TEST_HOME");
+        let previous_home = std::env::var_os("HOME");
+        #[cfg(windows)]
+        let previous_userprofile = std::env::var_os("USERPROFILE");
+        let temp = tempfile::TempDir::new().expect("create temp home");
+        std::env::set_var("AGENT_SWITCH_TEST_HOME", temp.path());
+        std::env::set_var("HOME", temp.path());
+        #[cfg(windows)]
+        std::env::set_var("USERPROFILE", temp.path());
+        crate::settings::reload_settings().expect("reload isolated settings");
+
+        let db = Arc::new(Database::memory().expect("create memory database"));
+        let state = AppState::new(db.clone());
+        let mut provider = Provider::with_id(
+            "current".to_string(),
+            "Current".to_string(),
+            json!({
+                "env": {
+                    "ANTHROPIC_AUTH_TOKEN": "token",
+                    "ANTHROPIC_BASE_URL": "https://relay.example"
+                }
+            }),
+            None,
+        );
+        provider.meta = Some(ProviderMeta {
+            common_config_enabled: Some(true),
+            ..ProviderMeta::default()
+        });
+        db.save_provider("claude", &provider)
+            .expect("save provider");
+        db.set_current_provider("claude", &provider.id)
+            .expect("set current provider");
+        futures::executor::block_on(async {
+            let mut config = db
+                .get_proxy_config_for_app("claude")
+                .await
+                .expect("get proxy config");
+            config.takeover_enabled = true;
+            config.route_mode = RouteMode::Direct;
+            db.update_proxy_config_for_app(config)
+                .await
+                .expect("enable direct takeover");
+        });
+
+        set_common_config_snippet_inner(
+            "claude".to_string(),
+            json!({ "env": { "COMMON_FLAG": "one" } }).to_string(),
+            &state,
+        )
+        .expect("set first common snippet");
+        let first = futures::executor::block_on(state.external_config_monitor.get_status())
+            .expect("get first monitor status")
+            .into_iter()
+            .find(|status| status.app_type == AppType::Claude.as_str())
+            .expect("claude status");
+        assert!(first.generation > 0);
+        assert!(!first.conflict);
+
+        set_common_config_snippet_inner(
+            "claude".to_string(),
+            json!({ "env": { "COMMON_FLAG": "two" } }).to_string(),
+            &state,
+        )
+        .expect("set second common snippet");
+        let second = futures::executor::block_on(state.external_config_monitor.get_status())
+            .expect("get second monitor status")
+            .into_iter()
+            .find(|status| status.app_type == AppType::Claude.as_str())
+            .expect("claude status");
+        assert!(
+            second.generation > first.generation,
+            "second call proves no nested/in-flight token leak"
+        );
+        assert!(!second.conflict);
+        let live: serde_json::Value =
+            crate::config::read_json_file(&crate::config::get_claude_settings_path())
+                .expect("read Claude live");
+        assert_eq!(
+            live.pointer("/env/COMMON_FLAG")
+                .and_then(|value| value.as_str()),
+            Some("two")
+        );
+
+        restore_env("AGENT_SWITCH_TEST_HOME", previous_test_home);
+        restore_env("HOME", previous_home);
+        #[cfg(windows)]
+        restore_env("USERPROFILE", previous_userprofile);
+        crate::settings::reload_settings().expect("restore settings cache");
     }
 }
 

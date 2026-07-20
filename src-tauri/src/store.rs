@@ -2,7 +2,9 @@ use crate::database::Database;
 use crate::services::{ExternalConfigMonitor, ProxyService, UsageCache};
 use std::sync::Arc;
 
-/// 全局应用状态
+/// 全局应用状态。clone 只复制共享服务句柄；ProxyService、monitor、锁与 worker
+/// 仍是同一运行时实例，供 blocking 后置同步安全复用。
+#[derive(Clone)]
 pub struct AppState {
     pub db: Arc<Database>,
     pub proxy_service: ProxyService,

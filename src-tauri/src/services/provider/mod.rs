@@ -111,7 +111,7 @@ pub fn reapply_current_codex_official_live(state: &AppState) -> Result<bool, App
         // 已生效；若把错误上抛，save_settings 会回滚开关设置，制造"设置=旧值、
         // live=新桶"的会话分裂——正是该回滚要防止的状态。MCP 投影可自愈
         // （下次切换 / 任一 MCP 启停操作都会重新投影）。
-        if let Err(err) = McpService::sync_enabled_for_app(state, &AppType::Codex) {
+        if let Err(err) = McpService::sync_enabled_for_app_locked(state, &AppType::Codex) {
             log::warn!(
                 "统一会话开关重写 live 后重投影 Codex MCP 失败（将在下次同步时自愈）: {err}"
             );
@@ -3313,7 +3313,7 @@ impl ProviderService {
             crate::services::proxy::LiveWriteDecision::DirectUpstream => {
                 Self::with_managed_write_locked(state, app_type, || {
                     write_live_with_common_config(state.db.as_ref(), app_type, provider)?;
-                    if let Err(err) = McpService::sync_enabled_for_app(state, app_type) {
+                    if let Err(err) = McpService::sync_enabled_for_app_locked(state, app_type) {
                         log::warn!(
                             "保存供应商后重投影 {app_type:?} MCP 失败（将在下次同步时自愈）: {err}"
                         );
@@ -3824,7 +3824,7 @@ impl ProviderService {
         // 走到这里 DB is_current 与 live 都已落盘，切换事实上已成功；
         // 投影失败上抛会让前端报"切换失败"制造分裂假象，故降级为警告
         // （MCP 投影可自愈：下次切换 / 任一 MCP 启停都会重新投影）。
-        if let Err(err) = McpService::sync_enabled_for_app(state, &app_type) {
+        if let Err(err) = McpService::sync_enabled_for_app_locked(state, &app_type) {
             log::warn!("切换供应商后重投影 {app_type:?} MCP 失败（将在下次同步时自愈）: {err}");
         }
 

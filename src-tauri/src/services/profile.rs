@@ -382,6 +382,10 @@ impl ProfileService {
                 warnings.push(format!(
                     "[{app_str}] auto-disable proxy takeover before profile switch failed: {e}"
                 ));
+                // C2 精确恢复是后续 profile 写入的前置条件。恢复失败时 ownership、
+                // immutable snapshot 或冲突仍可能有效，不能继续用 provider/MCP/prompt
+                // 路径改写该应用；其它应用仍按 best-effort 继续。
+                continue;
             }
 
             // 2. 供应商

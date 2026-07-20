@@ -43,12 +43,12 @@ pub async fn import_config_from_file(
     #[allow(non_snake_case)] filePath: String,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    let db = state.db.clone();
-    let db_for_sync = db.clone();
+    let app_state = state.inner().clone();
+    let db = app_state.db.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let path_buf = PathBuf::from(&filePath);
         let backup_id = db.import_sql(&path_buf)?;
-        let warning = post_sync_warning_from_result(Ok(run_post_import_sync(db_for_sync)));
+        let warning = post_sync_warning_from_result(Ok(run_post_import_sync(&app_state)));
         if let Some(msg) = warning.as_ref() {
             log::warn!("[Import] post-import sync warning: {msg}");
         }
@@ -61,9 +61,8 @@ pub async fn import_config_from_file(
 
 #[tauri::command]
 pub async fn sync_current_providers_live(state: State<'_, AppState>) -> Result<Value, String> {
-    let db = state.db.clone();
+    let app_state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let app_state = AppState::new(db);
         ProviderService::sync_current_to_live(&app_state)?;
         Ok::<_, AppError>(json!({
             "success": true,

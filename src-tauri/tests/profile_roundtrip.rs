@@ -840,3 +840,190 @@ fn claude_desktop_profile_scope_is_independent() {
         "desktop scope marker set"
     );
 }
+
+#[test]
+fn profile_apply_hands_off_when_takeover_is_off() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let state = create_test_state().expect("create test state");
+    let settings_path = home.join(".claude").join("settings.json");
+    fs::create_dir_all(settings_path.parent().unwrap()).expect("create claude dir");
+    let original = b"{\n  \"userOwned\": true\n}\n";
+    fs::write(&settings_path, original).expect("seed user live");
+
+    for provider in [
+        claude_provider("p1", "key-1"),
+        claude_provider("p2", "key-2"),
+    ] {
+        state
+            .db
+            .save_provider(AppType::Claude.as_str(), &provider)
+            .expect("save provider");
+    }
+    state
+        .db
+        .set_current_provider(AppType::Claude.as_str(), "p1")
+        .expect("set current provider");
+    let profile = agent_switch_lib::Profile {
+        id: "off-profile".to_string(),
+        name: "Off Profile".to_string(),
+        payload: json!({ "providers": { "claude": "p2" } }).to_string(),
+        sort_order: None,
+        created_at: Some(1),
+        updated_at: Some(1),
+    };
+    state.db.save_profile(&profile).expect("save profile");
+
+    let (warnings, _) = ProfileService::apply(&state, &profile.id, ProfileScope::Claude)
+        .expect("apply hands-off profile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    assert_eq!(fs::read(&settings_path).unwrap(), original);
+    assert_eq!(
+        state
+            .db
+            .get_current_provider(AppType::Claude.as_str())
+            .unwrap()
+            .as_deref(),
+        Some("p2"),
+        "profile still updates DB/current SSOT"
+    );
+}
+
+#[test]
+fn profile_apply_direct_and_proxy_restore_snapshot_then_clear_conflict() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+
+    for route_mode in [RouteMode::Direct, RouteMode::Proxy] {
+        reset_test_fs();
+        let home = ensure_test_home();
+        let state = create_test_state().expect("create test state");
+        let settings_path = home.join(".claude").join("settings.json");
+        fs::create_dir_all(settings_path.parent().unwrap()).expect("create claude dir");
+        let original = format!("{{\n  \"restoreMode\": \"{}\"\n}}\n", route_mode.as_str());
+        fs::write(&settings_path, original.as_bytes()).expect("seed original live");
+
+        let mut p1 = claude_provider("p1", "key-1");
+        p1.category = Some("custom".to_string());
+        let mut p2 = claude_provider("p2", "key-2");
+        p2.category = Some("custom".to_string());
+        state
+            .db
+            .save_provider(AppType::Claude.as_str(), &p1)
+            .expect("save p1");
+        state
+            .db
+            .save_provider(AppType::Claude.as_str(), &p2)
+            .expect("save p2");
+        state
+            .db
+            .set_current_provider(AppType::Claude.as_str(), "p1")
+            .expect("set current p1");
+
+        let rt = tokio::runtime::Runtime::new().expect("create profile monitor runtime");
+        rt.block_on(async {
+            let mut proxy_config = state.db.get_proxy_config().await.expect("get proxy config");
+            proxy_config.listen_port = 0;
+            state
+                .db
+                .update_proxy_config(proxy_config)
+                .await
+                .expect("set ephemeral port");
+            state
+                .proxy_service
+                .set_takeover_for_app("claude", true, route_mode)
+                .await
+                .expect("enable takeover");
+        });
+        let backup_before = futures::executor::block_on(state.db.get_live_backup("claude"))
+            .expect("read restore snapshot")
+            .expect("restore snapshot exists")
+            .original_config;
+
+        let profile = agent_switch_lib::Profile {
+            id: format!("profile-{}", route_mode.as_str()),
+            name: format!("Profile {}", route_mode.as_str()),
+            payload: json!({ "providers": { "claude": "p2" } }).to_string(),
+            sort_order: None,
+            created_at: Some(1),
+            updated_at: Some(1),
+        };
+        state.db.save_profile(&profile).expect("save profile");
+
+        rt.block_on(async {
+            state
+                .external_config_monitor
+                .start()
+                .await
+                .expect("start monitor");
+            tokio::time::sleep(std::time::Duration::from_millis(650)).await;
+            fs::write(&settings_path, b"{\"external\":true}").expect("write external conflict");
+            tokio::time::sleep(std::time::Duration::from_millis(1_400)).await;
+            let status = state
+                .external_config_monitor
+                .get_status()
+                .await
+                .expect("get conflict status")
+                .into_iter()
+                .find(|status| status.app_type == "claude")
+                .expect("claude status");
+            assert!(
+                status.conflict,
+                "profile precondition should have a conflict"
+            );
+            let backup_during = state
+                .db
+                .get_live_backup("claude")
+                .await
+                .expect("read snapshot during conflict")
+                .expect("snapshot retained")
+                .original_config;
+            assert_eq!(
+                backup_during, backup_before,
+                "conflict must not replace C2 snapshot"
+            );
+            state
+                .external_config_monitor
+                .stop()
+                .await
+                .expect("stop monitor");
+        });
+
+        let (warnings, _) = ProfileService::apply(&state, &profile.id, ProfileScope::Claude)
+            .expect("apply profile with ownership");
+        assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+        assert_eq!(
+            fs::read(&settings_path).expect("read restored live"),
+            original.as_bytes(),
+            "C2 disable must byte-exact restore before DB-only profile switch"
+        );
+        assert!(
+            futures::executor::block_on(state.db.get_live_backup("claude"))
+                .expect("read released snapshot")
+                .is_none(),
+            "successful C2 restore releases immutable snapshot"
+        );
+        let status = futures::executor::block_on(state.external_config_monitor.get_status())
+            .expect("get resolved status")
+            .into_iter()
+            .find(|status| status.app_type == "claude")
+            .expect("claude status");
+        assert!(!status.takeover_enabled);
+        assert!(
+            !status.conflict,
+            "profile apply must not leave a self-conflict"
+        );
+        assert_eq!(
+            state
+                .db
+                .get_current_provider(AppType::Claude.as_str())
+                .unwrap()
+                .as_deref(),
+            Some("p2")
+        );
+
+        if route_mode == RouteMode::Proxy {
+            rt.block_on(state.proxy_service.stop()).expect("stop proxy");
+        }
+    }
+}
