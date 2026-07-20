@@ -84,6 +84,24 @@ export interface ProxyStopError {
   modules: string[];
 }
 
+// C3/C4 外部配置检测与冲突
+// 事件载荷（`external-config-changed`），后端已输出 camelCase
+export interface ExternalConfigChangedPayload {
+  appType: string; // 规范值，如 "claude-desktop"
+  generation: number;
+  conflict: boolean;
+  takeoverEnabled: boolean;
+}
+
+// `get_external_config_status` 返回的模块状态项
+export interface ExternalConfigModuleStatus {
+  appType: string; // 规范值，如 "claude-desktop"
+  generation: number;
+  conflict: boolean;
+  takeoverEnabled: boolean;
+  routeMode: ProxyRouteMode;
+}
+
 export interface ProviderHealth {
   provider_id: string;
   app_type: string;

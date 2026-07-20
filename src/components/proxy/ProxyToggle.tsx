@@ -23,41 +23,57 @@ export function ProxyToggle({ className, activeApp }: ProxyToggleProps) {
   const { isRunning, takeoverStatus, setTakeoverForApp, isPending, status } =
     useProxyStatus();
 
+  const moduleState = getProxyTakeoverState(takeoverStatus, activeApp);
+  const takeoverEnabled = moduleState?.takeoverEnabled ?? false;
+
   const handleToggle = async (checked: boolean) => {
     try {
-      await setTakeoverForApp({ appType: activeApp, enabled: checked });
+      // 开启时携带该模块已保存的 routeMode（无则 direct）
+      const routeMode = checked
+        ? (moduleState?.routeMode ?? "direct")
+        : undefined;
+      await setTakeoverForApp({
+        appType: activeApp,
+        enabled: checked,
+        routeMode,
+      });
     } catch (error) {
       console.error("[ProxyToggle] Toggle takeover failed:", error);
     }
   };
 
-  const takeoverEnabled =
-    getProxyTakeoverState(takeoverStatus, activeApp)?.takeoverEnabled ?? false;
-
-  const appLabel =
-    activeApp === "claude"
-      ? "Claude"
-      : activeApp === "codex"
-        ? "Codex"
-        : activeApp === "gemini"
-          ? "Gemini"
-          : "OpenCode";
+  const APP_LABELS: Record<string, string> = {
+    claude: "Claude",
+    "claude-desktop": "Claude Desktop",
+    codex: "Codex",
+    gemini: "Gemini",
+    opencode: "OpenCode",
+    openclaw: "OpenClaw",
+    hermes: "Hermes",
+  };
+  const appLabel = APP_LABELS[activeApp] ?? activeApp;
+  const routeMode = moduleState?.routeMode ?? "direct";
 
   const tooltipText = takeoverEnabled
-    ? isRunning
-      ? t("proxy.takeover.tooltip.active", {
+    ? routeMode === "proxy"
+      ? isRunning
+        ? t("proxy.takeover.tooltip.active", {
+            appLabel,
+            address: status?.address,
+            port: status?.port,
+            defaultValue: `${appLabel} 已接管（代理）- ${status?.address}:${status?.port}\n切换该应用供应商为热切换`,
+          })
+        : t("proxy.takeover.tooltip.broken", {
+            appLabel,
+            defaultValue: `${appLabel} 已接管（代理），但代理服务未运行`,
+          })
+      : t("proxy.takeover.tooltip.activeDirect", {
           appLabel,
-          address: status?.address,
-          port: status?.port,
-          defaultValue: `${appLabel} 已接管 - ${status?.address}:${status?.port}\n切换该应用供应商为热切换`,
-        })
-      : t("proxy.takeover.tooltip.broken", {
-          appLabel,
-          defaultValue: `${appLabel} 已接管，但代理服务未运行`,
+          defaultValue: `${appLabel} 已接管（直连）`,
         })
     : t("proxy.takeover.tooltip.inactive", {
         appLabel,
-        defaultValue: `接管 ${appLabel} 的 Live 配置，让该应用请求走本地代理`,
+        defaultValue: `接管 ${appLabel} 的配置`,
       });
 
   return (

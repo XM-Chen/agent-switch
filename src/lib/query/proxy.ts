@@ -2,7 +2,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { proxyApi } from "@/lib/api/proxy";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import type { GlobalProxyConfig, AppProxyConfig } from "@/types/proxy";
+import type {
+  GlobalProxyConfig,
+  AppProxyConfig,
+  ProxyRouteMode,
+} from "@/types/proxy";
 
 // ========== 代理服务器状态 Hooks ==========
 
@@ -88,16 +92,105 @@ export function useStopProxyServer() {
 
 /**
  * 设置应用接管状态
+ * 开启时携带 routeMode（缺省由后端按 direct 处理）。
  */
 export function useSetProxyTakeoverForApp() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ appType, enabled }: { appType: string; enabled: boolean }) =>
-      proxyApi.setProxyTakeoverForApp(appType, enabled),
+    mutationFn: ({
+      appType,
+      enabled,
+      routeMode,
+    }: {
+      appType: string;
+      enabled: boolean;
+      routeMode?: ProxyRouteMode;
+    }) => proxyApi.setProxyTakeoverForApp(appType, enabled, routeMode),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["proxyTakeoverStatus"] });
       queryClient.invalidateQueries({ queryKey: ["liveTakeoverActive"] });
+    },
+  });
+}
+
+/**
+ * 切换应用路由模式（direct/proxy）。
+ * 偏好/热切换；后端在未接管时只存偏好，不写 live。
+ */
+export function useSetProxyRouteMode() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      appType,
+      routeMode,
+    }: {
+      appType: string;
+      routeMode: ProxyRouteMode;
+    }) => proxyApi.setProxyRouteMode(appType, routeMode),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["proxyTakeoverStatus"] });
+    },
+  });
+}
+
+// ========== 外部配置检测与冲突 Hooks ==========
+
+/**
+ * 获取七模块外部配置状态（含冲突态）。
+ */
+export function useExternalConfigStatus() {
+  return useQuery({
+    queryKey: ["externalConfigStatus"],
+    queryFn: () => proxyApi.getExternalConfigStatus(),
+  });
+}
+
+/**
+ * 接受外部更改：保留外部配置为新受管基线，后端按实际路由同步 routeMode。
+ */
+export function useAcceptExternalConfigChange() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      appType,
+      generation,
+    }: {
+      appType: string;
+      generation: number;
+    }) => proxyApi.acceptExternalConfigChange(appType, generation),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["proxyTakeoverStatus"] });
+      queryClient.invalidateQueries({ queryKey: ["externalConfigStatus"] });
+      queryClient.invalidateQueries({
+        queryKey: ["providers", variables.appType],
+      });
+    },
+  });
+}
+
+/**
+ * 拒绝外部更改：用 Agent-Switch 受管配置重新覆盖 live。
+ */
+export function useRejectExternalConfigChange() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      appType,
+      generation,
+    }: {
+      appType: string;
+      generation: number;
+    }) => proxyApi.rejectExternalConfigChange(appType, generation),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["proxyTakeoverStatus"] });
+      queryClient.invalidateQueries({ queryKey: ["externalConfigStatus"] });
+      queryClient.invalidateQueries({
+        queryKey: ["providers", variables.appType],
+      });
     },
   });
 }

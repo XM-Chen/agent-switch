@@ -6,6 +6,8 @@ import type {
   ProxyTakeoverStatus,
   GlobalProxyConfig,
   AppProxyConfig,
+  ProxyRouteMode,
+  ExternalConfigModuleStatus,
 } from "@/types/proxy";
 
 export const proxyApi = {
@@ -57,11 +59,44 @@ export const proxyApi = {
   },
 
   // 为指定应用开启/关闭接管
+  // 开启时可携带 routeMode（缺省由后端按 direct 处理）
   async setProxyTakeoverForApp(
     appType: string,
     enabled: boolean,
+    routeMode?: ProxyRouteMode,
   ): Promise<void> {
-    return invoke("set_proxy_takeover_for_app", { appType, enabled });
+    return invoke("set_proxy_takeover_for_app", { appType, enabled, routeMode });
+  },
+
+  // 切换指定应用的路由模式（偏好/热切换；未接管时后端只存偏好）
+  async setProxyRouteMode(
+    appType: string,
+    routeMode: ProxyRouteMode,
+  ): Promise<void> {
+    return invoke("set_proxy_route_mode", { appType, routeMode });
+  },
+
+  // ========== 外部配置检测与冲突 API ==========
+
+  // 获取七模块外部配置状态（含冲突态），启动时用于 hydrate 冲突队列
+  async getExternalConfigStatus(): Promise<ExternalConfigModuleStatus[]> {
+    return invoke("get_external_config_status");
+  },
+
+  // 接受外部更改：保留外部配置为新的受管基线，按实际路由同步 routeMode
+  async acceptExternalConfigChange(
+    appType: string,
+    generation: number,
+  ): Promise<void> {
+    return invoke("accept_external_config_change", { appType, generation });
+  },
+
+  // 拒绝外部更改：用 Agent-Switch 受管配置重新覆盖 live
+  async rejectExternalConfigChange(
+    appType: string,
+    generation: number,
+  ): Promise<void> {
+    return invoke("reject_external_config_change", { appType, generation });
   },
 
   // ========== Legacy 代理配置 API (兼容) ==========

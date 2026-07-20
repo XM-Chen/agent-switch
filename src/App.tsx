@@ -69,8 +69,9 @@ import { SettingsPage } from "@/components/settings/SettingsPage";
 import { UpdateBadge } from "@/components/UpdateBadge";
 import { EnvWarningBanner } from "@/components/env/EnvWarningBanner";
 import { ProxyToggle } from "@/components/proxy/ProxyToggle";
-import { ClaudeDesktopRouteToggle } from "@/components/proxy/ClaudeDesktopRouteToggle";
 import { FailoverToggle } from "@/components/proxy/FailoverToggle";
+import { ExternalConfigConflictDialog } from "@/components/proxy/ExternalConfigConflictDialog";
+import { useExternalConfigBridge } from "@/hooks/useExternalConfigBridge";
 import UsageScriptModal from "@/components/UsageScriptModal";
 import UnifiedMcpPanel from "@/components/mcp/UnifiedMcpPanel";
 import PromptPanel from "@/components/prompts/PromptPanel";
@@ -277,6 +278,8 @@ function App() {
     takeoverStatus,
     status: proxyStatus,
   } = useProxyStatus();
+  // 外部配置检测/冲突事件桥（单例）：定向失效 + 冲突队列
+  const { currentConflict, dequeueConflict } = useExternalConfigBridge();
   const isCurrentAppTakeoverActive =
     getProxyTakeoverState(takeoverStatus, activeApp)?.takeoverEnabled ?? false;
   const activeProviderId = useMemo(() => {
@@ -1247,27 +1250,22 @@ function App() {
           </div>
 
           <div className="flex flex-1 min-w-0 items-center justify-end gap-1.5">
-            {currentView === "providers" &&
-              activeApp !== "opencode" &&
-              activeApp !== "openclaw" &&
-              activeApp !== "hermes" && (
-                <div
-                  className="flex shrink-0 items-center gap-1.5"
-                  style={{ WebkitAppRegion: "no-drag" } as any}
-                >
-                  {activeApp === "claude-desktop" ? (
-                    <ClaudeDesktopRouteToggle />
-                  ) : (
-                    settingsData?.enableLocalProxy && (
-                      <ProxyToggle activeApp={activeApp} />
-                    )
+            {currentView === "providers" && (
+              <div
+                className="flex shrink-0 items-center gap-1.5"
+                style={{ WebkitAppRegion: "no-drag" } as any}
+              >
+                {/* 七模块统一接管入口（C4-D1/D2/D4）：始终可见，不受 enableLocalProxy 门控 */}
+                <ProxyToggle activeApp={activeApp} />
+                {activeApp !== "claude-desktop" &&
+                  activeApp !== "opencode" &&
+                  activeApp !== "openclaw" &&
+                  activeApp !== "hermes" &&
+                  settingsData?.enableFailoverToggle && (
+                    <FailoverToggle activeApp={activeApp} />
                   )}
-                  {activeApp !== "claude-desktop" &&
-                    settingsData?.enableFailoverToggle && (
-                      <FailoverToggle activeApp={activeApp} />
-                    )}
-                </div>
-              )}
+              </div>
+            )}
             <div
               ref={toolbarRef}
               className="flex flex-1 min-w-0 overflow-x-hidden items-center py-4 pr-2"
@@ -1686,6 +1684,12 @@ function App() {
 
       <DeepLinkImportDialog />
       <FirstRunNoticeDialog />
+
+      {/* 外部配置冲突：阻塞模态 + 单冲突队列（队头） */}
+      <ExternalConfigConflictDialog
+        conflict={currentConflict}
+        onResolved={dequeueConflict}
+      />
     </div>
   );
 }

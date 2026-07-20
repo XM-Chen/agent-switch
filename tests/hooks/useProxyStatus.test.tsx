@@ -78,11 +78,13 @@ describe("useProxyStatus", () => {
 
       if (command === "get_proxy_takeover_status") {
         return Promise.resolve({
-          claude: false,
-          codex: false,
-          gemini: false,
-          opencode: false,
-          openclaw: false,
+          claude: { takeoverEnabled: false, routeMode: "direct" },
+          claudeDesktop: { takeoverEnabled: false, routeMode: "direct" },
+          codex: { takeoverEnabled: false, routeMode: "direct" },
+          gemini: { takeoverEnabled: false, routeMode: "direct" },
+          opencode: { takeoverEnabled: false, routeMode: "direct" },
+          openclaw: { takeoverEnabled: false, routeMode: "direct" },
+          hermes: { takeoverEnabled: false, routeMode: "direct" },
         });
       }
 
@@ -114,5 +116,74 @@ describe("useProxyStatus", () => {
       "代理服务已启动 - 127.0.0.1:42567",
       { closeButton: true },
     );
+  });
+
+  it("passes routeMode when enabling takeover for an app", async () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useProxyStatus(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.setTakeoverForApp({
+        appType: "codex",
+        enabled: true,
+        routeMode: "proxy",
+      });
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("set_proxy_takeover_for_app", {
+      appType: "codex",
+      enabled: true,
+      routeMode: "proxy",
+    });
+  });
+
+  it("surfaces the module list when stop is blocked by proxy routes", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "stop_proxy_server") {
+        return Promise.reject(
+          JSON.stringify({
+            code: "proxyRoutesActive",
+            message: "proxy routes active",
+            modules: ["codex", "claude-desktop"],
+          }),
+        );
+      }
+      if (command === "get_proxy_status") {
+        return Promise.resolve({
+          running: true,
+          address: "127.0.0.1",
+          port: 42567,
+          active_connections: 0,
+          total_requests: 0,
+          success_requests: 0,
+          failed_requests: 0,
+          success_rate: 0,
+          uptime_seconds: 0,
+          current_provider: null,
+          current_provider_id: null,
+          last_request_at: null,
+          last_error: null,
+          failover_count: 0,
+        });
+      }
+      return Promise.resolve(null);
+    });
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useProxyStatus(), { wrapper });
+
+    await act(async () => {
+      await result.current.stopProxyServer().catch(() => undefined);
+    });
+
+    // 展示后端返回的准确模块列表（映射为展示标签）
+    expect(toastErrorMock).toHaveBeenCalled();
+    const message = toastErrorMock.mock.calls[0]?.[0] as string;
+    expect(message).toContain("Codex");
+    expect(message).toContain("Claude Desktop");
   });
 });

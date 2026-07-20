@@ -10,8 +10,24 @@ import type {
   ProxyStatus,
   ProxyServerInfo,
   ProxyTakeoverStatus,
+  ProxyRouteMode,
 } from "@/types/proxy";
 import { extractErrorMessage } from "@/utils/errorUtils";
+import { parseProxyInvokeError } from "@/utils/proxyError";
+
+// 七模块规范 app_type → 展示标签
+const APP_LABELS: Record<string, string> = {
+  claude: "Claude",
+  "claude-desktop": "Claude Desktop",
+  codex: "Codex",
+  gemini: "Gemini",
+  opencode: "OpenCode",
+  openclaw: "OpenClaw",
+  hermes: "Hermes",
+};
+
+const appLabelFor = (appType: string): string =>
+  APP_LABELS[appType] ?? appType;
 
 /**
  * 代理服务状态管理
@@ -76,7 +92,22 @@ export function useProxyStatus() {
       );
       queryClient.invalidateQueries({ queryKey: ["proxyStatus"] });
     },
-    onError: (error: Error) => {
+    onError: (error: unknown) => {
+      const stopError = parseProxyInvokeError(error);
+      // 仍有 proxy 路由模块时后端拒绝停止：展示模块列表，不改任何模块状态
+      if (stopError?.code === "proxyRoutesActive") {
+        const modules = stopError.modules
+          .map((m) => appLabelFor(m))
+          .join("、");
+        toast.error(
+          t("proxy.server.stopBlockedByProxyRoutes", {
+            modules,
+            defaultValue: `以下模块正走本地代理，请先切换为 direct 或关闭接管再停止网关：${modules}`,
+          }),
+          { duration: 6000 },
+        );
+        return;
+      }
       const detail =
         extractErrorMessage(error) ||
         t("common.unknown", { defaultValue: "未知错误" });
@@ -107,7 +138,21 @@ export function useProxyStatus() {
       queryClient.removeQueries({ queryKey: ["circuitBreakerStats"] });
       // 注意：故障转移队列和开关状态会保留，不需要刷新
     },
-    onError: (error: Error) => {
+    onError: (error: unknown) => {
+      const stopError = parseProxyInvokeError(error);
+      if (stopError?.code === "proxyRoutesActive") {
+        const modules = stopError.modules
+          .map((m) => appLabelFor(m))
+          .join("、");
+        toast.error(
+          t("proxy.server.stopBlockedByProxyRoutes", {
+            modules,
+            defaultValue: `以下模块正走本地代理，请先切换为 direct 或关闭接管再停止网关：${modules}`,
+          }),
+          { duration: 6000 },
+        );
+        return;
+      }
       const detail =
         extractErrorMessage(error) ||
         t("common.unknown", { defaultValue: "未知错误" });
@@ -121,24 +166,26 @@ export function useProxyStatus() {
   });
 
   // 按应用开启/关闭接管
+  // 开启时携带 routeMode（缺省由后端按 direct 处理）。
   const setTakeoverForAppMutation = useMutation({
-    mutationFn: ({ appType, enabled }: { appType: string; enabled: boolean }) =>
-      invoke("set_proxy_takeover_for_app", { appType, enabled }),
+    mutationFn: ({
+      appType,
+      enabled,
+      routeMode,
+    }: {
+      appType: string;
+      enabled: boolean;
+      routeMode?: ProxyRouteMode;
+    }) =>
+      invoke("set_proxy_takeover_for_app", { appType, enabled, routeMode }),
     onSuccess: (_data, variables) => {
-      const appLabel =
-        variables.appType === "claude"
-          ? "Claude"
-          : variables.appType === "codex"
-            ? "Codex"
-            : variables.appType === "gemini"
-              ? "Gemini"
-              : "OpenCode";
+      const appLabel = appLabelFor(variables.appType);
 
       toast.success(
         variables.enabled
           ? t("proxy.takeover.enabled", {
               app: appLabel,
-              defaultValue: `已接管 ${appLabel} 配置（请求将走本地代理）`,
+              defaultValue: `已接管 ${appLabel} 配置`,
             })
           : t("proxy.takeover.disabled", {
               app: appLabel,

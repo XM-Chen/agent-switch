@@ -23,15 +23,17 @@ import { useProviderHealth } from "@/lib/query/failover";
 import {
   useProxyTakeoverStatus,
   useSetProxyTakeoverForApp,
+  useSetProxyRouteMode,
   useGlobalProxyConfig,
   useUpdateGlobalProxyConfig,
 } from "@/lib/query/proxy";
 import {
   getProxyTakeoverState,
   type ProxyStatus,
+  type ProxyRouteMode,
 } from "@/types/proxy";
+import type { AppId } from "@/lib/api";
 import { useTranslation } from "react-i18next";
-import { AnimatePresence, motion } from "framer-motion";
 import { extractErrorMessage } from "@/utils/errorUtils";
 
 interface ProxyPanelProps {
@@ -40,6 +42,17 @@ interface ProxyPanelProps {
   onToggleProxy: (checked: boolean) => Promise<void>;
   isProxyPending: boolean;
 }
+
+// 七模块规范 app_type + 展示标签（顺序即 UI 展示顺序）
+const TAKEOVER_MODULES: ReadonlyArray<{ appType: AppId; label: string }> = [
+  { appType: "claude", label: "Claude" },
+  { appType: "claude-desktop", label: "Claude Desktop" },
+  { appType: "codex", label: "Codex" },
+  { appType: "gemini", label: "Gemini" },
+  { appType: "opencode", label: "OpenCode" },
+  { appType: "openclaw", label: "OpenClaw" },
+  { appType: "hermes", label: "Hermes" },
+];
 
 export function ProxyPanel({
   enableLocalProxy,
@@ -53,6 +66,7 @@ export function ProxyPanel({
   // 获取应用接管状态
   const { data: takeoverStatus } = useProxyTakeoverStatus();
   const setTakeoverForApp = useSetProxyTakeoverForApp();
+  const setRouteMode = useSetProxyRouteMode();
 
   // 获取全局代理配置
   const { data: globalConfig } = useGlobalProxyConfig();
@@ -76,18 +90,26 @@ export function ProxyPanel({
   const { data: codexQueue = [] } = useFailoverQueue("codex");
   const { data: geminiQueue = [] } = useFailoverQueue("gemini");
 
-  const handleTakeoverChange = async (appType: string, enabled: boolean) => {
+  const handleTakeoverChange = async (
+    appType: string,
+    enabled: boolean,
+    label: string,
+  ) => {
     try {
-      await setTakeoverForApp.mutateAsync({ appType, enabled });
+      // 开启时携带该模块已保存的 routeMode（无则 direct）；关闭时不需要
+      const routeMode = enabled
+        ? (getProxyTakeoverState(takeoverStatus, appType)?.routeMode ?? "direct")
+        : undefined;
+      await setTakeoverForApp.mutateAsync({ appType, enabled, routeMode });
       toast.success(
         enabled
           ? t("proxy.takeover.enabled", {
-              app: appType,
-              defaultValue: `${appType} 接管已启用`,
+              app: label,
+              defaultValue: `${label} 接管已启用`,
             })
           : t("proxy.takeover.disabled", {
-              app: appType,
-              defaultValue: `${appType} 接管已关闭`,
+              app: label,
+              defaultValue: `${label} 接管已关闭`,
             }),
         { closeButton: true },
       );
@@ -99,6 +121,34 @@ export function ProxyPanel({
         t("proxy.takeover.failed", {
           detail,
           defaultValue: "切换接管状态失败",
+        }),
+      );
+    }
+  };
+
+  const handleRouteModeChange = async (
+    appType: string,
+    routeMode: ProxyRouteMode,
+    label: string,
+  ) => {
+    try {
+      await setRouteMode.mutateAsync({ appType, routeMode });
+      toast.success(
+        t("proxy.routeMode.changed", {
+          app: label,
+          mode: routeMode,
+          defaultValue: `${label} 路由模式已切换为 ${routeMode}`,
+        }),
+        { closeButton: true },
+      );
+    } catch (error) {
+      const detail =
+        extractErrorMessage(error) ||
+        t("common.unknown", { defaultValue: "未知错误" });
+      toast.error(
+        t("proxy.routeMode.failed", {
+          detail,
+          defaultValue: "切换路由模式失败",
         }),
       );
     }
@@ -259,56 +309,74 @@ export function ProxyPanel({
           />
         </div>
 
-        {/* [3] App takeover switches — animated, visible only when proxy is running */}
-        <AnimatePresence>
-          {isRunning && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.25, ease: "easeInOut" }}
-              className="overflow-hidden"
-            >
-              <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-4 space-y-3">
-                <p className="text-xs font-medium text-primary">
-                  {t("proxyConfig.appTakeover", {
-                    defaultValue: "应用接管",
-                  })}
-                </p>
-                <div className="grid gap-2 sm:grid-cols-3">
-                  {(["claude", "codex", "gemini"] as const).map((appType) => {
-                    const isEnabled =
-                      getProxyTakeoverState(takeoverStatus, appType)
-                        ?.takeoverEnabled ?? false;
-                    return (
-                      <div
-                        key={appType}
-                        className="flex items-center justify-between rounded-md border border-primary/20 bg-background/60 px-3 py-2"
-                      >
-                        <span className="text-sm font-medium capitalize">
-                          {appType}
-                        </span>
-                        <Switch
-                          checked={isEnabled}
-                          onCheckedChange={(checked) =>
-                            handleTakeoverChange(appType, checked)
+        {/* [3] 七模块接管 + route_mode — 始终可见，不依赖网关运行态（C4-D1） */}
+        <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-4 space-y-3">
+          <p className="text-xs font-medium text-primary">
+            {t("proxyConfig.appTakeover", {
+              defaultValue: "应用接管",
+            })}
+          </p>
+          <div className="space-y-2">
+            {TAKEOVER_MODULES.map(({ appType, label }) => {
+              const moduleState = getProxyTakeoverState(
+                takeoverStatus,
+                appType,
+              );
+              const isEnabled = moduleState?.takeoverEnabled ?? false;
+              const routeMode: ProxyRouteMode =
+                moduleState?.routeMode ?? "direct";
+              return (
+                <div
+                  key={appType}
+                  className="flex items-center justify-between gap-3 rounded-md border border-primary/20 bg-background/60 px-3 py-2"
+                >
+                  <span className="text-sm font-medium">{label}</span>
+                  <div className="flex items-center gap-3">
+                    {/* route_mode 二选一：偏好/热切换（未接管时后端只存偏好） */}
+                    <div className="flex items-center rounded-md border border-border bg-background p-0.5 text-xs">
+                      {(["direct", "proxy"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() =>
+                            handleRouteModeChange(appType, mode, label)
                           }
-                          disabled={setTakeoverForApp.isPending}
-                        />
-                      </div>
-                    );
-                  })}
+                          disabled={setRouteMode.isPending}
+                          className={
+                            routeMode === mode
+                              ? "rounded px-2 py-1 font-medium bg-primary text-primary-foreground"
+                              : "rounded px-2 py-1 text-muted-foreground hover:text-foreground"
+                          }
+                        >
+                          {mode === "direct"
+                            ? t("proxy.routeMode.direct", {
+                                defaultValue: "直连",
+                              })
+                            : t("proxy.routeMode.proxy", {
+                                defaultValue: "代理",
+                              })}
+                        </button>
+                      ))}
+                    </div>
+                    <Switch
+                      checked={isEnabled}
+                      onCheckedChange={(checked) =>
+                        handleTakeoverChange(appType, checked, label)
+                      }
+                      disabled={setTakeoverForApp.isPending}
+                    />
+                  </div>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {t("proxy.takeover.hint", {
-                    defaultValue:
-                      "选择要接管的应用，启用后该应用的请求将通过本地代理转发",
-                  })}
-                </p>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t("proxy.takeover.hintV2", {
+              defaultValue:
+                "接管开关决定 Agent-Switch 是否写入该应用配置；路由模式决定写真实上游（直连）还是本地网关（代理）。代理模式需要网关运行。",
+            })}
+          </p>
+        </div>
 
         {/* Running state: service info + stats */}
         {isRunning && status ? (

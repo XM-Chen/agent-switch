@@ -1,9 +1,11 @@
-import { Loader2, Radio } from "lucide-react";
-import { toast } from "sonner";
-import { useTranslation } from "react-i18next";
-import { Switch } from "@/components/ui/switch";
-import { useProxyStatus } from "@/hooks/useProxyStatus";
-import { cn } from "@/lib/utils";
+/**
+ * Claude Desktop 顶栏开关。
+ *
+ * C4-D2：收口为「模块接管开关」，不再启停本地网关。
+ * 直接复用统一的 ProxyToggle，固定 activeApp 为 claude-desktop。
+ */
+
+import { ProxyToggle } from "@/components/proxy/ProxyToggle";
 
 interface ClaudeDesktopRouteToggleProps {
   className?: string;
@@ -12,87 +14,5 @@ interface ClaudeDesktopRouteToggleProps {
 export function ClaudeDesktopRouteToggle({
   className,
 }: ClaudeDesktopRouteToggleProps) {
-  const { t } = useTranslation();
-  const {
-    isRunning,
-    status,
-    takeoverStatus,
-    startProxyServer,
-    stopProxyServer,
-    isStarting,
-    isStoppingServer,
-  } = useProxyStatus();
-
-  const isBusy = isStarting || isStoppingServer;
-  const otherTakeoverActive = takeoverStatus
-    ? Object.values(takeoverStatus).some(
-        (module) => module.takeoverEnabled && module.routeMode === "proxy",
-      )
-    : false;
-  const routeAddress = status?.address ?? "127.0.0.1";
-  const routePort = status?.port ?? 42567;
-
-  const handleToggle = async (checked: boolean) => {
-    try {
-      if (checked) {
-        await startProxyServer();
-        return;
-      }
-
-      if (otherTakeoverActive) {
-        toast.warning(
-          t("claudeDesktop.route.stopBlockedByTakeover", {
-            defaultValue:
-              "其它应用正在使用代理接管。请先在设置中关闭对应应用接管，再停止本地路由。",
-          }),
-          { duration: 5000 },
-        );
-        return;
-      }
-
-      await stopProxyServer();
-    } catch (error) {
-      console.error("[ClaudeDesktopRouteToggle] Toggle route failed:", error);
-    }
-  };
-
-  const tooltipText = isRunning
-    ? t("claudeDesktop.route.tooltip.active", {
-        address: routeAddress,
-        port: routePort,
-        defaultValue: `Claude Desktop 本地路由已开启 - ${routeAddress}:${routePort}`,
-      })
-    : t("claudeDesktop.route.tooltip.inactive", {
-        address: routeAddress,
-        port: routePort,
-        defaultValue: `开启 Claude Desktop 本地路由，用于需要模型映射或格式转换的供应商。当前配置地址：${routeAddress}:${routePort}`,
-      });
-
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-1 px-1.5 h-8 rounded-lg bg-muted/50 transition-all",
-        className,
-      )}
-      title={tooltipText}
-    >
-      {isBusy ? (
-        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-      ) : (
-        <Radio
-          className={cn(
-            "h-4 w-4 transition-colors",
-            isRunning
-              ? "text-emerald-500 animate-pulse"
-              : "text-muted-foreground",
-          )}
-        />
-      )}
-      <Switch
-        checked={isRunning}
-        onCheckedChange={handleToggle}
-        disabled={isBusy}
-      />
-    </div>
-  );
+  return <ProxyToggle className={className} activeApp="claude-desktop" />;
 }
