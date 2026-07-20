@@ -348,6 +348,88 @@ impl ExternalConfigStateStore {
         Ok(expected)
     }
 
+    /// 中止对应 generation 的受管写入。调用方必须先完成 C2 写入补偿，再传入补偿后的
+    /// 稳定全文。该操作幂等清除 in-flight；已有冲突只刷新 observed，不会被失败操作清除。
+    pub(crate) async fn abort_managed_write(
+        &self,
+        app_type: &AppType,
+        write_generation: u64,
+        takeover_enabled: Option<bool>,
+        targets: Option<Vec<ManagedTarget>>,
+    ) -> Result<(), String> {
+        let captured = targets
+            .map(|targets| ManagedExpected::new(write_generation, targets))
+            .transpose();
+        let mut states = self.states.write().await;
+        let state = states.entry(app_type.as_str().to_string()).or_default();
+
+        match state.managed_write_generation {
+            None if write_generation <= state.generation => return Ok(()),
+            None => {
+                return Err(format!(
+                    "{} 受管写入 generation 尚未开始：请求 {write_generation}，当前 {}",
+                    app_type.as_str(),
+                    state.generation
+                ));
+            }
+            Some(active_generation) if active_generation != write_generation => {
+                return Err(format!(
+                    "{} 受管写入 generation 不匹配：请求 {write_generation}，当前 {active_generation}",
+                    app_type.as_str()
+                ));
+            }
+            Some(_) => {}
+        }
+
+        // 无论补偿后 capture 是否有效，都必须先释放 in-flight，避免 worker 永久跳过该模块。
+        state.managed_write_generation = None;
+        if let Some(conflict) = state.conflict.as_mut() {
+            // begin 已推进模块 generation；即使补偿后 capture 失败，既有冲突也必须同步
+            // 推进 token，保证用户仍可用当前 generation 接受/拒绝，而不是卡成永久 stale。
+            conflict.generation = write_generation;
+        }
+        let mut captured = captured?;
+        if let Some(observed) = captured.as_mut() {
+            observed.set_generation(write_generation);
+        }
+
+        match takeover_enabled {
+            Some(false) => {
+                state.expected = None;
+                state.conflict = None;
+                state.last_observed = captured;
+            }
+            Some(true) => {
+                if let Some(conflict) = state.conflict.as_mut() {
+                    // 失败的显式操作不能替用户清除冲突；只把补偿后的稳定 live 刷新为
+                    // 当前 observed，并把冲突 token 推进到本次单调 generation。
+                    conflict.generation = write_generation;
+                    if let Some(observed) = captured.clone() {
+                        conflict.observed = observed.clone();
+                        state.last_observed = Some(observed);
+                    }
+                } else if let Some(expected) = captured {
+                    // 没有既有冲突时，C2 已把 live 补偿到稳定态；该稳定态重新成为
+                    // managed expected，轮询不会把内部失败事务误报成外部修改。
+                    state.expected = Some(expected.clone());
+                    state.last_observed = Some(expected);
+                }
+            }
+            None => {
+                // ownership 查询失败时采取保守策略：不改 expected/conflict，只记录能够
+                // 可靠采集到的实际全文；下一轮 worker 会按 DB 真相重新判定。
+                if let Some(observed) = captured {
+                    if let Some(conflict) = state.conflict.as_mut() {
+                        conflict.generation = write_generation;
+                        conflict.observed = observed.clone();
+                    }
+                    state.last_observed = Some(observed);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// 创建或更新冲突。后续外变只替换 observed 和 generation，首次 expected 不变。
     pub(crate) async fn create_or_update_conflict(
         &self,
@@ -1116,6 +1198,19 @@ impl ExternalConfigMonitor {
         }
     }
 
+    /// 中止对应 generation 的受管写入；调用方须在 C2 回滚完成后调用。
+    pub(crate) async fn abort_managed_write(
+        &self,
+        app_type: &AppType,
+        write_generation: u64,
+        takeover_enabled: Option<bool>,
+        targets: Option<Vec<ManagedTarget>>,
+    ) -> Result<(), String> {
+        self.state_store
+            .abort_managed_write(app_type, write_generation, takeover_enabled, targets)
+            .await
+    }
+
     /// Batch 4 writer integration 的窄入口。调用方仍须持有同一 C2 per-app switch lock。
     pub(crate) async fn begin_managed_write(&self, app_type: &AppType) -> Result<u64, String> {
         self.state_store.begin_managed_write(app_type).await
@@ -1835,6 +1930,71 @@ mod tests {
             store.module_state(&AppType::Claude).await.generation,
             unmanaged.generation
         );
+    }
+
+    #[tokio::test]
+    async fn abort_managed_write_clears_generation_and_preserves_conflict() {
+        let store = ExternalConfigStateStore::new();
+        let expected = store
+            .initialize_expected(&AppType::Claude, vec![bytes_target("settings", b"managed")])
+            .await
+            .unwrap();
+        let conflict = store
+            .create_or_update_conflict(
+                &AppType::Claude,
+                vec![bytes_target("settings", b"external")],
+            )
+            .await
+            .unwrap();
+        let write_generation = store.begin_managed_write(&AppType::Claude).await.unwrap();
+
+        store
+            .abort_managed_write(
+                &AppType::Claude,
+                write_generation,
+                Some(true),
+                Some(vec![bytes_target("settings", b"external")]),
+            )
+            .await
+            .unwrap();
+        // idempotent retry must not touch the already-clean state.
+        store
+            .abort_managed_write(&AppType::Claude, write_generation, Some(true), None)
+            .await
+            .unwrap();
+
+        let state = store.module_state(&AppType::Claude).await;
+        assert_eq!(state.generation, write_generation);
+        assert!(state.managed_write_generation.is_none());
+        assert_eq!(state.expected.unwrap().fingerprint, expected.fingerprint);
+        let preserved = state.conflict.unwrap();
+        assert_eq!(preserved.generation, write_generation);
+        assert_eq!(
+            preserved.expected.fingerprint,
+            conflict.expected.fingerprint
+        );
+        assert_eq!(preserved.observed.targets[0].bytes, b"external");
+    }
+
+    #[tokio::test]
+    async fn abort_managed_write_clears_generation_even_when_capture_is_invalid() {
+        let store = ExternalConfigStateStore::new();
+        let write_generation = store.begin_managed_write(&AppType::Claude).await.unwrap();
+
+        assert!(store
+            .abort_managed_write(
+                &AppType::Claude,
+                write_generation,
+                Some(true),
+                Some(Vec::new()),
+            )
+            .await
+            .is_err());
+        assert!(store
+            .module_state(&AppType::Claude)
+            .await
+            .managed_write_generation
+            .is_none());
     }
 
     #[tokio::test]
@@ -2587,6 +2747,208 @@ mod tests {
                 .takeover_enabled,
             "reject 失败必须保留 ownership"
         );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn proxy_enable_and_reapply_commit_expected_without_monitor_event() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().unwrap();
+        let db = Arc::new(Database::memory().unwrap());
+        let proxy_service = ProxyService::new(db.clone());
+        let monitor = Arc::new(ExternalConfigMonitor::new(
+            db.clone(),
+            proxy_service.clone(),
+        ));
+        proxy_service.set_external_config_monitor(Arc::downgrade(&monitor));
+        let sink = Arc::new(CollectingEventSink::default());
+        monitor.set_test_event_sink(sink.clone());
+
+        let provider = Provider::with_id(
+            "current".to_string(),
+            "Current".to_string(),
+            json!({
+                "npm": "@ai-sdk/openai-compatible",
+                "options": {
+                    "baseURL": "https://relay.example/v1",
+                    "apiKey": "real-token"
+                }
+            }),
+            None,
+        );
+        db.save_provider("opencode", &provider).unwrap();
+        db.set_current_provider("opencode", &provider.id).unwrap();
+        crate::settings::set_current_provider(&AppType::OpenCode, Some(&provider.id)).unwrap();
+
+        proxy_service
+            .set_takeover_for_app("opencode", true, RouteMode::Direct)
+            .await
+            .unwrap();
+        let first = monitor.state_store.module_state(&AppType::OpenCode).await;
+        assert!(first.expected.is_some());
+        assert!(first.managed_write_generation.is_none());
+        assert!(sink.payloads().is_empty());
+
+        proxy_service
+            .set_takeover_for_app("opencode", true, RouteMode::Direct)
+            .await
+            .unwrap();
+        let reapplied = monitor.state_store.module_state(&AppType::OpenCode).await;
+        assert!(reapplied.generation > first.generation);
+        assert!(reapplied.expected.is_some());
+        assert!(reapplied.managed_write_generation.is_none());
+        assert!(sink.payloads().is_empty());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn failed_proxy_enable_aborts_generation_without_event_or_expected() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().unwrap();
+        let db = Arc::new(Database::memory().unwrap());
+        let proxy_service = ProxyService::new(db.clone());
+        let monitor = Arc::new(ExternalConfigMonitor::new(
+            db.clone(),
+            proxy_service.clone(),
+        ));
+        proxy_service.set_external_config_monitor(Arc::downgrade(&monitor));
+        let sink = Arc::new(CollectingEventSink::default());
+        monitor.set_test_event_sink(sink.clone());
+
+        let unsupported = Provider::with_id(
+            "unsupported".to_string(),
+            "Unsupported".to_string(),
+            json!({
+                "npm": "@custom/not-allowlisted",
+                "options": {
+                    "baseURL": "https://relay.example/v1",
+                    "apiKey": "real-token"
+                }
+            }),
+            None,
+        );
+        db.save_provider("opencode", &unsupported).unwrap();
+        db.set_current_provider("opencode", &unsupported.id)
+            .unwrap();
+        crate::settings::set_current_provider(&AppType::OpenCode, Some(&unsupported.id)).unwrap();
+
+        assert!(proxy_service
+            .set_takeover_for_app("opencode", true, RouteMode::Proxy)
+            .await
+            .is_err());
+        let state = monitor.state_store.module_state(&AppType::OpenCode).await;
+        assert!(state.managed_write_generation.is_none());
+        assert!(state.expected.is_none());
+        assert!(state.conflict.is_none());
+        assert!(sink.payloads().is_empty());
+        assert!(
+            !db.get_proxy_config_for_app("opencode")
+                .await
+                .unwrap()
+                .takeover_enabled
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn provider_direct_and_proxy_switches_commit_expected_without_monitor_event() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().unwrap();
+        let db = Arc::new(Database::memory().unwrap());
+        let mut proxy_config = db.get_proxy_config().await.unwrap();
+        proxy_config.listen_port = 0;
+        db.update_proxy_config(proxy_config).await.unwrap();
+        let state = crate::store::AppState::new(db.clone());
+        let sink = Arc::new(CollectingEventSink::default());
+        state
+            .external_config_monitor
+            .set_test_event_sink(sink.clone());
+
+        let make_provider = |id: &str, name: &str, token: &str| {
+            Provider::with_id(
+                id.to_string(),
+                name.to_string(),
+                json!({
+                    "npm": "@ai-sdk/openai-compatible",
+                    "options": {
+                        "baseURL": format!("https://{id}.example/v1"),
+                        "apiKey": token
+                    }
+                }),
+                None,
+            )
+        };
+        let first_provider = make_provider("first", "First", "first-token");
+        let second_provider = make_provider("second", "Second", "second-token");
+        db.save_provider("opencode", &first_provider).unwrap();
+        db.save_provider("opencode", &second_provider).unwrap();
+        db.set_current_provider("opencode", &first_provider.id)
+            .unwrap();
+        crate::settings::set_current_provider(&AppType::OpenCode, Some(&first_provider.id))
+            .unwrap();
+
+        state
+            .proxy_service
+            .set_takeover_for_app("opencode", true, RouteMode::Direct)
+            .await
+            .unwrap();
+        let enabled_generation = state
+            .external_config_monitor
+            .state_store
+            .module_state(&AppType::OpenCode)
+            .await
+            .generation;
+
+        crate::services::provider::ProviderService::switch(
+            &state,
+            AppType::OpenCode,
+            &second_provider.id,
+        )
+        .unwrap();
+        let direct = state
+            .external_config_monitor
+            .state_store
+            .module_state(&AppType::OpenCode)
+            .await;
+        assert!(direct.generation > enabled_generation);
+        assert!(direct.expected.is_some());
+        assert!(direct.managed_write_generation.is_none());
+        assert!(sink.payloads().is_empty());
+
+        state
+            .proxy_service
+            .switch_route_mode("opencode", RouteMode::Proxy)
+            .await
+            .unwrap();
+        let route_generation = state
+            .external_config_monitor
+            .state_store
+            .module_state(&AppType::OpenCode)
+            .await
+            .generation;
+        crate::services::provider::ProviderService::switch(
+            &state,
+            AppType::OpenCode,
+            &first_provider.id,
+        )
+        .unwrap();
+        let proxy = state
+            .external_config_monitor
+            .state_store
+            .module_state(&AppType::OpenCode)
+            .await;
+        assert!(proxy.generation > route_generation);
+        assert!(proxy.expected.is_some());
+        assert!(proxy.conflict.is_none());
+        assert!(proxy.managed_write_generation.is_none());
+        assert!(sink.payloads().is_empty());
+
+        state
+            .proxy_service
+            .set_takeover_for_app("opencode", false, RouteMode::Proxy)
+            .await
+            .unwrap();
+        state.proxy_service.stop().await.unwrap();
     }
 
     #[tokio::test]

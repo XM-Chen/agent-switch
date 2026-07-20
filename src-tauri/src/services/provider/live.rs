@@ -1112,7 +1112,9 @@ pub(crate) fn sync_current_provider_for_app_respecting_takeover(
         // direct 接管复用既有真实上游 writer；additive 模块仍按原语义同步所有
         // live_config_managed provider。
         crate::services::proxy::LiveWriteDecision::DirectUpstream => {
-            sync_current_provider_for_app_to_live(state, app_type)
+            super::ProviderService::with_managed_write_locked(state, app_type, || {
+                sync_current_provider_for_app_to_live(state, app_type)
+            })
         }
         // proxy 接管只允许代理安全刷新，绝不把真实上游凭据写回 Live，也不更新
         // immutable first-open snapshot。
@@ -1130,24 +1132,30 @@ pub(crate) fn sync_current_provider_for_app_respecting_takeover(
             match app_type {
                 AppType::Claude => {
                     if futures::executor::block_on(state.proxy_service.is_running()) {
-                        futures::executor::block_on(
-                            state
-                                .proxy_service
-                                .sync_claude_live_from_provider_while_proxy_active(provider),
-                        )
-                        .map_err(|e| {
-                            AppError::Message(format!("同步 Claude Live 配置失败: {e}"))
+                        super::ProviderService::with_managed_write_locked(state, app_type, || {
+                            futures::executor::block_on(
+                                state
+                                    .proxy_service
+                                    .sync_claude_live_from_provider_while_proxy_active(provider),
+                            )
+                            .map_err(|e| {
+                                AppError::Message(format!("同步 Claude Live 配置失败: {e}"))
+                            })
                         })?;
                     }
                 }
                 AppType::Codex => {
                     if futures::executor::block_on(state.proxy_service.is_running()) {
-                        futures::executor::block_on(
-                            state
-                                .proxy_service
-                                .sync_codex_live_from_provider_while_proxy_active(provider),
-                        )
-                        .map_err(|e| AppError::Message(format!("同步 Codex Live 配置失败: {e}")))?;
+                        super::ProviderService::with_managed_write_locked(state, app_type, || {
+                            futures::executor::block_on(
+                                state
+                                    .proxy_service
+                                    .sync_codex_live_from_provider_while_proxy_active(provider),
+                            )
+                            .map_err(|e| {
+                                AppError::Message(format!("同步 Codex Live 配置失败: {e}"))
+                            })
+                        })?;
                     }
                 }
                 AppType::ClaudeDesktop
