@@ -1382,6 +1382,8 @@ pub fn run() {
             commands::stop_proxy_with_restore,
             commands::get_proxy_takeover_status,
             commands::get_external_config_status,
+            commands::accept_external_config_change,
+            commands::reject_external_config_change,
             commands::set_proxy_takeover_for_app,
             commands::set_proxy_route_mode,
             commands::get_proxy_status,

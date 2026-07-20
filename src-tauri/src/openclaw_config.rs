@@ -193,6 +193,12 @@ pub struct OpenClawToolsConfig {
 // Core Read/Write Functions
 // ============================================================================
 
+/// 解析 OpenClaw JSON5 全文，供 live reader 与 C3 observed capture 共用同一语义。
+pub fn parse_openclaw_config(content: &str) -> Result<Value, AppError> {
+    json5::from_str(content)
+        .map_err(|e| AppError::Config(format!("Failed to parse OpenClaw config as JSON5: {e}")))
+}
+
 /// 读取 OpenClaw 配置文件
 ///
 /// 支持 JSON5 格式，返回完整的配置 JSON 对象
@@ -203,8 +209,7 @@ pub fn read_openclaw_config() -> Result<Value, AppError> {
     }
 
     let content = fs::read_to_string(&path).map_err(|e| AppError::io(&path, e))?;
-    json5::from_str(&content)
-        .map_err(|e| AppError::Config(format!("Failed to parse OpenClaw config as JSON5: {e}")))
+    parse_openclaw_config(&content)
 }
 
 /// 对现有 OpenClaw 配置做健康检查。

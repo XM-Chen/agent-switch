@@ -85,6 +85,11 @@ pub fn get_opencode_env_path() -> PathBuf {
     get_opencode_dir().join(".env")
 }
 
+pub fn parse_opencode_config(content: &str) -> Result<Value, AppError> {
+    json5::from_str(content)
+        .map_err(|e| AppError::Config(format!("Failed to parse OpenCode config: {e}")))
+}
+
 pub fn read_opencode_config() -> Result<Value, AppError> {
     let path = get_opencode_config_path();
 
@@ -95,7 +100,7 @@ pub fn read_opencode_config() -> Result<Value, AppError> {
     }
 
     let content = std::fs::read_to_string(&path).map_err(|e| AppError::io(&path, e))?;
-    json5::from_str(&content).map_err(|e| {
+    parse_opencode_config(&content).map_err(|e| {
         AppError::Config(format!(
             "Failed to parse OpenCode config: {}: {e}",
             path.display()

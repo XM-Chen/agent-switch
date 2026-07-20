@@ -10,11 +10,13 @@ use crate::app_config::AppType;
 use crate::database::Database;
 use crate::proxy::snapshot::{SnapshotManifest, SnapshotTarget};
 use crate::proxy::types::RouteMode;
+use crate::services::external_route_detection::parse_actual_route;
 use crate::services::proxy::ProxyService;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::{Arc, RwLock as StdRwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::Emitter;
@@ -107,6 +109,29 @@ impl ManagedTarget {
                     kind: ManagedTargetKind::SemanticJson,
                     existed,
                     bytes,
+                })
+            }
+        }
+    }
+
+    fn to_snapshot_target(&self) -> Result<SnapshotTarget, String> {
+        match self.kind {
+            ManagedTargetKind::FileBytes => Ok(SnapshotTarget::file_bytes(
+                self.id.clone(),
+                self.existed.then_some(self.bytes.as_slice()),
+            )),
+            ManagedTargetKind::SemanticJson => {
+                let payload = if self.existed {
+                    Some(serde_json::from_slice(&self.bytes).map_err(|error| {
+                        format!("解析 semantic_json 目标 {} 失败: {error}", self.id)
+                    })?)
+                } else {
+                    None
+                };
+                Ok(SnapshotTarget::SemanticJson {
+                    id: self.id.clone(),
+                    existed: self.existed,
+                    payload,
                 })
             }
         }
@@ -357,6 +382,98 @@ impl ExternalConfigStateStore {
         state.last_observed = Some(observed);
         state.conflict = Some(conflict.clone());
         Ok(conflict)
+    }
+
+    /// 在持有 C2 per-app switch lock 后按 generation 读取冲突快照。
+    pub(crate) async fn conflict_for_generation(
+        &self,
+        app_type: &AppType,
+        requested_generation: u64,
+    ) -> Result<ExternalConflict, String> {
+        let states = self.states.read().await;
+        let state = states.get(app_type.as_str()).cloned().unwrap_or_default();
+        if state.generation != requested_generation {
+            return Err(stale_generation_error(
+                app_type,
+                requested_generation,
+                state.generation,
+            ));
+        }
+        let conflict = state.conflict.ok_or_else(|| {
+            conflict_state_error(
+                "externalConfigConflictNotFound",
+                app_type,
+                requested_generation,
+                "当前 generation 没有待处理的外部配置冲突",
+            )
+        })?;
+        if conflict.generation != requested_generation {
+            return Err(stale_generation_error(
+                app_type,
+                requested_generation,
+                conflict.generation,
+            ));
+        }
+        Ok(conflict)
+    }
+
+    /// 成功处理冲突后在一个内存写锁临界区提交新 expected/observed 并清冲突。
+    pub(crate) async fn resolve_conflict(
+        &self,
+        app_type: &AppType,
+        requested_generation: u64,
+        mut resolved: ManagedExpected,
+    ) -> Result<ManagedExpected, String> {
+        let mut states = self.states.write().await;
+        let state = states.entry(app_type.as_str().to_string()).or_default();
+        if state.generation != requested_generation
+            || state.conflict.as_ref().map(|conflict| conflict.generation)
+                != Some(requested_generation)
+        {
+            return Err(stale_generation_error(
+                app_type,
+                requested_generation,
+                state.generation,
+            ));
+        }
+        let generation = advance_generation(state)?;
+        resolved.set_generation(generation);
+        state.expected = Some(resolved.clone());
+        state.last_observed = Some(resolved.clone());
+        state.conflict = None;
+        state.managed_write_generation = None;
+        Ok(resolved)
+    }
+
+    /// 接管关闭后清理 managed ownership 的内存镜像。`force=true` 表示本次确实完成了
+    /// C2 restore/release；幂等关闭只清理确有 managed 残留的状态。
+    pub(crate) async fn clear_after_takeover_disabled(
+        &self,
+        app_type: &AppType,
+        force: bool,
+    ) -> Result<Option<u64>, String> {
+        let mut states = self.states.write().await;
+        let state = if force {
+            states.entry(app_type.as_str().to_string()).or_default()
+        } else {
+            let Some(state) = states.get_mut(app_type.as_str()) else {
+                return Ok(None);
+            };
+            let has_managed_state = state.expected.is_some()
+                || state.conflict.is_some()
+                || state.managed_write_generation.is_some();
+            if !has_managed_state {
+                return Ok(None);
+            }
+            state
+        };
+
+        let generation = advance_generation(state)?;
+        state.expected = None;
+        state.last_observed = None;
+        state.conflict = None;
+        state.managed_write_generation = None;
+        Ok(Some(generation))
     }
 
     /// 清除该模块的 expected/observed/conflict/in-flight 状态，但保留单调 generation。
@@ -851,12 +968,160 @@ impl ExternalConfigMonitor {
         Ok(statuses)
     }
 
-    /// Batch 3 writer integration 的窄入口。调用方仍须持有同一 C2 per-app switch lock。
+    /// 接受稳定 observed：只同步 route_mode 与内存 expected，不写 live/provider/snapshot。
+    pub async fn accept_external_config_change(
+        &self,
+        app_type: &str,
+        generation: u64,
+    ) -> Result<(), String> {
+        let app =
+            AppType::from_str(app_type).map_err(|error| format!("无效的应用类型: {error}"))?;
+        let _switch_guard = self.proxy_service.lock_switch_for_app(app.as_str()).await;
+
+        // 锁内重新校验，旧 UI generation 不能处理新的 observed。
+        let conflict = self
+            .state_store
+            .conflict_for_generation(&app, generation)
+            .await?;
+        let route_mode = parse_actual_route(
+            &app,
+            &conflict.observed,
+            &self.proxy_service,
+            self.db.as_ref(),
+        )
+        .await?;
+
+        let mut config = self
+            .db
+            .get_proxy_config_for_app(app.as_str())
+            .await
+            .map_err(|error| format!("读取 {} 接管状态失败: {error}", app.as_str()))?;
+        if !config.takeover_enabled {
+            return Err(conflict_state_error(
+                "externalConfigTakeoverInactive",
+                &app,
+                generation,
+                "接管已关闭，不能接受旧冲突",
+            ));
+        }
+
+        // 单行 UPDATE 是 SQLite 原子事务；失败时尚未触碰内存状态。
+        config.route_mode = route_mode;
+        self.db
+            .update_proxy_config_for_app(config)
+            .await
+            .map_err(|error| format!("同步 {} route_mode 失败: {error}", app.as_str()))?;
+
+        let resolved = self
+            .state_store
+            .resolve_conflict(&app, generation, conflict.observed)
+            .await?;
+        self.emit(ExternalConfigChangedPayload {
+            app_type: app.as_str().to_string(),
+            generation: resolved.generation,
+            conflict: false,
+            takeover_enabled: true,
+        });
+        Ok(())
+    }
+
+    /// 拒绝稳定 observed：用冲突前 managed expected 事务式恢复 live，验证全文后清冲突。
+    pub async fn reject_external_config_change(
+        &self,
+        app_type: &str,
+        generation: u64,
+    ) -> Result<(), String> {
+        let app =
+            AppType::from_str(app_type).map_err(|error| format!("无效的应用类型: {error}"))?;
+        let _switch_guard = self.proxy_service.lock_switch_for_app(app.as_str()).await;
+
+        let conflict = self
+            .state_store
+            .conflict_for_generation(&app, generation)
+            .await?;
+        let config = self
+            .db
+            .get_proxy_config_for_app(app.as_str())
+            .await
+            .map_err(|error| format!("读取 {} 接管状态失败: {error}", app.as_str()))?;
+        if !config.takeover_enabled {
+            return Err(conflict_state_error(
+                "externalConfigTakeoverInactive",
+                &app,
+                generation,
+                "接管已关闭，不能拒绝旧冲突",
+            ));
+        }
+
+        let adapter = ProxyService::snapshot_adapter_for_app(&app)?
+            .ok_or_else(|| format!("{} 缺少 snapshot adapter", app.as_str()))?;
+        let manifest = managed_expected_to_manifest(&app, &conflict.expected)?;
+        adapter.restore_manifest_transactional(&manifest)?;
+
+        let restored = capture_managed_expected(&app, generation)?;
+        if restored.targets != conflict.expected.targets {
+            return Err(format!(
+                "{} 拒绝冲突后的稳定 capture 与 managed expected 不一致",
+                app.as_str()
+            ));
+        }
+
+        let resolved = self
+            .state_store
+            .resolve_conflict(&app, generation, restored)
+            .await?;
+        self.emit(ExternalConfigChangedPayload {
+            app_type: app.as_str().to_string(),
+            generation: resolved.generation,
+            conflict: false,
+            takeover_enabled: true,
+        });
+        Ok(())
+    }
+
+    /// C2 手动关闭接管成功后的无锁通知入口。调用方已经持有同一 per-app switch lock，
+    /// 此方法不得再次获取该锁。
+    pub(crate) async fn takeover_disabled(
+        &self,
+        app_type: &AppType,
+        ownership_was_enabled: bool,
+    ) -> Result<(), String> {
+        if let Some(generation) = self
+            .state_store
+            .clear_after_takeover_disabled(app_type, ownership_was_enabled)
+            .await?
+        {
+            self.emit(ExternalConfigChangedPayload {
+                app_type: app_type.as_str().to_string(),
+                generation,
+                conflict: false,
+                takeover_enabled: false,
+            });
+        }
+        Ok(())
+    }
+
+    fn emit(&self, payload: ExternalConfigChangedPayload) {
+        let sink = match self.event_sink.read() {
+            Ok(sink) => sink.clone(),
+            Err(error) => {
+                log::error!("[ExternalConfigMonitor] 事件 sink 锁损坏: {error}");
+                return;
+            }
+        };
+        if let Some(sink) = sink {
+            if let Err(error) = sink.emit_changed(&payload) {
+                log::warn!("[ExternalConfigMonitor] {error}");
+            }
+        }
+    }
+
+    /// Batch 4 writer integration 的窄入口。调用方仍须持有同一 C2 per-app switch lock。
     pub(crate) async fn begin_managed_write(&self, app_type: &AppType) -> Result<u64, String> {
         self.state_store.begin_managed_write(app_type).await
     }
 
-    /// Batch 3 writer integration 的窄入口，以写后完整 target capture 提交 expected。
+    /// Batch 4 writer integration 的窄入口，以写后完整 target capture 提交 expected。
     pub(crate) async fn finish_managed_write(
         &self,
         app_type: &AppType,
@@ -878,6 +1143,18 @@ impl ExternalConfigMonitor {
         let worker = self.worker.lock().await;
         (worker.started_once, worker.join.is_some())
     }
+}
+
+fn managed_expected_to_manifest(
+    app_type: &AppType,
+    expected: &ManagedExpected,
+) -> Result<SnapshotManifest, String> {
+    let targets = expected
+        .targets
+        .iter()
+        .map(ManagedTarget::to_snapshot_target)
+        .collect::<Result<Vec<_>, _>>()?;
+    SnapshotManifest::new(app_type, targets)
 }
 
 /// 只调用 C2 adapter 的内存 capture；不会调用 `capture_snapshot_once`，也不会访问 DAO。
@@ -949,6 +1226,31 @@ fn update_length_prefixed(hasher: &mut Sha256, bytes: &[u8]) -> Result<(), Strin
     Ok(())
 }
 
+fn stale_generation_error(
+    app_type: &AppType,
+    requested_generation: u64,
+    current_generation: u64,
+) -> String {
+    serde_json::json!({
+        "code": "externalConfigStaleGeneration",
+        "message": "外部配置冲突 generation 已过期",
+        "appType": app_type.as_str(),
+        "requestedGeneration": requested_generation,
+        "currentGeneration": current_generation,
+    })
+    .to_string()
+}
+
+fn conflict_state_error(code: &str, app_type: &AppType, generation: u64, message: &str) -> String {
+    serde_json::json!({
+        "code": code,
+        "message": message,
+        "appType": app_type.as_str(),
+        "generation": generation,
+    })
+    .to_string()
+}
+
 fn advance_generation(state: &mut ModuleExternalState) -> Result<u64, String> {
     let generation = state
         .generation
@@ -970,7 +1272,7 @@ fn current_time_ms() -> i64 {
 mod tests {
     use super::*;
     use crate::provider::Provider;
-    use serde_json::json;
+    use serde_json::{json, Value};
     use serial_test::serial;
     use std::collections::{HashMap, VecDeque};
     use std::env;
@@ -1171,6 +1473,169 @@ mod tests {
                 .collect(),
         )
         .unwrap()
+    }
+
+    fn json_bytes(value: Value) -> Vec<u8> {
+        serde_json::to_vec(&value).unwrap()
+    }
+
+    fn route_capture(
+        app_type: &AppType,
+        route_url: &str,
+        route_mode: RouteMode,
+    ) -> ManagedExpected {
+        let proxy = route_mode == RouteMode::Proxy;
+        let targets = match app_type {
+            AppType::Claude => vec![ManagedTarget::file_bytes(
+                "settings",
+                Some(
+                    &json_bytes(json!({
+                        "env": {
+                            "ANTHROPIC_BASE_URL": route_url,
+                            "ANTHROPIC_AUTH_TOKEN": if proxy { "PROXY_MANAGED" } else { "real" }
+                        }
+                    })),
+                ),
+            )],
+            AppType::Codex => vec![
+                ManagedTarget::file_bytes(
+                    "auth",
+                    Some(
+                        &json_bytes(json!({
+                            "OPENAI_API_KEY": if proxy { "PROXY_MANAGED" } else { "real" }
+                        })),
+                    ),
+                ),
+                ManagedTarget::file_bytes(
+                    "config",
+                    Some(format!("base_url = \"{route_url}\"\n").as_bytes()),
+                ),
+                ManagedTarget::file_bytes("model_catalog", None),
+            ],
+            AppType::Gemini => vec![ManagedTarget::file_bytes(
+                ".env",
+                Some(
+                    format!(
+                        "GOOGLE_GEMINI_BASE_URL={route_url}\nGEMINI_API_KEY={}\n",
+                        if proxy { "PROXY_MANAGED" } else { "real" }
+                    )
+                    .as_bytes(),
+                ),
+            )],
+            AppType::ClaudeDesktop => vec![
+                ManagedTarget::file_bytes(
+                    "normal_config",
+                    Some(&json_bytes(json!({"deploymentMode":"3p"}))),
+                ),
+                ManagedTarget::file_bytes(
+                    "threep_config",
+                    Some(&json_bytes(json!({"deploymentMode":"3p"}))),
+                ),
+                ManagedTarget::file_bytes(
+                    "profile",
+                    Some(
+                        &json_bytes(json!({
+                            "inferenceProvider":"gateway",
+                            "inferenceGatewayAuthScheme":"bearer",
+                            "inferenceGatewayBaseUrl":route_url,
+                            "inferenceGatewayApiKey":if proxy { "gateway-token" } else { "real" }
+                        })),
+                    ),
+                ),
+                ManagedTarget::file_bytes(
+                    "meta",
+                    Some(
+                        &json_bytes(json!({
+                            "appliedId":crate::claude_desktop_config::PROFILE_ID,
+                            "entries":[{"id":crate::claude_desktop_config::PROFILE_ID}]
+                        })),
+                    ),
+                ),
+            ],
+            AppType::OpenCode => vec![ManagedTarget::file_bytes(
+                "opencode.json",
+                Some(
+                    &json_bytes(json!({
+                        "provider":{"current":{"options":{
+                            "baseURL":route_url,
+                            "apiKey":if proxy { "gateway-token" } else { "real" }
+                        }}}
+                    })),
+                ),
+            )],
+            AppType::OpenClaw => vec![ManagedTarget::file_bytes(
+                "openclaw.json",
+                Some(
+                    &json_bytes(json!({
+                        "models":{"providers":{"current":{
+                            "baseUrl":route_url,
+                            "apiKey":if proxy { "gateway-token" } else { "real" }
+                        }}}
+                    })),
+                ),
+            )],
+            AppType::Hermes => vec![ManagedTarget::file_bytes(
+                "config.yaml",
+                Some(
+                    format!(
+                        "custom_providers:\n  - name: current\n    base_url: {route_url}\n    api_key: {}\n",
+                        if proxy { "gateway-token" } else { "real" }
+                    )
+                    .as_bytes(),
+                ),
+            )],
+        };
+        ManagedExpected::new(0, targets).unwrap()
+    }
+
+    fn baseline_for(observed: &ManagedExpected) -> Vec<ManagedTarget> {
+        observed
+            .targets
+            .iter()
+            .map(|target| {
+                if target.existed {
+                    ManagedTarget::file_bytes(target.id.clone(), Some(b"managed-before"))
+                } else {
+                    ManagedTarget::file_bytes(target.id.clone(), None)
+                }
+            })
+            .collect()
+    }
+
+    fn seed_current_provider(db: &Database, app_type: &AppType) {
+        if !matches!(
+            app_type,
+            AppType::OpenCode | AppType::OpenClaw | AppType::Hermes
+        ) {
+            return;
+        }
+        let provider = Provider::with_id(
+            "current".to_string(),
+            "Current".to_string(),
+            json!({}),
+            None,
+        );
+        db.save_provider(app_type.as_str(), &provider).unwrap();
+        db.set_current_provider(app_type.as_str(), "current")
+            .unwrap();
+        crate::settings::set_current_provider(app_type, Some("current")).unwrap();
+    }
+
+    async fn seed_conflict(
+        monitor: &ExternalConfigMonitor,
+        app_type: &AppType,
+        observed: &ManagedExpected,
+    ) -> ExternalConflict {
+        monitor
+            .state_store
+            .initialize_expected(app_type, baseline_for(observed))
+            .await
+            .unwrap();
+        monitor
+            .state_store
+            .create_or_update_conflict(app_type, observed.targets.clone())
+            .await
+            .unwrap()
     }
 
     async fn wait_for_events(sink: &CollectingEventSink, count: usize) {
@@ -1765,5 +2230,429 @@ mod tests {
         let state = monitor.state_store.module_state(&AppType::Codex).await;
         assert_eq!(state.last_observed.unwrap().fingerprint, stable.fingerprint);
         monitor.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn accept_updates_only_route_and_managed_state_for_all_seven_modules() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().unwrap();
+        let db = Arc::new(Database::memory().unwrap());
+        db.set_setting("claude_desktop_gateway_token", "gateway-token")
+            .unwrap();
+        let proxy_service = ProxyService::new(db.clone());
+        let monitor = ExternalConfigMonitor::new(db.clone(), proxy_service.clone());
+        let sink = Arc::new(CollectingEventSink::default());
+        monitor.set_test_event_sink(sink.clone());
+
+        for app_type in AppType::all() {
+            seed_current_provider(db.as_ref(), &app_type);
+        }
+        let provider_rows_before = [AppType::OpenCode, AppType::OpenClaw, AppType::Hermes]
+            .into_iter()
+            .map(|app_type| {
+                let row = db.get_provider_by_id("current", app_type.as_str()).unwrap();
+                (app_type, row)
+            })
+            .collect::<HashMap<_, _>>();
+
+        for route_mode in [RouteMode::Direct, RouteMode::Proxy] {
+            for app_type in AppType::all() {
+                let mut config = db
+                    .get_proxy_config_for_app(app_type.as_str())
+                    .await
+                    .unwrap();
+                config.takeover_enabled = true;
+                config.route_mode = if route_mode == RouteMode::Direct {
+                    RouteMode::Proxy
+                } else {
+                    RouteMode::Direct
+                };
+                db.update_proxy_config_for_app(config).await.unwrap();
+
+                let route_url = if route_mode == RouteMode::Proxy {
+                    proxy_service.expected_gateway_url(&app_type).await.unwrap()
+                } else {
+                    "https://relay.example.com/upstream/v1".to_string()
+                };
+                let observed = route_capture(&app_type, &route_url, route_mode);
+                let conflict = seed_conflict(&monitor, &app_type, &observed).await;
+                let backup = format!("immutable-{}-{route_mode:?}", app_type.as_str());
+                db.save_live_backup(app_type.as_str(), &backup)
+                    .await
+                    .unwrap();
+
+                monitor
+                    .accept_external_config_change(app_type.as_str(), conflict.generation)
+                    .await
+                    .unwrap_or_else(|error| {
+                        panic!("accept {} {route_mode:?} 失败: {error}", app_type.as_str())
+                    });
+
+                let config = db
+                    .get_proxy_config_for_app(app_type.as_str())
+                    .await
+                    .unwrap();
+                assert!(config.takeover_enabled);
+                assert_eq!(config.route_mode, route_mode, "{}", app_type.as_str());
+                let state = monitor.state_store.module_state(&app_type).await;
+                assert!(state.conflict.is_none());
+                assert_eq!(state.expected.as_ref().unwrap().targets, observed.targets);
+                assert_eq!(state.last_observed, state.expected);
+                assert_eq!(
+                    db.get_live_backup(app_type.as_str())
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .original_config,
+                    backup
+                );
+            }
+        }
+
+        for (app_type, before) in provider_rows_before {
+            assert_eq!(
+                serde_json::to_value(db.get_provider_by_id("current", app_type.as_str()).unwrap())
+                    .unwrap(),
+                serde_json::to_value(before).unwrap(),
+                "accept 不得更新 {} provider DB",
+                app_type.as_str()
+            );
+        }
+        assert_eq!(sink.payloads().len(), 14);
+        assert!(sink.payloads().iter().all(|payload| !payload.conflict));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn accept_parse_and_db_failure_leave_conflict_and_snapshot_unchanged() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().unwrap();
+        let db = Arc::new(Database::memory().unwrap());
+        let proxy_service = ProxyService::new(db.clone());
+        let monitor = ExternalConfigMonitor::new(db.clone(), proxy_service);
+
+        let mut config = db.get_proxy_config_for_app("claude").await.unwrap();
+        config.takeover_enabled = true;
+        config.route_mode = RouteMode::Proxy;
+        db.update_proxy_config_for_app(config).await.unwrap();
+        db.save_live_backup("claude", "immutable").await.unwrap();
+
+        let malformed = route_capture(&AppType::Claude, "not a url", RouteMode::Proxy);
+        let malformed_conflict = seed_conflict(&monitor, &AppType::Claude, &malformed).await;
+        let state_before = monitor.state_store.module_state(&AppType::Claude).await;
+        assert!(monitor
+            .accept_external_config_change("claude", malformed_conflict.generation)
+            .await
+            .is_err());
+        assert_eq!(
+            monitor.state_store.module_state(&AppType::Claude).await,
+            state_before
+        );
+
+        let direct = route_capture(
+            &AppType::Claude,
+            "https://relay.example.com/v1",
+            RouteMode::Direct,
+        );
+        let conflict = seed_conflict(&monitor, &AppType::Claude, &direct).await;
+        let state_before = monitor.state_store.module_state(&AppType::Claude).await;
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute_batch(
+                "CREATE TRIGGER fail_c3_route_update\n                 BEFORE UPDATE OF route_mode ON proxy_config\n                 BEGIN SELECT RAISE(FAIL, 'injected route update failure'); END;",
+            )
+            .unwrap();
+        }
+        assert!(monitor
+            .accept_external_config_change("claude", conflict.generation)
+            .await
+            .is_err());
+        assert_eq!(
+            monitor.state_store.module_state(&AppType::Claude).await,
+            state_before
+        );
+        let config = db.get_proxy_config_for_app("claude").await.unwrap();
+        assert_eq!(config.route_mode, RouteMode::Proxy);
+        assert_eq!(
+            db.get_live_backup("claude")
+                .await
+                .unwrap()
+                .unwrap()
+                .original_config,
+            "immutable"
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn stale_accept_and_reject_are_rejected_before_side_effects() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().unwrap();
+        let db = Arc::new(Database::memory().unwrap());
+        let monitor = ExternalConfigMonitor::new(db.clone(), ProxyService::new(db.clone()));
+        let mut config = db.get_proxy_config_for_app("claude").await.unwrap();
+        config.takeover_enabled = true;
+        db.update_proxy_config_for_app(config).await.unwrap();
+
+        let observed = route_capture(
+            &AppType::Claude,
+            "https://relay.example.com/v1",
+            RouteMode::Direct,
+        );
+        let conflict = seed_conflict(&monitor, &AppType::Claude, &observed).await;
+        let before = monitor.state_store.module_state(&AppType::Claude).await;
+        let stale = conflict.generation.saturating_sub(1);
+        for result in [
+            monitor.accept_external_config_change("claude", stale).await,
+            monitor.reject_external_config_change("claude", stale).await,
+        ] {
+            let error = result.unwrap_err();
+            let wire: Value = serde_json::from_str(&error).unwrap();
+            assert_eq!(wire["code"], "externalConfigStaleGeneration");
+        }
+        assert_eq!(
+            monitor.state_store.module_state(&AppType::Claude).await,
+            before
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn reject_restores_exact_bytes_deletes_missing_target_and_does_not_repeat_event() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().unwrap();
+        let db = Arc::new(Database::memory().unwrap());
+        let proxy_service = ProxyService::new(db.clone());
+        let monitor = Arc::new(ExternalConfigMonitor::new(
+            db.clone(),
+            proxy_service.clone(),
+        ));
+        let sink = Arc::new(CollectingEventSink::default());
+        monitor.set_test_event_sink(sink.clone());
+        let mut config = db.get_proxy_config_for_app("claude").await.unwrap();
+        config.takeover_enabled = true;
+        db.update_proxy_config_for_app(config).await.unwrap();
+        db.save_live_backup("claude", "immutable-restore")
+            .await
+            .unwrap();
+
+        let adapter = ProxyService::snapshot_adapter_for_app(&AppType::Claude)
+            .unwrap()
+            .unwrap();
+        let expected = ManagedExpected::new(
+            0,
+            vec![ManagedTarget::file_bytes(
+                "settings",
+                Some(&[b'{', b'}', b'\n', 0xff]),
+            )],
+        )
+        .unwrap();
+        let observed = managed(&[("settings", Some(b"external"))]);
+        adapter
+            .restore_manifest_transactional(
+                &managed_expected_to_manifest(&AppType::Claude, &observed).unwrap(),
+            )
+            .unwrap();
+        monitor
+            .state_store
+            .initialize_expected(&AppType::Claude, expected.targets.clone())
+            .await
+            .unwrap();
+        let conflict = monitor
+            .state_store
+            .create_or_update_conflict(&AppType::Claude, observed.targets.clone())
+            .await
+            .unwrap();
+        monitor
+            .reject_external_config_change("claude", conflict.generation)
+            .await
+            .unwrap();
+        assert_eq!(
+            capture_managed_expected(&AppType::Claude, 0)
+                .unwrap()
+                .targets,
+            expected.targets
+        );
+        assert_eq!(
+            db.get_live_backup("claude")
+                .await
+                .unwrap()
+                .unwrap()
+                .original_config,
+            "immutable-restore"
+        );
+        assert_eq!(sink.payloads().len(), 1);
+
+        monitor.start().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(sink.payloads().len(), 1, "reject 后不得立即重复事件");
+        monitor.stop().await.unwrap();
+
+        let missing_expected = managed(&[("settings", None)]);
+        let created = managed(&[("settings", Some(b"created-by-external"))]);
+        adapter
+            .restore_manifest_transactional(
+                &managed_expected_to_manifest(&AppType::Claude, &created).unwrap(),
+            )
+            .unwrap();
+        monitor
+            .state_store
+            .initialize_expected(&AppType::Claude, missing_expected.targets.clone())
+            .await
+            .unwrap();
+        let conflict = monitor
+            .state_store
+            .create_or_update_conflict(&AppType::Claude, created.targets)
+            .await
+            .unwrap();
+        monitor
+            .reject_external_config_change("claude", conflict.generation)
+            .await
+            .unwrap();
+        assert!(!crate::config::get_claude_settings_path().exists());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn reject_multi_target_failure_keeps_external_bytes_conflict_and_snapshot() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().unwrap();
+        let db = Arc::new(Database::memory().unwrap());
+        let monitor = ExternalConfigMonitor::new(db.clone(), ProxyService::new(db.clone()));
+        let mut config = db.get_proxy_config_for_app("codex").await.unwrap();
+        config.takeover_enabled = true;
+        db.update_proxy_config_for_app(config).await.unwrap();
+        db.save_live_backup("codex", "immutable-codex")
+            .await
+            .unwrap();
+
+        let expected = managed(&[
+            ("auth", Some(b"expected-auth")),
+            ("config", Some(b"expected-config")),
+            ("model_catalog", Some(b"expected-catalog")),
+        ]);
+        let observed = managed(&[
+            ("auth", Some(b"external-auth")),
+            ("config", Some(b"external-config")),
+            ("model_catalog", Some(b"external-catalog")),
+        ]);
+        let adapter = ProxyService::snapshot_adapter_for_app(&AppType::Codex)
+            .unwrap()
+            .unwrap();
+        adapter
+            .restore_manifest_transactional(
+                &managed_expected_to_manifest(&AppType::Codex, &observed).unwrap(),
+            )
+            .unwrap();
+        monitor
+            .state_store
+            .initialize_expected(&AppType::Codex, expected.targets.clone())
+            .await
+            .unwrap();
+        let conflict = monitor
+            .state_store
+            .create_or_update_conflict(&AppType::Codex, observed.targets.clone())
+            .await
+            .unwrap();
+        let before = monitor.state_store.module_state(&AppType::Codex).await;
+
+        let config_path = crate::codex_config::get_codex_config_path();
+        crate::config::delete_file(&config_path).unwrap();
+        fs::create_dir_all(&config_path).unwrap();
+        assert!(monitor
+            .reject_external_config_change("codex", conflict.generation)
+            .await
+            .is_err());
+        assert_eq!(
+            fs::read(crate::codex_config::get_codex_auth_path()).unwrap(),
+            b"external-auth"
+        );
+        assert_eq!(
+            monitor.state_store.module_state(&AppType::Codex).await,
+            before
+        );
+        assert_eq!(
+            db.get_live_backup("codex")
+                .await
+                .unwrap()
+                .unwrap()
+                .original_config,
+            "immutable-codex"
+        );
+        assert!(
+            db.get_proxy_config_for_app("codex")
+                .await
+                .unwrap()
+                .takeover_enabled,
+            "reject 失败必须保留 ownership"
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn manual_disable_restores_c2_snapshot_then_clears_conflict_idempotently() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().unwrap();
+        let db = Arc::new(Database::memory().unwrap());
+        let proxy_service = ProxyService::new(db.clone());
+        let monitor = Arc::new(ExternalConfigMonitor::new(
+            db.clone(),
+            proxy_service.clone(),
+        ));
+        proxy_service.set_external_config_monitor(Arc::downgrade(&monitor));
+        let sink = Arc::new(CollectingEventSink::default());
+        monitor.set_test_event_sink(sink.clone());
+
+        let path = crate::config::get_claude_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = b"{\n  \"original\": true\n}\n";
+        fs::write(&path, original).unwrap();
+        let adapter = ProxyService::snapshot_adapter_for_app(&AppType::Claude)
+            .unwrap()
+            .unwrap();
+        crate::proxy::snapshot::capture_snapshot_once(db.as_ref(), adapter.as_ref())
+            .await
+            .unwrap();
+
+        let expected = managed(&[("settings", Some(b"managed"))]);
+        let observed = managed(&[("settings", Some(b"external"))]);
+        adapter
+            .restore_manifest_transactional(
+                &managed_expected_to_manifest(&AppType::Claude, &observed).unwrap(),
+            )
+            .unwrap();
+        monitor
+            .state_store
+            .initialize_expected(&AppType::Claude, expected.targets)
+            .await
+            .unwrap();
+        monitor
+            .state_store
+            .create_or_update_conflict(&AppType::Claude, observed.targets)
+            .await
+            .unwrap();
+        let mut config = db.get_proxy_config_for_app("claude").await.unwrap();
+        config.takeover_enabled = true;
+        config.route_mode = RouteMode::Proxy;
+        db.update_proxy_config_for_app(config).await.unwrap();
+
+        proxy_service
+            .set_takeover_for_app("claude", false, RouteMode::Direct)
+            .await
+            .unwrap();
+        assert_eq!(fs::read(&path).unwrap(), original);
+        assert!(db.get_live_backup("claude").await.unwrap().is_none());
+        let state = monitor.state_store.module_state(&AppType::Claude).await;
+        assert!(state.expected.is_none());
+        assert!(state.conflict.is_none());
+        assert_eq!(sink.payloads().len(), 1);
+        assert!(!sink.payloads()[0].takeover_enabled);
+
+        proxy_service
+            .set_takeover_for_app("claude", false, RouteMode::Proxy)
+            .await
+            .unwrap();
+        assert_eq!(sink.payloads().len(), 1, "ownership off 时关闭保持幂等");
     }
 }

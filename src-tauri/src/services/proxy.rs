@@ -14,13 +14,14 @@ use crate::proxy::snapshot::{
 use crate::proxy::snapshot_adapters::snapshot_adapter_for as c2b_snapshot_adapter_for;
 use crate::proxy::switch_lock::SwitchLockManager;
 use crate::proxy::types::*;
+use crate::services::external_config_monitor::ExternalConfigMonitor;
 use crate::services::provider::{
     build_effective_settings_with_common_config, write_live_with_common_config,
 };
 use crate::services::proxy_snapshot_adapters::snapshot_adapter_for_app as c2a_snapshot_adapter_for;
 use serde_json::{json, Map, Value};
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock as StdRwLock, Weak};
 use tauri::Emitter;
 use tokio::sync::RwLock;
 
@@ -67,6 +68,8 @@ pub struct ProxyService {
     /// AppHandle，用于传递给 ProxyServer 以支持故障转移时的 UI 更新
     app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
     switch_locks: SwitchLockManager,
+    /// C3 monitor 反向通知使用 Weak，避免 `ProxyService -> monitor -> ProxyService` 强引用环。
+    external_config_monitor: Arc<StdRwLock<Option<Weak<ExternalConfigMonitor>>>>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -108,6 +111,7 @@ impl ProxyService {
             server: Arc::new(RwLock::new(None)),
             app_handle: Arc::new(RwLock::new(None)),
             switch_locks: SwitchLockManager::new(),
+            external_config_monitor: Arc::new(StdRwLock::new(None)),
         }
     }
 
@@ -579,6 +583,33 @@ impl ProxyService {
         Ok(provider)
     }
 
+    /// 连接 C3 monitor 的 Weak 通知出口。所有 ProxyService clone 共享同一槽位。
+    pub(crate) fn set_external_config_monitor(&self, monitor: Weak<ExternalConfigMonitor>) {
+        match self.external_config_monitor.write() {
+            Ok(mut slot) => *slot = Some(monitor),
+            Err(error) => log::error!("设置 external config monitor 失败: {error}"),
+        }
+    }
+
+    async fn notify_takeover_disabled(
+        &self,
+        app_type: &AppType,
+        ownership_was_enabled: bool,
+    ) -> Result<(), String> {
+        let monitor = self
+            .external_config_monitor
+            .read()
+            .map_err(|error| format!("读取 external config monitor 失败: {error}"))?
+            .as_ref()
+            .and_then(Weak::upgrade);
+        if let Some(monitor) = monitor {
+            monitor
+                .takeover_disabled(app_type, ownership_was_enabled)
+                .await?;
+        }
+        Ok(())
+    }
+
     /// 设置 AppHandle（在应用初始化时调用）
     pub fn set_app_handle(&self, handle: tauri::AppHandle) {
         futures::executor::block_on(async {
@@ -1010,7 +1041,8 @@ impl ProxyService {
             .map_err(|e| format!("获取 {app_type_str} 配置失败: {e}"))?;
 
         if !current_config.takeover_enabled {
-            return Ok(()); // 未接管，幂等返回
+            // ownership 已关闭时保持命令幂等；若 monitor 仍有旧 managed 冲突则顺手清理。
+            return self.notify_takeover_disabled(app, false).await;
         }
 
         // direct 与 proxy 都走精确恢复（R10：回滚到首次开启前）。
@@ -1023,6 +1055,7 @@ impl ProxyService {
 
         // 关闭接管或切到 direct 不自动停止网关。
         let _ = self.db.set_live_takeover_active(false).await;
+        self.notify_takeover_disabled(app, true).await?;
         Ok(())
     }
 
@@ -1157,7 +1190,7 @@ impl ProxyService {
             .map_err(|e| format!("获取 {app_type_str} 配置失败: {e}"))?;
 
         if !config.takeover_enabled {
-            return Ok(());
+            return futures::executor::block_on(self.notify_takeover_disabled(app_type, false));
         }
 
         // direct 与 proxy 都走精确恢复（R10）。
@@ -1166,6 +1199,7 @@ impl ProxyService {
         futures::executor::block_on(self.db.clear_provider_health_for_app(app_type_str))
             .map_err(|e| format!("清除 {app_type_str} 健康状态失败: {e}"))?;
         let _ = futures::executor::block_on(self.db.set_live_takeover_active(false));
+        futures::executor::block_on(self.notify_takeover_disabled(app_type, true))?;
 
         Ok(())
     }
@@ -1624,6 +1658,21 @@ impl ProxyService {
             _ => return Err(format!("{} 不使用 C2b 独立命名空间", app_type.as_str())),
         };
         Ok(format!("{}/{}", proxy_origin.trim_end_matches('/'), suffix))
+    }
+
+    /// 返回 C3 精确 route parser 应匹配的当前模块网关 base URL。
+    ///
+    /// 地址复用接管 writer 的运行时端口解析和命名空间 helper，避免 parser 另建一套
+    /// 端口/路径规则。
+    pub(crate) async fn expected_gateway_url(&self, app_type: &AppType) -> Result<String, String> {
+        let (proxy_origin, codex_base_url) = self.build_proxy_urls().await?;
+        match app_type {
+            AppType::Claude | AppType::Gemini => Ok(proxy_origin),
+            AppType::Codex => Ok(codex_base_url),
+            AppType::ClaudeDesktop | AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => {
+                Self::namespaced_proxy_base_url(&proxy_origin, app_type)
+            }
+        }
     }
 
     fn gateway_token_for_live(&self) -> Result<String, String> {

@@ -18,6 +18,7 @@ impl AppState {
             db.clone(),
             proxy_service.clone(),
         ));
+        proxy_service.set_external_config_monitor(Arc::downgrade(&external_config_monitor));
 
         Self {
             db,

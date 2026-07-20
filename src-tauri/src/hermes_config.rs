@@ -141,6 +141,17 @@ pub struct HermesModelConfig {
 // Core YAML Read Functions
 // ============================================================================
 
+/// 解析 Hermes YAML 全文，并沿用 live reader 的顶层重复键修复语义。
+pub fn parse_hermes_config(content: &str) -> Result<serde_yaml::Value, AppError> {
+    if content.trim().is_empty() {
+        return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+    }
+
+    let deduped = deduplicate_top_level_keys(content);
+    serde_yaml::from_str(&deduped)
+        .map_err(|e| AppError::Config(format!("Failed to parse Hermes config as YAML: {e}")))
+}
+
 /// 读取 Hermes 配置文件为 serde_yaml::Value
 ///
 /// 如果文件不存在，返回空 Mapping
@@ -151,16 +162,7 @@ pub fn read_hermes_config() -> Result<serde_yaml::Value, AppError> {
     }
 
     let content = fs::read_to_string(&path).map_err(|e| AppError::io(&path, e))?;
-    if content.trim().is_empty() {
-        return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
-    }
-
-    // Heal duplicate top-level keys left behind by the pre-CRLF-fix append
-    // bug (#3633); serde_yaml rejects them outright, which bricked the panel.
-    let deduped = deduplicate_top_level_keys(&content);
-
-    serde_yaml::from_str(&deduped)
-        .map_err(|e| AppError::Config(format!("Failed to parse Hermes config as YAML: {e}")))
+    parse_hermes_config(&content)
 }
 
 /// Remove duplicate top-level YAML sections, keeping the LAST occurrence of

@@ -6,6 +6,7 @@ pub mod config;
 pub mod env_checker;
 pub mod env_manager;
 pub mod external_config_monitor;
+pub(crate) mod external_route_detection;
 pub mod importers;
 pub mod mcp;
 pub mod model_cache;
