@@ -72,9 +72,10 @@ export function getProxyTakeoverState(
   status: ProxyTakeoverStatus | undefined,
   appType: string,
 ): ProxyModuleTakeoverStatus | undefined {
-  const key = PROXY_TAKEOVER_STATUS_KEY[
-    appType as keyof typeof PROXY_TAKEOVER_STATUS_KEY
-  ];
+  const key =
+    PROXY_TAKEOVER_STATUS_KEY[
+      appType as keyof typeof PROXY_TAKEOVER_STATUS_KEY
+    ];
   return key && status ? status[key] : undefined;
 }
 

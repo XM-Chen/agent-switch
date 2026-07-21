@@ -65,7 +65,11 @@ export const proxyApi = {
     enabled: boolean,
     routeMode?: ProxyRouteMode,
   ): Promise<void> {
-    return invoke("set_proxy_takeover_for_app", { appType, enabled, routeMode });
+    return invoke("set_proxy_takeover_for_app", {
+      appType,
+      enabled,
+      routeMode,
+    });
   },
 
   // 切换指定应用的路由模式（偏好/热切换；未接管时后端只存偏好）

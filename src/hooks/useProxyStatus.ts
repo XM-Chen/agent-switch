@@ -26,8 +26,7 @@ const APP_LABELS: Record<string, string> = {
   hermes: "Hermes",
 };
 
-const appLabelFor = (appType: string): string =>
-  APP_LABELS[appType] ?? appType;
+const appLabelFor = (appType: string): string => APP_LABELS[appType] ?? appType;
 
 /**
  * 代理服务状态管理
@@ -96,9 +95,7 @@ export function useProxyStatus() {
       const stopError = parseProxyInvokeError(error);
       // 仍有 proxy 路由模块时后端拒绝停止：展示模块列表，不改任何模块状态
       if (stopError?.code === "proxyRoutesActive") {
-        const modules = stopError.modules
-          .map((m) => appLabelFor(m))
-          .join("、");
+        const modules = stopError.modules.map((m) => appLabelFor(m)).join("、");
         toast.error(
           t("proxy.server.stopBlockedByProxyRoutes", {
             modules,
@@ -141,9 +138,7 @@ export function useProxyStatus() {
     onError: (error: unknown) => {
       const stopError = parseProxyInvokeError(error);
       if (stopError?.code === "proxyRoutesActive") {
-        const modules = stopError.modules
-          .map((m) => appLabelFor(m))
-          .join("、");
+        const modules = stopError.modules.map((m) => appLabelFor(m)).join("、");
         toast.error(
           t("proxy.server.stopBlockedByProxyRoutes", {
             modules,
@@ -176,8 +171,7 @@ export function useProxyStatus() {
       appType: string;
       enabled: boolean;
       routeMode?: ProxyRouteMode;
-    }) =>
-      invoke("set_proxy_takeover_for_app", { appType, enabled, routeMode }),
+    }) => invoke("set_proxy_takeover_for_app", { appType, enabled, routeMode }),
     onSuccess: (_data, variables) => {
       const appLabel = appLabelFor(variables.appType);
 

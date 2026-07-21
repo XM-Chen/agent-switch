@@ -75,9 +75,7 @@ export function useExternalConfigBridge(): UseExternalConfigBridgeResult {
 
   // 用户处理完成后显式出队（无视 generation）。
   const dequeueConflict = useCallback((appType: string) => {
-    setConflictQueue((prev) =>
-      prev.filter((item) => item.appType !== appType),
-    );
+    setConflictQueue((prev) => prev.filter((item) => item.appType !== appType));
   }, []);
 
   // mount hydrate：把已存在的冲突项入队。

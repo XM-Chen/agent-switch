@@ -189,8 +189,10 @@ export function ProxyTabContent({
                 {(["claude", "codex", "gemini"] as const).map((appType) => {
                   const failoverDisabled =
                     !isRunning ||
-                    !(getProxyTakeoverState(takeoverStatus, appType)
-                      ?.takeoverEnabled ?? false);
+                    !(
+                      getProxyTakeoverState(takeoverStatus, appType)
+                        ?.takeoverEnabled ?? false
+                    );
                   return (
                     <TabsContent
                       key={appType}

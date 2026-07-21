@@ -98,7 +98,8 @@ export function ProxyPanel({
     try {
       // 开启时携带该模块已保存的 routeMode（无则 direct）；关闭时不需要
       const routeMode = enabled
-        ? (getProxyTakeoverState(takeoverStatus, appType)?.routeMode ?? "direct")
+        ? (getProxyTakeoverState(takeoverStatus, appType)?.routeMode ??
+          "direct")
         : undefined;
       await setTakeoverForApp.mutateAsync({ appType, enabled, routeMode });
       toast.success(

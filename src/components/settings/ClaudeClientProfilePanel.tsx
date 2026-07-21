@@ -68,15 +68,15 @@ export function ClaudeClientProfilePanel() {
               ? t(
                   "settings.advanced.claudeClientProfile.bodyIdentityDescription",
                 )
-              : t("settings.advanced.claudeClientProfile.bodyIdentityRequiresHeader")}
+              : t(
+                  "settings.advanced.claudeClientProfile.bodyIdentityRequiresHeader",
+                )}
           </p>
         </div>
         <Switch
           checked={config.bodyIdentity}
           disabled={!config.enabled}
-          onCheckedChange={(checked) =>
-            handleChange({ bodyIdentity: checked })
-          }
+          onCheckedChange={(checked) => handleChange({ bodyIdentity: checked })}
         />
       </div>
 
