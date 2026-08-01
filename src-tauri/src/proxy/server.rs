@@ -19,7 +19,9 @@ use super::{
 };
 use crate::database::Database;
 use axum::{
-    extract::DefaultBodyLimit,
+    extract::{DefaultBodyLimit, Request, State},
+    middleware::{self, Next},
+    response::Response,
     routing::{any, get, post},
     Router,
 };
@@ -290,9 +292,6 @@ impl ProxyServer {
 
     fn build_router(&self) -> Router {
         Router::new()
-            // 健康检查
-            .route("/health", get(handlers::health_check))
-            .route("/status", get(handlers::get_status))
             // Claude API (支持带前缀和不带前缀两种格式)
             .route("/v1/messages", post(handlers::handle_messages))
             .route("/claude/v1/messages", post(handlers::handle_messages))
@@ -388,6 +387,13 @@ impl ProxyServer {
             .route("/gemini/v1beta/*path", any(handlers::handle_gemini))
             // Gemini 的 GA 版本也叫 /v1，给原 SDK 留一条出口
             .route("/gemini/v1/*path", any(handlers::handle_gemini))
+            // 所有推理与模型目录入口统一走网关鉴权；/health 在外层保持匿名。
+            .route_layer(middleware::from_fn_with_state(
+                self.state.clone(),
+                require_gateway_auth,
+            ))
+            // 健康检查只暴露最小存活信息，不返回内部状态或管理数据。
+            .route("/health", get(handlers::health_check))
             // 提高默认请求体大小限制（避免 413 Payload Too Large）
             .layer(DefaultBodyLimit::max(200 * 1024 * 1024))
             .with_state(self.state.clone())
@@ -428,6 +434,98 @@ impl ProxyServer {
     }
 }
 
+async fn require_gateway_auth(
+    State(state): State<ProxyState>,
+    mut request: Request,
+    next: Next,
+) -> Result<Response, ProxyError> {
+    let config = state
+        .db
+        .get_gateway_auth_config()
+        .map_err(|e| ProxyError::AuthError(e.to_string()))?;
+    if !config.auth_required {
+        return Err(ProxyError::AuthError(
+            "独立网关必须启用 API Key 鉴权".to_string(),
+        ));
+    }
+
+    let secret = extract_gateway_secret(&request).ok_or_else(|| {
+        ProxyError::AuthError("网关请求缺少 API Key，请先在 Agent Switch 中创建密钥".to_string())
+    })?;
+    let key_id = crate::services::gateway_auth::GatewayAuthService::verify(&state.db, &secret)
+        .map_err(|e| ProxyError::AuthError(e.to_string()))?
+        .ok_or_else(|| ProxyError::AuthError("网关 API Key 无效或已撤销".to_string()))?;
+
+    strip_gateway_credentials(&mut request);
+    if let Err(error) = state
+        .db
+        .touch_gateway_api_key(&key_id, chrono::Utc::now().timestamp_millis())
+    {
+        log::warn!("更新网关 API Key 使用时间失败: {error}");
+    }
+    Ok(next.run(request).await)
+}
+
+fn extract_gateway_secret(request: &Request) -> Option<String> {
+    let headers = request.headers();
+    if let Some(value) = headers
+        .get(http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| {
+            value
+                .strip_prefix("Bearer ")
+                .or_else(|| value.strip_prefix("bearer "))
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(value.to_string());
+    }
+
+    for header in ["x-api-key", "x-goog-api-key"] {
+        if let Some(value) = headers
+            .get(header)
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(value.to_string());
+        }
+    }
+
+    request
+        .uri()
+        .query()
+        .and_then(|query| {
+            url::form_urlencoded::parse(query.as_bytes()).find(|(key, _)| key == "key")
+        })
+        .map(|(_, value)| value.into_owned())
+        .filter(|value| !value.is_empty())
+}
+
+fn strip_gateway_credentials(request: &mut Request) {
+    let headers = request.headers_mut();
+    headers.remove(http::header::AUTHORIZATION);
+    headers.remove("x-api-key");
+    headers.remove("x-goog-api-key");
+
+    let path = request.uri().path().to_string();
+    let filtered_query = request.uri().query().map(|query| {
+        url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(
+                url::form_urlencoded::parse(query.as_bytes()).filter(|(key, _)| key != "key"),
+            )
+            .finish()
+    });
+    let uri = match filtered_query.filter(|query| !query.is_empty()) {
+        Some(query) => format!("{path}?{query}"),
+        None => path,
+    };
+    if let Ok(uri) = uri.parse() {
+        *request.uri_mut() = uri;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -449,12 +547,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn c2b_namespaced_routes_exist_and_all_enforce_gateway_auth() {
+    async fn every_inference_namespace_requires_gateway_auth_but_health_is_public() {
         let db = Arc::new(Database::memory().unwrap());
         let server = ProxyServer::new(ProxyConfig::default(), db, None);
         let router = server.build_router();
 
         let routes = [
+            (Method::POST, "/v1/messages"),
+            (Method::GET, "/v1/models"),
+            (Method::POST, "/v1/chat/completions"),
+            (Method::POST, "/v1/responses"),
+            (Method::POST, "/v1/responses/compact"),
+            (Method::POST, "/v1beta/models/gemini:test"),
+            (Method::POST, "/claude-desktop/v1/messages"),
+            (Method::GET, "/claude-desktop/v1/models"),
             (Method::POST, "/opencode/v1/chat/completions"),
             (Method::GET, "/opencode/v1/models"),
             (Method::POST, "/openclaw/v1/chat/completions"),
@@ -471,14 +577,39 @@ mod tests {
             assert_eq!(
                 route_status(&router, method, path).await,
                 StatusCode::UNAUTHORIZED,
-                "route {path} must exist and reject missing gateway auth before provider routing"
+                "route {path} must reject missing gateway auth before provider routing"
             );
         }
-
-        // 冻结矩阵没有 OpenCode Messages 路由；不得意外扩大公开 API 面。
+        assert_eq!(
+            route_status(&router, Method::GET, "/health").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            route_status(&router, Method::GET, "/status").await,
+            StatusCode::NOT_FOUND
+        );
         assert_eq!(
             route_status(&router, Method::POST, "/opencode/v1/messages").await,
             StatusCode::NOT_FOUND
+        );
+    }
+
+    #[test]
+    fn gateway_credentials_are_removed_before_forwarding() {
+        let mut request = Request::builder()
+            .uri("/v1beta/models/gemini:test?key=secret&alt=sse")
+            .header(http::header::AUTHORIZATION, "Bearer secret")
+            .header("x-api-key", "secret")
+            .header("x-goog-api-key", "secret")
+            .body(Body::empty())
+            .unwrap();
+        strip_gateway_credentials(&mut request);
+        assert!(request.headers().get(http::header::AUTHORIZATION).is_none());
+        assert!(request.headers().get("x-api-key").is_none());
+        assert!(request.headers().get("x-goog-api-key").is_none());
+        assert_eq!(
+            request.uri().path_and_query().unwrap().as_str(),
+            "/v1beta/models/gemini:test?alt=sse"
         );
     }
 }

@@ -39,10 +39,14 @@ pub fn add_provider(
     state: State<'_, AppState>,
     app: String,
     provider: Provider,
-    #[allow(non_snake_case)] addToLive: Option<bool>,
+    #[allow(non_snake_case)] _addToLive: Option<bool>,
 ) -> Result<bool, String> {
     let app_type = AppType::from_str(&app).map_err(|e| e.to_string())?;
-    ProviderService::add(state.inner(), app_type, provider, addToLive.unwrap_or(true))
+    validate_db_only_provider(&app_type, &provider)?;
+    state
+        .db
+        .save_provider(app_type.as_str(), &provider)
+        .map(|_| true)
         .map_err(|e| e.to_string())
 }
 
@@ -54,7 +58,21 @@ pub fn update_provider(
     #[allow(non_snake_case)] originalId: Option<String>,
 ) -> Result<bool, String> {
     let app_type = AppType::from_str(&app).map_err(|e| e.to_string())?;
-    ProviderService::update(state.inner(), app_type, originalId.as_deref(), provider)
+    validate_db_only_provider(&app_type, &provider)?;
+
+    if let Some(original_id) = originalId
+        .as_deref()
+        .filter(|id| *id != provider.id.as_str())
+    {
+        state
+            .db
+            .delete_provider(app_type.as_str(), original_id)
+            .map_err(|e| e.to_string())?;
+    }
+    state
+        .db
+        .save_provider(app_type.as_str(), &provider)
+        .map(|_| true)
         .map_err(|e| e.to_string())
 }
 
@@ -65,9 +83,83 @@ pub fn delete_provider(
     id: String,
 ) -> Result<bool, String> {
     let app_type = AppType::from_str(&app).map_err(|e| e.to_string())?;
-    ProviderService::delete(state.inner(), app_type, &id)
+    state
+        .db
+        .delete_provider(app_type.as_str(), &id)
         .map(|_| true)
         .map_err(|e| e.to_string())
+}
+
+#[cfg_attr(not(feature = "test-hooks"), doc(hidden))]
+pub fn add_provider_test_hook(
+    state: &AppState,
+    app_type: AppType,
+    provider: Provider,
+) -> Result<bool, String> {
+    validate_db_only_provider(&app_type, &provider)?;
+    state
+        .db
+        .save_provider(app_type.as_str(), &provider)
+        .map(|_| true)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg_attr(not(feature = "test-hooks"), doc(hidden))]
+pub fn update_provider_test_hook(
+    state: &AppState,
+    app_type: AppType,
+    provider: Provider,
+    original_id: Option<&str>,
+) -> Result<bool, String> {
+    validate_db_only_provider(&app_type, &provider)?;
+    if let Some(original_id) = original_id.filter(|id| *id != provider.id.as_str()) {
+        state
+            .db
+            .delete_provider(app_type.as_str(), original_id)
+            .map_err(|e| e.to_string())?;
+    }
+    state
+        .db
+        .save_provider(app_type.as_str(), &provider)
+        .map(|_| true)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg_attr(not(feature = "test-hooks"), doc(hidden))]
+pub fn delete_provider_test_hook(
+    state: &AppState,
+    app_type: AppType,
+    id: &str,
+) -> Result<bool, String> {
+    state
+        .db
+        .delete_provider(app_type.as_str(), id)
+        .map(|_| true)
+        .map_err(|e| e.to_string())
+}
+
+fn validate_db_only_provider(app_type: &AppType, provider: &Provider) -> Result<(), String> {
+    if provider.id.trim().is_empty() {
+        return Err("上游 ID 不能为空".to_string());
+    }
+    if provider.name.trim().is_empty() {
+        return Err("上游名称不能为空".to_string());
+    }
+
+    // 复用现有纯解析校验，但不调用 ProviderService 的 live 写入决策。
+    match app_type {
+        AppType::Codex => {
+            if provider.settings_config.get("config").is_none() {
+                return Err("Codex 上游缺少 config 配置".to_string());
+            }
+        }
+        _ => {
+            if !provider.settings_config.is_object() {
+                return Err("上游配置必须是 JSON 对象".to_string());
+            }
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -640,47 +732,12 @@ async fn query_provider_usage_inner(
             .map_err(|e| format!("Failed to query balance: {e}"));
     }
 
-    // ── 官方订阅额度查询路径 ──
+    // 独立网关不读取 CLI OAuth、Keychain 或客户端凭据缓存。
     if template_type == TEMPLATE_TYPE_OFFICIAL_SUBSCRIPTION {
-        if !usage_script.map(|s| s.enabled).unwrap_or(false) {
-            return Ok(crate::provider::UsageResult {
-                success: false,
-                data: None,
-                error: Some("Usage query is disabled".to_string()),
-            });
-        }
-
-        let quota = crate::services::subscription::get_subscription_quota(app_type.as_str())
-            .await
-            .map_err(|e| format!("Failed to query subscription quota: {e}"))?;
-
-        if !quota.success {
-            return Ok(crate::provider::UsageResult {
-                success: false,
-                data: None,
-                error: quota.error.or(quota.credential_message),
-            });
-        }
-
-        let data: Vec<crate::provider::UsageData> = quota
-            .tiers
-            .iter()
-            .map(|tier| crate::provider::UsageData {
-                plan_name: Some(tier.name.clone()),
-                remaining: Some(100.0 - tier.utilization),
-                total: Some(100.0),
-                used: Some(tier.utilization),
-                unit: Some("%".to_string()),
-                is_valid: Some(true),
-                invalid_message: None,
-                extra: tier.resets_at.clone(),
-            })
-            .collect();
-
         return Ok(crate::provider::UsageResult {
-            success: true,
-            data: if data.is_empty() { None } else { Some(data) },
-            error: None,
+            success: false,
+            data: None,
+            error: Some("独立网关不读取客户端订阅凭据".to_string()),
         });
     }
 

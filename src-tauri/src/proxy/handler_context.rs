@@ -3,6 +3,7 @@
 //! 提供请求生命周期的上下文管理，封装通用初始化逻辑
 
 use crate::app_config::AppType;
+use crate::gateway::core::{IngressProtocol, RouteResolutionError};
 use crate::provider::Provider;
 use crate::proxy::{
     extract_session_id,
@@ -56,6 +57,14 @@ pub struct RequestContext {
     /// 这里使用本地 settings 的设备级 current provider。
     /// 代理模式下如果实际使用的 provider 与此不一致，会触发切换以确保 UI 始终准确。
     pub current_provider_id: String,
+    /// 入口协议；用于模型路由协议兼容过滤与日志归因。
+    pub ingress_protocol: IngressProtocol,
+    /// 已解析的稳定网关模型 ID。
+    pub gateway_model_id: String,
+    /// 实际成功的 RouteTarget ID。
+    pub route_target_id: Option<String>,
+    /// 实际成功的 Upstream ID。
+    pub upstream_id: Option<String>,
     /// 请求中的模型名称
     pub request_model: String,
     /// 实际发往上游的模型名（路由接管/模型映射后的真值，forward 成功后回填）。
@@ -107,6 +116,7 @@ impl RequestContext {
         body: &serde_json::Value,
         headers: &HeaderMap,
         app_type: AppType,
+        ingress_protocol: IngressProtocol,
         tag: &'static str,
         app_type_str: &'static str,
     ) -> Result<Self, ProxyError> {
@@ -156,18 +166,19 @@ impl RequestContext {
             session_result.client_provided
         );
 
-        // 使用共享的 ProviderRouter 选择 Provider（熔断器状态跨请求保持）
-        // 注意：只在这里调用一次，结果传递给 forwarder，避免重复消耗 HalfOpen 名额
-        let candidates = state
+        // 独立网关严格按稳定模型 ID/精确别名选择有序 RouteTarget。
+        // AppType 仅保留为协议 adapter/usage provenance，不参与路由兜底。
+        let (gateway_model_id, candidates) = state
             .provider_router
-            .select_providers(app_type_str, &request_model)
+            .select_gateway_routes(ingress_protocol, &request_model)
             .await
-            .map_err(|e| match e {
-                crate::error::AppError::AllProvidersCircuitOpen => {
-                    ProxyError::AllProvidersCircuitOpen
+            .map_err(|error| match error {
+                RouteResolutionError::ModelNotFound { requested_model } => {
+                    ProxyError::ModelNotFound(requested_model)
                 }
-                crate::error::AppError::NoProvidersConfigured => ProxyError::NoProvidersConfigured,
-                _ => ProxyError::DatabaseError(e.to_string()),
+                RouteResolutionError::NoAvailableTarget { gateway_model_id } => {
+                    ProxyError::NoAvailableTarget(gateway_model_id)
+                }
             })?;
 
         let provider = candidates
@@ -175,9 +186,8 @@ impl RequestContext {
             .map(|c| c.provider.clone())
             .ok_or(ProxyError::NoAvailableProvider)?;
 
-        // 候选带 target_model 才是聚合路由；tier 无映射时 router 会回退旧路由，
-        // 此时候选的 target_model 都为 None。
-        let aggregate_mode = candidates.iter().any(|c| c.target_model.is_some());
+        // 模型优先路由的候选都携带 target_model，并按 RouteTarget 顺序故障转移。
+        let aggregate_mode = true;
 
         log::debug!(
             "[{}] Provider: {}, model: {}, failover chain: {} candidates, session: {}, aggregate: {}",
@@ -196,6 +206,10 @@ impl RequestContext {
             candidates,
             aggregate_mode,
             current_provider_id,
+            ingress_protocol,
+            gateway_model_id,
+            route_target_id: None,
+            upstream_id: None,
             request_model,
             outbound_model: None,
             tag,
@@ -215,6 +229,9 @@ impl RequestContext {
     ///
     /// Gemini API 的模型名称在 URI 中，格式如：
     /// `/v1beta/models/gemini-pro:generateContent`
+    /// Gemini 模型必须在路由前从 URI 提取；路由后修改 request_model 会导致
+    /// 候选与真实请求模型不一致，因此本方法只保留给旧测试并明确禁止生产使用。
+    #[deprecated(note = "Gemini 模型应在 RequestContext::new 前写入 body.model")]
     pub fn with_model_from_uri(mut self, uri: &axum::http::Uri) -> Self {
         // 用 path() 而不是 path_and_query()：模型名必须从路径段中解析，
         // 否则 GET /v1beta/models/<id>?key=... 会把 query 拼到 request_model 上。
@@ -491,6 +508,10 @@ mod tests {
             candidates,
             aggregate_mode: false,
             current_provider_id: String::new(),
+            ingress_protocol: IngressProtocol::OpenAiChatCompletions,
+            gateway_model_id: "test-gateway-model".to_string(),
+            route_target_id: None,
+            upstream_id: None,
             request_model: "test-model".to_string(),
             outbound_model: None,
             tag: "OpenClaw",
@@ -530,10 +551,16 @@ mod tests {
         );
         let mut context = openclaw_context(vec![
             RouteCandidate {
+                route_target_id: None,
+                upstream_id: None,
+                adapter_app_type: AppType::OpenClaw,
                 provider: chat,
                 target_model: None,
             },
             RouteCandidate {
+                route_target_id: None,
+                upstream_id: None,
+                adapter_app_type: AppType::OpenClaw,
                 provider: responses,
                 target_model: None,
             },
@@ -559,6 +586,9 @@ mod tests {
             None,
         );
         let mut context = openclaw_context(vec![RouteCandidate {
+            route_target_id: None,
+            upstream_id: None,
+            adapter_app_type: AppType::OpenClaw,
             provider: unknown,
             target_model: None,
         }]);

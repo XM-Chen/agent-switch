@@ -489,6 +489,10 @@ fn create_usage_collector(
     let stream_parser = parser_config.stream_parser;
     let model_extractor = parser_config.model_extractor;
     let session_id = ctx.session_id.clone();
+    let ingress_protocol = ctx.ingress_protocol.to_string();
+    let gateway_model_id = ctx.gateway_model_id.clone();
+    let route_target_id = ctx.route_target_id.clone();
+    let upstream_id = ctx.upstream_id.clone();
 
     Some(SseUsageCollector::new(
         start_time,
@@ -503,6 +507,10 @@ fn create_usage_collector(
                 let session_id = session_id.clone();
                 let request_model = request_model.clone();
                 let outbound_model = fallback_model.clone();
+                let ingress_protocol = ingress_protocol.clone();
+                let gateway_model_id = gateway_model_id.clone();
+                let route_target_id = route_target_id.clone();
+                let upstream_id = upstream_id.clone();
 
                 tokio::spawn(async move {
                     log_usage_internal(
@@ -512,6 +520,11 @@ fn create_usage_collector(
                         &model,
                         &request_model,
                         &outbound_model,
+                        &ingress_protocol,
+                        &gateway_model_id,
+                        route_target_id,
+                        upstream_id,
+                        Some(outbound_model.clone()),
                         usage,
                         latency_ms,
                         first_token_ms,
@@ -529,6 +542,10 @@ fn create_usage_collector(
                 let session_id = session_id.clone();
                 let request_model = request_model.clone();
                 let outbound_model = fallback_model.clone();
+                let ingress_protocol = ingress_protocol.clone();
+                let gateway_model_id = gateway_model_id.clone();
+                let route_target_id = route_target_id.clone();
+                let upstream_id = upstream_id.clone();
 
                 tokio::spawn(async move {
                     log_usage_internal(
@@ -538,6 +555,11 @@ fn create_usage_collector(
                         &model,
                         &request_model,
                         &outbound_model,
+                        &ingress_protocol,
+                        &gateway_model_id,
+                        route_target_id,
+                        upstream_id,
+                        Some(outbound_model.clone()),
                         TokenUsage::default(),
                         latency_ms,
                         first_token_ms,
@@ -580,6 +602,11 @@ fn spawn_log_usage(
         .outbound_model
         .clone()
         .unwrap_or_else(|| ctx.request_model.clone());
+    let ingress_protocol = ctx.ingress_protocol.to_string();
+    let gateway_model_id = ctx.gateway_model_id.clone();
+    let route_target_id = ctx.route_target_id.clone();
+    let upstream_id = ctx.upstream_id.clone();
+    let target_model = ctx.outbound_model.clone();
     let latency_ms = ctx.latency_ms();
     let session_id = ctx.session_id.clone();
 
@@ -591,6 +618,11 @@ fn spawn_log_usage(
             &model,
             &request_model,
             &outbound_model,
+            &ingress_protocol,
+            &gateway_model_id,
+            route_target_id,
+            upstream_id,
+            target_model,
             usage,
             latency_ms,
             None,
@@ -624,6 +656,11 @@ async fn log_usage_internal(
     model: &str,
     request_model: &str,
     outbound_model: &str,
+    ingress_protocol: &str,
+    gateway_model_id: &str,
+    route_target_id: Option<String>,
+    upstream_id: Option<String>,
+    target_model: Option<String>,
     usage: TokenUsage,
     latency_ms: u64,
     first_token_ms: Option<u64>,
@@ -653,7 +690,7 @@ async fn log_usage_internal(
         usage.cache_creation_tokens
     );
 
-    if let Err(e) = logger.log_with_calculation(
+    let log = match logger.calculate_request_log(
         request_id,
         provider_id.to_string(),
         app_type.to_string(),
@@ -666,10 +703,24 @@ async fn log_usage_internal(
         first_token_ms,
         status_code,
         session_id,
-        None, // provider_type
+        None,
         is_streaming,
     ) {
-        log::warn!("[USG-001] 记录使用量失败: {e}");
+        Ok(log) => log,
+        Err(error) => {
+            log::warn!("[USG-001] 计算使用量失败: {error}");
+            return;
+        }
+    };
+    if let Err(error) = logger.log_with_gateway_context(
+        log,
+        ingress_protocol.to_string(),
+        gateway_model_id.to_string(),
+        route_target_id,
+        upstream_id,
+        target_model,
+    ) {
+        log::warn!("[USG-001] 记录使用量失败: {error}");
     }
 }
 
@@ -1015,6 +1066,11 @@ mod tests {
             "resp-model",
             "req-model",
             "req-model",
+            "anthropic_messages",
+            "test-gateway-model",
+            None,
+            None,
+            Some("req-model".to_string()),
             usage,
             10,
             None,
@@ -1085,6 +1141,11 @@ mod tests {
             "resp-model",
             "req-model",
             "outbound-model",
+            "anthropic_messages",
+            "test-gateway-model",
+            None,
+            None,
+            Some("outbound-model".to_string()),
             usage,
             10,
             None,
@@ -1165,6 +1226,11 @@ mod tests {
             "resp-model",
             "req-model",
             "req-model",
+            "anthropic_messages",
+            "test-gateway-model",
+            None,
+            None,
+            Some("req-model".to_string()),
             usage,
             10,
             None,

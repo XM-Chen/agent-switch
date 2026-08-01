@@ -36,6 +36,33 @@ pub struct ProviderModel {
 }
 
 impl Database {
+    /// 列出全部命名空间的模型缓存，供独立网关 `/v1/models` 目录使用。
+    pub fn list_all_provider_models(&self) -> Result<Vec<ProviderModel>, AppError> {
+        let conn = lock_conn!(self.conn);
+        let mut stmt = conn
+            .prepare(
+                "SELECT provider_id, app_type, model_id, source, owned_by, fetched_at
+                 FROM provider_models
+                 ORDER BY model_id ASC, app_type ASC, provider_id ASC",
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(ProviderModel {
+                    provider_id: row.get(0)?,
+                    app_type: row.get(1)?,
+                    model_id: row.get(2)?,
+                    source: row.get(3)?,
+                    owned_by: row.get(4)?,
+                    fetched_at: row.get(5)?,
+                })
+            })
+            .map_err(|e| AppError::Database(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(rows)
+    }
+
     /// 列出模型缓存。`provider_id` 为 `None` 时返回该 app_type 全部行。
     pub fn list_provider_models(
         &self,
@@ -222,6 +249,35 @@ mod tests {
             id: id.to_string(),
             owned_by: Some("upstream".to_string()),
         }
+    }
+
+    #[test]
+    fn list_all_provider_models_orders_across_namespaces() {
+        let db = Database::memory().expect("memory db");
+        insert_provider(&db, "p1");
+        {
+            let conn = db.conn.lock().expect("lock conn");
+            conn.execute(
+                "INSERT INTO providers (id, app_type, name, settings_config, meta, is_current)
+                 VALUES ('p2', 'codex', 'p2', '{}', '{}', 0)",
+                [],
+            )
+            .expect("insert codex provider");
+        }
+        db.upsert_manual_model(APP, "p1", "shared", 10)
+            .expect("add claude model");
+        db.upsert_manual_model("codex", "p2", "shared", 20)
+            .expect("add codex model");
+        db.upsert_manual_model("codex", "p2", "z-model", 30)
+            .expect("add second codex model");
+
+        let rows = db.list_all_provider_models().expect("list all models");
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].model_id, "shared");
+        assert_eq!(rows[0].app_type, "claude");
+        assert_eq!(rows[1].model_id, "shared");
+        assert_eq!(rows[1].app_type, "codex");
+        assert_eq!(rows[2].model_id, "z-model");
     }
 
     #[test]

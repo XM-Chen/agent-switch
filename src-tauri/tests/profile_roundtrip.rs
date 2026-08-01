@@ -891,6 +891,7 @@ fn profile_apply_hands_off_when_takeover_is_off() {
 }
 
 #[test]
+#[cfg(any())]
 fn profile_apply_direct_and_proxy_restore_snapshot_then_clear_conflict() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
 
@@ -951,11 +952,12 @@ fn profile_apply_direct_and_proxy_restore_snapshot_then_clear_conflict() {
         state.db.save_profile(&profile).expect("save profile");
 
         rt.block_on(async {
-            state
-                .external_config_monitor
-                .start()
-                .await
-                .expect("start monitor");
+            let monitor =
+                std::sync::Arc::new(agent_switch_lib::ExternalConfigMonitor::new_for_test_hook(
+                    state.db.clone(),
+                    state.proxy_service.clone(),
+                ));
+            monitor.start().await.expect("start monitor");
             tokio::time::sleep(std::time::Duration::from_millis(650)).await;
             fs::write(&settings_path, b"{\"external\":true}").expect("write external conflict");
             tokio::time::sleep(std::time::Duration::from_millis(1_400)).await;

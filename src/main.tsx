@@ -6,9 +6,7 @@ import { UpdateProvider } from "./contexts/UpdateContext";
 import "./index.css";
 // 导入国际化配置
 import i18n from "./i18n";
-import { QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "@/components/theme-provider";
-import { queryClient } from "@/lib/query";
 import { Toaster } from "@/components/ui/sonner";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
@@ -27,7 +25,7 @@ try {
   // 忽略平台检测失败
 }
 
-// 配置加载错误payload类型
+// 网关数据加载错误 payload 类型
 interface ConfigLoadErrorPayload {
   path?: string;
   error?: string;
@@ -36,13 +34,13 @@ interface ConfigLoadErrorPayload {
 }
 
 /**
- * 处理配置加载失败：显示错误消息并强制退出应用
- * 不给用户"取消"选项，因为配置损坏时应用无法正常运行
+ * 处理网关数据加载失败：显示错误消息并强制退出应用
+ * 不给用户“取消”选项，因为数据损坏时应用无法安全运行
  */
 async function handleConfigLoadError(
   payload: ConfigLoadErrorPayload | null,
 ): Promise<void> {
-  const path = payload?.path ?? "~/.agent-switch/config.json";
+  const path = payload?.path ?? "~/.agent-switch/gateway-v1/gateway.db";
   const detail = payload?.error ?? "Unknown error";
 
   await message(
@@ -50,7 +48,7 @@ async function handleConfigLoadError(
       path,
       detail,
       defaultValue:
-        "无法读取配置文件：\n{{path}}\n\n错误详情：\n{{detail}}\n\n请手动检查 JSON 是否有效，或从同目录的备份文件（如 config.json.bak）恢复。\n\n应用将退出以便您进行修复。",
+        "无法加载网关数据：\n{{path}}\n\n错误详情：\n{{detail}}\n\n请检查文件权限和数据完整性。\n\n应用将退出，以避免继续使用不完整状态。",
     }),
     {
       title: i18n.t("errors.configLoadFailedTitle", {
@@ -103,14 +101,12 @@ async function bootstrap() {
 
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider defaultTheme="system" storageKey="agent-switch-theme">
-          <UpdateProvider>
-            <App />
-            <Toaster />
-          </UpdateProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
+      <ThemeProvider defaultTheme="system" storageKey="agent-switch-theme">
+        <UpdateProvider>
+          <App />
+          <Toaster />
+        </UpdateProvider>
+      </ThemeProvider>
     </React.StrictMode>,
   );
 }

@@ -15,34 +15,14 @@ pub async fn start_proxy_server(
     state.proxy_service.start().await
 }
 
-async fn stop_user_gateway(state: &AppState) -> Result<(), ProxyStopError> {
-    let modules = state
-        .proxy_service
-        .proxy_route_takeovers()
-        .await
-        .map_err(ProxyStopError::stop_failed)?;
-    if !modules.is_empty() {
-        return Err(ProxyStopError::blocked(modules));
-    }
+/// 停止本进程内的网关。独立网关不检查或恢复任何客户端接管状态。
+#[tauri::command]
+pub async fn stop_proxy_server(state: tauri::State<'_, AppState>) -> Result<(), ProxyStopError> {
     state
         .proxy_service
         .stop()
         .await
         .map_err(ProxyStopError::stop_failed)
-}
-
-/// 用户停止网关：只保护仍依赖网关的 proxy 模块，direct 模块不阻止停止。
-#[tauri::command]
-pub async fn stop_proxy_server(state: tauri::State<'_, AppState>) -> Result<(), ProxyStopError> {
-    stop_user_gateway(&state).await
-}
-
-/// 旧命令名兼容；普通 UI 路径不再执行“全模块恢复”，语义与用户停止网关一致。
-#[tauri::command]
-pub async fn stop_proxy_with_restore(
-    state: tauri::State<'_, AppState>,
-) -> Result<(), ProxyStopError> {
-    stop_user_gateway(&state).await
 }
 
 /// 获取各应用接管状态

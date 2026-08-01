@@ -1,7 +1,6 @@
-//! S3 v2 sync protocol layer.
+//! S3 portable gateway sync v3.
 //!
-//! Implements manifest-based synchronization on top of the S3 transport
-//! primitives in [`super::s3`]. Artifact set: `db.sql` + `skills.zip`.
+//! Artifact set is exactly `db.sql`; credentials, Skills, client domains, and runtime state are omitted.
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -17,8 +16,8 @@ use crate::settings::{update_s3_sync_status, S3SyncSettings, WebDavSyncStatus};
 use super::sync_protocol::{
     apply_snapshot, build_local_snapshot, localized, persist_sync_success_best_effort, sha256_hex,
     validate_artifact_size_limit, validate_manifest_compat, verify_artifact, ArtifactMeta,
-    RemoteLayout, SyncManifest, DB_COMPAT_VERSION, MAX_MANIFEST_BYTES, MAX_SYNC_ARTIFACT_BYTES,
-    PROTOCOL_VERSION, REMOTE_DB_SQL, REMOTE_MANIFEST, REMOTE_SKILLS_ZIP,
+    RemoteLayout, SyncManifest, GATEWAY_DATA_VERSION, MAX_MANIFEST_BYTES, MAX_SYNC_ARTIFACT_BYTES,
+    PROTOCOL_VERSION, REMOTE_DB_SQL, REMOTE_MANIFEST,
 };
 
 // ─── Sync lock ───────────────────────────────────────────────
@@ -45,7 +44,7 @@ pub async fn check_connection(settings: &S3SyncSettings) -> Result<(), AppError>
     s3::test_connection(&creds).await
 }
 
-/// Upload local snapshot (db + skills) to remote S3.
+/// Upload portable gateway routing snapshot to remote S3.
 pub async fn upload(
     db: &crate::database::Database,
     settings: &mut S3SyncSettings,
@@ -58,9 +57,6 @@ pub async fn upload(
     // Upload order: artifacts first, manifest last (best-effort consistency)
     let db_key = s3_key(settings, REMOTE_DB_SQL);
     s3::put_object(&creds, &db_key, snapshot.db_sql, "application/sql").await?;
-
-    let skills_key = s3_key(settings, REMOTE_SKILLS_ZIP);
-    s3::put_object(&creds, &skills_key, snapshot.skills_zip, "application/zip").await?;
 
     let manifest_key = s3_key(settings, REMOTE_MANIFEST);
     s3::put_object(
@@ -89,7 +85,7 @@ pub async fn upload(
     Ok(serde_json::json!({ "status": "uploaded" }))
 }
 
-/// Download remote snapshot and apply to local database + skills.
+/// Download remote portable gateway snapshot and apply routing graph only.
 pub async fn download(
     db: &crate::database::Database,
     settings: &mut S3SyncSettings,
@@ -116,13 +112,11 @@ pub async fn download(
 
     validate_manifest_compat(&manifest, RemoteLayout::Current)?;
 
-    // Download and verify artifacts
+    // Download and verify the only allowed artifact.
     let db_sql = download_and_verify(settings, &creds, REMOTE_DB_SQL, &manifest.artifacts).await?;
-    let skills_zip =
-        download_and_verify(settings, &creds, REMOTE_SKILLS_ZIP, &manifest.artifacts).await?;
 
-    // Apply snapshot
-    apply_snapshot(db, &db_sql, &skills_zip)?;
+    // Apply portable routing graph; local credentials/trust/listener/logs are preserved.
+    apply_snapshot(db, &db_sql)?;
 
     let manifest_hash = sha256_hex(&manifest_bytes);
     let _persisted =
@@ -218,19 +212,19 @@ async fn download_and_verify(
 
 /// Build the S3 object key for a given artifact.
 ///
-/// Format: `{remote_root}/v{PROTOCOL_VERSION}/db-v{DB_COMPAT_VERSION}/{profile}/{artifact}`
-/// Example: `agent-switch-sync/v2/db-v6/default/manifest.json`
+/// Format: `{remote_root}/v{PROTOCOL_VERSION}/gateway-v{GATEWAY_DATA_VERSION}/{profile}/{artifact}`
+/// Example: `agent-switch-sync/v3/gateway-v1/default/manifest.json`
 fn s3_key(settings: &S3SyncSettings, artifact: &str) -> String {
     format!(
-        "{}/v{}/db-v{}/{}/{}",
-        settings.remote_root, PROTOCOL_VERSION, DB_COMPAT_VERSION, settings.profile, artifact
+        "{}/v{}/gateway-v{}/{}/{}",
+        settings.remote_root, PROTOCOL_VERSION, GATEWAY_DATA_VERSION, settings.profile, artifact
     )
 }
 
 fn s3_dir_display(settings: &S3SyncSettings) -> String {
     format!(
-        "{}/v{}/db-v{}/{}",
-        settings.remote_root, PROTOCOL_VERSION, DB_COMPAT_VERSION, settings.profile
+        "{}/v{}/gateway-v{}/{}",
+        settings.remote_root, PROTOCOL_VERSION, GATEWAY_DATA_VERSION, settings.profile
     )
 }
 
@@ -259,10 +253,10 @@ mod tests {
     }
 
     #[test]
-    fn s3_key_uses_v2_and_correct_format() {
+    fn s3_key_uses_v3_gateway_layout() {
         let settings = test_settings();
         let key = s3_key(&settings, "manifest.json");
-        assert_eq!(key, "agent-switch-sync/v2/db-v6/default/manifest.json");
+        assert_eq!(key, "agent-switch-sync/v3/gateway-v1/default/manifest.json");
     }
 
     #[test]
@@ -272,21 +266,25 @@ mod tests {
             profile: "work".to_string(),
             ..S3SyncSettings::default()
         };
-        assert_eq!(s3_key(&settings, "db.sql"), "my-root/v2/db-v6/work/db.sql");
+        assert_eq!(
+            s3_key(&settings, "db.sql"),
+            "my-root/v3/gateway-v1/work/db.sql"
+        );
     }
 
     #[test]
-    fn s3_key_matches_expected_pattern() {
+    fn s3_key_matches_portable_db_only_pattern() {
         let settings = test_settings();
-        let key = s3_key(&settings, "skills.zip");
-        // Should follow {remote_root}/v{version}/db-v{db}/{profile}/{artifact}
+        let key = s3_key(&settings, REMOTE_DB_SQL);
+        // {remote_root}/v3/gateway-v1/{profile}/db.sql
         let parts: Vec<&str> = key.splitn(5, '/').collect();
         assert_eq!(parts.len(), 5);
         assert_eq!(parts[0], "agent-switch-sync");
-        assert_eq!(parts[1], "v2");
-        assert_eq!(parts[2], "db-v6");
+        assert_eq!(parts[1], "v3");
+        assert_eq!(parts[2], "gateway-v1");
         assert_eq!(parts[3], "default");
-        assert_eq!(parts[4], "skills.zip");
+        assert_eq!(parts[4], "db.sql");
+        assert!(!key.contains("skills.zip"));
     }
 
     #[test]

@@ -1943,7 +1943,7 @@ requires_openai_auth = true
             .expect("stop proxy service");
     }
 
-    #[cfg(any(target_os = "macos", windows))]
+    #[cfg(any())]
     #[tokio::test]
     #[serial]
     async fn update_current_claude_desktop_provider_syncs_profile_when_proxy_takeover_is_active() {

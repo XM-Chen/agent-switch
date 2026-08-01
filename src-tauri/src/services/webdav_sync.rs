@@ -1,7 +1,6 @@
-//! WebDAV v2 sync protocol layer with DB compatibility subdirectories.
+//! WebDAV portable gateway sync v3.
 //!
-//! Implements manifest-based synchronization on top of the HTTP transport
-//! primitives in [`super::webdav`]. Artifact set: `db.sql` + `skills.zip`.
+//! Artifact set is exactly `db.sql`; credentials, Skills, client domains, and runtime state are omitted.
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -21,11 +20,9 @@ use super::sync_protocol::{
     apply_snapshot, build_local_snapshot, effective_db_compat_version, localized,
     persist_sync_success_best_effort, sha256_hex, validate_artifact_size_limit,
     validate_manifest_compat, verify_artifact, ArtifactMeta, RemoteLayout, SyncManifest,
-    DB_COMPAT_VERSION, MAX_MANIFEST_BYTES, MAX_SYNC_ARTIFACT_BYTES, PROTOCOL_VERSION,
-    REMOTE_DB_SQL, REMOTE_MANIFEST, REMOTE_SKILLS_ZIP,
+    GATEWAY_DATA_VERSION, MAX_MANIFEST_BYTES, MAX_SYNC_ARTIFACT_BYTES, PROTOCOL_VERSION,
+    REMOTE_DB_SQL, REMOTE_MANIFEST,
 };
-
-pub(crate) mod archive;
 
 // ─── Sync lock ───────────────────────────────────────────────
 
@@ -60,7 +57,7 @@ pub async fn check_connection(settings: &WebDavSyncSettings) -> Result<(), AppEr
     Ok(())
 }
 
-/// Upload local snapshot (db + skills) to remote.
+/// Upload portable gateway routing snapshot to remote.
 pub async fn upload(
     db: &crate::database::Database,
     settings: &mut WebDavSyncSettings,
@@ -72,12 +69,9 @@ pub async fn upload(
 
     let snapshot = build_local_snapshot(db)?;
 
-    // Upload order: artifacts first, manifest last (best-effort consistency)
+    // Upload artifact first, manifest last (best-effort consistency)
     let db_url = remote_file_url(settings, RemoteLayout::Current, REMOTE_DB_SQL)?;
     put_bytes(&db_url, &auth, snapshot.db_sql, "application/sql").await?;
-
-    let skills_url = remote_file_url(settings, RemoteLayout::Current, REMOTE_SKILLS_ZIP)?;
-    put_bytes(&skills_url, &auth, snapshot.skills_zip, "application/zip").await?;
 
     let manifest_url = remote_file_url(settings, RemoteLayout::Current, REMOTE_MANIFEST)?;
     put_bytes(
@@ -106,7 +100,7 @@ pub async fn upload(
     Ok(serde_json::json!({ "status": "uploaded" }))
 }
 
-/// Download remote snapshot and apply to local database + skills.
+/// Download remote portable gateway snapshot and apply routing graph only.
 pub async fn download(
     db: &crate::database::Database,
     settings: &mut WebDavSyncSettings,
@@ -134,17 +128,9 @@ pub async fn download(
         &snapshot.manifest.artifacts,
     )
     .await?;
-    let skills_zip = download_and_verify(
-        settings,
-        &auth,
-        snapshot.layout,
-        REMOTE_SKILLS_ZIP,
-        &snapshot.manifest.artifacts,
-    )
-    .await?;
 
-    // Apply snapshot
-    apply_snapshot(db, &db_sql, &skills_zip)?;
+    // Apply portable routing graph; local credentials/trust/listener/logs are preserved.
+    apply_snapshot(db, &db_sql)?;
 
     let manifest_hash = sha256_hex(&snapshot.manifest_bytes);
     let _persisted = persist_sync_success_best_effort(
@@ -209,10 +195,7 @@ async fn find_remote_snapshot(
     settings: &WebDavSyncSettings,
     auth: &WebDavAuth,
 ) -> Result<Option<RemoteSnapshot>, AppError> {
-    if let Some(snapshot) = fetch_remote_snapshot(settings, auth, RemoteLayout::Current).await? {
-        return Ok(Some(snapshot));
-    }
-    fetch_remote_snapshot(settings, auth, RemoteLayout::Legacy).await
+    fetch_remote_snapshot(settings, auth, RemoteLayout::Current).await
 }
 
 async fn fetch_remote_snapshot(
@@ -275,13 +258,11 @@ async fn download_and_verify(
 
 // ─── Remote path helpers ─────────────────────────────────────
 
-fn remote_dir_segments(settings: &WebDavSyncSettings, layout: RemoteLayout) -> Vec<String> {
+fn remote_dir_segments(settings: &WebDavSyncSettings, _layout: RemoteLayout) -> Vec<String> {
     let mut segs = Vec::new();
     segs.extend(path_segments(&settings.remote_root).map(str::to_string));
     segs.push(format!("v{PROTOCOL_VERSION}"));
-    if layout == RemoteLayout::Current {
-        segs.push(format!("db-v{DB_COMPAT_VERSION}"));
-    }
+    segs.push(format!("gateway-v{GATEWAY_DATA_VERSION}"));
     segs.extend(path_segments(&settings.profile).map(str::to_string));
     segs
 }
@@ -319,17 +300,23 @@ mod tests {
             ..WebDavSyncSettings::default()
         };
         let segs = remote_dir_segments(&settings, RemoteLayout::Current);
-        assert_eq!(segs, vec!["agent-switch-sync", "v2", "db-v6", "default"]);
+        assert_eq!(
+            segs,
+            vec!["agent-switch-sync", "v3", "gateway-v1", "default"]
+        );
     }
 
     #[test]
-    fn remote_dir_segments_uses_legacy_layout() {
+    fn legacy_layout_parameter_never_generates_v2_paths() {
         let settings = WebDavSyncSettings {
             remote_root: "agent-switch-sync".to_string(),
             profile: "default".to_string(),
             ..WebDavSyncSettings::default()
         };
         let segs = remote_dir_segments(&settings, RemoteLayout::Legacy);
-        assert_eq!(segs, vec!["agent-switch-sync", "v2", "default"]);
+        assert_eq!(
+            segs,
+            vec!["agent-switch-sync", "v3", "gateway-v1", "default"]
+        );
     }
 }

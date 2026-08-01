@@ -3735,40 +3735,6 @@ impl ProxyService {
 
             *server_guard = Some(new_server);
             log::info!("代理配置已更新，服务器已自动重启应用最新配置");
-
-            // 网关地址变更后，只重写 SSOT 明确为 takeover+proxy 的三模块；逐模块加锁并
-            // 使用严格 writer，避免 best-effort 静默留下旧端口或与 provider 写入竞态。
-            drop(server_guard);
-            let mut updated_any = false;
-            for app in AppType::all() {
-                let _guard = self.switch_locks.lock_for_app(app.as_str()).await;
-                let config = self
-                    .db
-                    .get_proxy_config_for_app(app.as_str())
-                    .await
-                    .map_err(|e| format!("读取 {} 接管状态失败: {e}", app.as_str()))?;
-                if config.takeover_enabled && config.route_mode == RouteMode::Proxy {
-                    let token = self.begin_managed_write_locked(&app).await?;
-                    match self.takeover_live_config_strict(&app).await {
-                        Ok(()) => self.finish_managed_write_locked(token).await?,
-                        Err(operation_error) => {
-                            let cleanup_error = self.abort_managed_write_locked(token).await.err();
-                            return Err(match cleanup_error {
-                                Some(cleanup_error) => format!(
-                                    "{operation_error}；清理 {} managed write 失败: {cleanup_error}",
-                                    app.as_str()
-                                ),
-                                None => operation_error,
-                            });
-                        }
-                    }
-                    updated_any = true;
-                }
-            }
-            if updated_any {
-                log::info!("已同步更新 Live 配置中的代理地址");
-            }
-
             return Ok(());
         } else if let Some(server) = server_guard.as_ref() {
             server.apply_runtime_config(&new_config).await;

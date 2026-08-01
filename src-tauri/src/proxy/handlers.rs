@@ -38,7 +38,6 @@ use super::{
     },
     server::ProxyState,
     sse::{strip_sse_field, take_sse_block},
-    types::*,
     usage::parser::TokenUsage,
     ProxyError,
 };
@@ -50,59 +49,37 @@ use http_body_util::BodyExt;
 use serde_json::{json, Value};
 
 // ============================================================================
-// 健康检查和状态查询（简单端点）
+// 健康检查（匿名端点）
 // ============================================================================
 
 /// 健康检查
 pub async fn health_check() -> (StatusCode, Json<Value>) {
-    (
-        StatusCode::OK,
-        Json(json!({
-            "status": "healthy",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })),
-    )
+    (StatusCode::OK, Json(json!({ "status": "healthy" })))
 }
 
-/// 获取服务状态
-pub async fn get_status(State(state): State<ProxyState>) -> Result<Json<ProxyStatus>, ProxyError> {
-    let status = state.status.read().await.clone();
-    Ok(Json(status))
-}
-
-/// GET /v1/models — Codex model list (reachability check)
+/// GET /v1/models — 独立网关模型目录。
 ///
-/// Codex CLI probes this endpoint at startup and deserializes the response as a
-/// catalog with a top-level `models` field.  Return the cc-switch–managed model
-/// catalog file directly so the format always matches what the current version
-/// of Codex expects.
-///
-/// Only serves the catalog when the live config.toml still references the
-/// cc-switch–owned `model_catalog_json`, using the same path ownership rules as
-/// Codex live-setting import.
-pub async fn handle_models() -> Result<Json<Value>, ProxyError> {
-    let generated_path = crate::codex_config::get_codex_model_catalog_path();
-    let active_catalog_path = match crate::codex_config::read_codex_config_text() {
-        Ok(config_text) => {
-            crate::codex_config::resolve_cc_switch_catalog_path(&config_text, &generated_path)
-        }
-        Err(_) => None,
-    };
-
-    let catalog = if let Some(catalog_path) =
-        active_catalog_path.as_ref().filter(|path| path.exists())
-    {
-        let text = std::fs::read_to_string(catalog_path).unwrap_or_default();
-        serde_json::from_str(&text).unwrap_or(json!({"models": []}))
-    } else {
-        if active_catalog_path.is_none() {
-            log::debug!(
-                "[models] stale guard: catalog not served (model_catalog_json not set to cc-switch catalog)"
-            );
-        }
-        json!({"models": []})
-    };
-    Ok(Json(catalog))
+/// 目录只由 Agent Switch 数据库中的 `provider_models` 缓存生成，不读取 Codex
+/// config.toml、模型 catalog 文件或任何客户端安装目录。相同模型 ID 跨上游只展示一次。
+pub async fn handle_models(State(state): State<ProxyState>) -> Result<Json<Value>, ProxyError> {
+    let rows = state
+        .db
+        .list_all_provider_models()
+        .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
+    let mut seen = std::collections::BTreeSet::new();
+    let data: Vec<Value> = rows
+        .into_iter()
+        .filter(|model| seen.insert(model.model_id.clone()))
+        .map(|model| {
+            json!({
+                "id": model.model_id,
+                "object": "model",
+                "created": model.fetched_at / 1000,
+                "owned_by": model.owned_by.unwrap_or_else(|| "agent-switch".to_string()),
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "object": "list", "data": data })))
 }
 
 // ============================================================================
@@ -125,7 +102,6 @@ pub async fn handle_claude_desktop_messages(
     State(state): State<ProxyState>,
     request: axum::extract::Request,
 ) -> Result<axum::response::Response, ProxyError> {
-    validate_claude_desktop_gateway_auth(&state, request.headers())?;
     handle_messages_for_app(
         state,
         request,
@@ -139,21 +115,8 @@ pub async fn handle_claude_desktop_messages(
 
 pub async fn handle_claude_desktop_models(
     State(state): State<ProxyState>,
-    headers: axum::http::HeaderMap,
 ) -> Result<Json<Value>, ProxyError> {
-    validate_claude_desktop_gateway_auth(&state, &headers)?;
-    let providers = state
-        .provider_router
-        .select_providers("claude-desktop", "unknown")
-        .await
-        .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
-    let provider = &providers
-        .first()
-        .ok_or(ProxyError::NoAvailableProvider)?
-        .provider;
-    let response = crate::claude_desktop_config::model_list_response(provider)
-        .map_err(|e| ProxyError::ConfigError(e.to_string()))?;
-    Ok(Json(response))
+    handle_module_models(&state, "claude-desktop").await
 }
 
 async fn handle_messages_for_app(
@@ -177,8 +140,16 @@ async fn handle_messages_for_app(
     let body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
-    let mut ctx =
-        RequestContext::new(&state, &body, &headers, app_type.clone(), tag, app_type_str).await?;
+    let mut ctx = RequestContext::new(
+        &state,
+        &body,
+        &headers,
+        app_type.clone(),
+        crate::gateway::core::IngressProtocol::AnthropicMessages,
+        tag,
+        app_type_str,
+    )
+    .await?;
     if matches!(&app_type, AppType::OpenClaw | AppType::Hermes) {
         ctx.require_module_protocol(ModuleProtocol::Anthropic)?;
     }
@@ -222,6 +193,8 @@ async fn handle_messages_for_app(
 
     let connection_guard = result.connection_guard.take();
     ctx.outbound_model = result.outbound_model.take();
+    ctx.route_target_id = result.route_target_id.take();
+    ctx.upstream_id = result.upstream_id.take();
     ctx.provider = result.provider;
     let api_format = result
         .claude_api_format
@@ -259,66 +232,6 @@ async fn handle_messages_for_app(
         connection_guard,
     )
     .await
-}
-
-fn validate_claude_desktop_gateway_auth(
-    state: &ProxyState,
-    headers: &axum::http::HeaderMap,
-) -> Result<(), ProxyError> {
-    validate_gateway_auth(state, headers, "Claude Desktop")
-}
-
-/// 各模块命名空间网关共用的 Bearer 鉴权。
-///
-/// token 来源沿用 Claude Desktop 的 `get_or_create_gateway_token`（单一网关 token
-/// setting，减少 UI 面）；`module_label` 只用于错误信息，便于区分是哪条命名空间入口。
-fn validate_gateway_auth(
-    state: &ProxyState,
-    headers: &axum::http::HeaderMap,
-    module_label: &str,
-) -> Result<(), ProxyError> {
-    let expected = crate::claude_desktop_config::get_or_create_gateway_token(state.db.as_ref())
-        .map_err(|e| ProxyError::AuthError(e.to_string()))?;
-    let Some(value) = headers.get(axum::http::header::AUTHORIZATION) else {
-        return Err(ProxyError::AuthError(format!(
-            "{module_label} gateway 缺少 Authorization 头"
-        )));
-    };
-    let value = value
-        .to_str()
-        .map_err(|_| ProxyError::AuthError("Authorization 头格式无效".to_string()))?;
-    let token = value
-        .strip_prefix("Bearer ")
-        .or_else(|| value.strip_prefix("bearer "))
-        .unwrap_or("")
-        .trim();
-    if token != expected {
-        return Err(ProxyError::AuthError(format!(
-            "{module_label} gateway token 无效"
-        )));
-    }
-    Ok(())
-}
-
-fn validate_opencode_gateway_auth(
-    state: &ProxyState,
-    headers: &axum::http::HeaderMap,
-) -> Result<(), ProxyError> {
-    validate_gateway_auth(state, headers, "OpenCode")
-}
-
-fn validate_openclaw_gateway_auth(
-    state: &ProxyState,
-    headers: &axum::http::HeaderMap,
-) -> Result<(), ProxyError> {
-    validate_gateway_auth(state, headers, "OpenClaw")
-}
-
-fn validate_hermes_gateway_auth(
-    state: &ProxyState,
-    headers: &axum::http::HeaderMap,
-) -> Result<(), ProxyError> {
-    validate_gateway_auth(state, headers, "Hermes")
 }
 
 // ============================================================================
@@ -362,8 +275,21 @@ async fn handle_module_openai_compat(
     let body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
-    let mut ctx =
-        RequestContext::new(&state, &body, &headers, app_type.clone(), tag, app_type_str).await?;
+    let ingress_protocol = match client_protocol {
+        ModuleProtocol::Anthropic => crate::gateway::core::IngressProtocol::AnthropicMessages,
+        ModuleProtocol::OpenAiChat => crate::gateway::core::IngressProtocol::OpenAiChatCompletions,
+        ModuleProtocol::OpenAiResponses => crate::gateway::core::IngressProtocol::OpenAiResponses,
+    };
+    let mut ctx = RequestContext::new(
+        &state,
+        &body,
+        &headers,
+        app_type.clone(),
+        ingress_protocol,
+        tag,
+        app_type_str,
+    )
+    .await?;
     ctx.require_module_protocol(client_protocol)?;
     let endpoint = endpoint_with_query(&uri, upstream_endpoint);
 
@@ -397,57 +323,37 @@ async fn handle_module_openai_compat(
 
     let connection_guard = result.connection_guard.take();
     ctx.outbound_model = result.outbound_model.take();
+    ctx.route_target_id = result.route_target_id.take();
+    ctx.upstream_id = result.upstream_id.take();
     ctx.provider = result.provider;
     let response = result.response;
 
     process_response(response, &ctx, &state, parser_config, connection_guard).await
 }
 
-/// 模块命名空间的模型列表响应（reachability check）。
-///
-/// 客户端启动时探测该端点；返回当前 provider 配置里可见的模型 id，形状按 OpenAI
-/// `{"object":"list","data":[{"id":...}]}` 兼容。找不到 provider 时返回空列表而非报错，
-/// 避免客户端把 reachability 探测当成致命错误。
+/// 命名空间模型目录与主 `/v1/models` 共用 Agent Switch DB 缓存。
 async fn handle_module_models(
     state: &ProxyState,
     app_type_str: &'static str,
 ) -> Result<Json<Value>, ProxyError> {
-    let providers = state
-        .provider_router
-        .select_providers(app_type_str, "unknown")
-        .await
+    let rows = state
+        .db
+        .list_provider_models(app_type_str, None)
         .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
-    let Some(candidate) = providers.first() else {
-        return Ok(Json(json!({ "object": "list", "data": [] })));
-    };
-    let data: Vec<Value> = collect_module_model_ids(&candidate.provider.settings_config)
+    let mut seen = std::collections::BTreeSet::new();
+    let data: Vec<Value> = rows
         .into_iter()
-        .map(|id| json!({ "id": id, "object": "model" }))
+        .filter(|model| seen.insert(model.model_id.clone()))
+        .map(|model| {
+            json!({
+                "id": model.model_id,
+                "object": "model",
+                "created": model.fetched_at / 1000,
+                "owned_by": model.owned_by.unwrap_or_else(|| "agent-switch".to_string()),
+            })
+        })
         .collect();
     Ok(Json(json!({ "object": "list", "data": data })))
-}
-
-/// 从模块 provider 的 settings_config 中尽力收集模型 id（用于 reachability 响应）。
-///
-/// 兼容三种形态：OpenCode `models` map 的键、OpenClaw `models` 数组元素的 `id`、
-/// Hermes `models` map 的键。无法识别时返回空列表。
-fn collect_module_model_ids(settings: &Value) -> Vec<String> {
-    let Some(models) = settings.get("models") else {
-        return Vec::new();
-    };
-    match models {
-        Value::Object(map) => map.keys().cloned().collect(),
-        Value::Array(items) => items
-            .iter()
-            .filter_map(|item| {
-                item.get("id")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-                    .or_else(|| item.as_str().map(str::to_string))
-            })
-            .collect(),
-        _ => Vec::new(),
-    }
 }
 
 // --- OpenCode：仅 OpenAI Chat Completions ---
@@ -456,7 +362,6 @@ pub async fn handle_opencode_chat_completions(
     State(state): State<ProxyState>,
     request: axum::extract::Request,
 ) -> Result<axum::response::Response, ProxyError> {
-    validate_opencode_gateway_auth(&state, request.headers())?;
     handle_module_openai_compat(
         state,
         request,
@@ -472,9 +377,7 @@ pub async fn handle_opencode_chat_completions(
 
 pub async fn handle_opencode_models(
     State(state): State<ProxyState>,
-    headers: axum::http::HeaderMap,
 ) -> Result<Json<Value>, ProxyError> {
-    validate_opencode_gateway_auth(&state, &headers)?;
     handle_module_models(&state, "opencode").await
 }
 
@@ -484,7 +387,6 @@ pub async fn handle_openclaw_chat_completions(
     State(state): State<ProxyState>,
     request: axum::extract::Request,
 ) -> Result<axum::response::Response, ProxyError> {
-    validate_openclaw_gateway_auth(&state, request.headers())?;
     handle_module_openai_compat(
         state,
         request,
@@ -502,7 +404,6 @@ pub async fn handle_openclaw_responses(
     State(state): State<ProxyState>,
     request: axum::extract::Request,
 ) -> Result<axum::response::Response, ProxyError> {
-    validate_openclaw_gateway_auth(&state, request.headers())?;
     handle_module_openai_compat(
         state,
         request,
@@ -520,7 +421,6 @@ pub async fn handle_openclaw_messages(
     State(state): State<ProxyState>,
     request: axum::extract::Request,
 ) -> Result<axum::response::Response, ProxyError> {
-    validate_openclaw_gateway_auth(&state, request.headers())?;
     handle_messages_for_app(
         state,
         request,
@@ -534,9 +434,7 @@ pub async fn handle_openclaw_messages(
 
 pub async fn handle_openclaw_models(
     State(state): State<ProxyState>,
-    headers: axum::http::HeaderMap,
 ) -> Result<Json<Value>, ProxyError> {
-    validate_openclaw_gateway_auth(&state, &headers)?;
     handle_module_models(&state, "openclaw").await
 }
 
@@ -546,7 +444,6 @@ pub async fn handle_hermes_chat_completions(
     State(state): State<ProxyState>,
     request: axum::extract::Request,
 ) -> Result<axum::response::Response, ProxyError> {
-    validate_hermes_gateway_auth(&state, request.headers())?;
     handle_module_openai_compat(
         state,
         request,
@@ -564,7 +461,6 @@ pub async fn handle_hermes_responses(
     State(state): State<ProxyState>,
     request: axum::extract::Request,
 ) -> Result<axum::response::Response, ProxyError> {
-    validate_hermes_gateway_auth(&state, request.headers())?;
     handle_module_openai_compat(
         state,
         request,
@@ -582,7 +478,6 @@ pub async fn handle_hermes_messages(
     State(state): State<ProxyState>,
     request: axum::extract::Request,
 ) -> Result<axum::response::Response, ProxyError> {
-    validate_hermes_gateway_auth(&state, request.headers())?;
     handle_messages_for_app(
         state,
         request,
@@ -596,9 +491,7 @@ pub async fn handle_hermes_messages(
 
 pub async fn handle_hermes_models(
     State(state): State<ProxyState>,
-    headers: axum::http::HeaderMap,
 ) -> Result<Json<Value>, ProxyError> {
-    validate_hermes_gateway_auth(&state, &headers)?;
     handle_module_models(&state, "hermes").await
 }
 
@@ -1025,8 +918,16 @@ pub async fn handle_chat_completions(
     let body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
-    let mut ctx =
-        RequestContext::new(&state, &body, &headers, AppType::Codex, "Codex", "codex").await?;
+    let mut ctx = RequestContext::new(
+        &state,
+        &body,
+        &headers,
+        AppType::Codex,
+        crate::gateway::core::IngressProtocol::OpenAiChatCompletions,
+        "Codex",
+        "codex",
+    )
+    .await?;
     let endpoint = endpoint_with_query(&uri, "/chat/completions");
 
     let is_stream = body
@@ -1059,6 +960,8 @@ pub async fn handle_chat_completions(
 
     let connection_guard = result.connection_guard.take();
     ctx.outbound_model = result.outbound_model.take();
+    ctx.route_target_id = result.route_target_id.take();
+    ctx.upstream_id = result.upstream_id.take();
     ctx.provider = result.provider;
     let response = result.response;
 
@@ -1091,8 +994,16 @@ pub async fn handle_responses(
     let body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
-    let mut ctx =
-        RequestContext::new(&state, &body, &headers, AppType::Codex, "Codex", "codex").await?;
+    let mut ctx = RequestContext::new(
+        &state,
+        &body,
+        &headers,
+        AppType::Codex,
+        crate::gateway::core::IngressProtocol::OpenAiResponses,
+        "Codex",
+        "codex",
+    )
+    .await?;
     let endpoint = endpoint_with_query(&uri, "/responses");
 
     let is_stream = body
@@ -1126,6 +1037,8 @@ pub async fn handle_responses(
 
     let connection_guard = result.connection_guard.take();
     ctx.outbound_model = result.outbound_model.take();
+    ctx.route_target_id = result.route_target_id.take();
+    ctx.upstream_id = result.upstream_id.take();
     ctx.provider = result.provider;
     let response = result.response;
 
@@ -1182,8 +1095,16 @@ pub async fn handle_responses_compact(
     let body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
-    let mut ctx =
-        RequestContext::new(&state, &body, &headers, AppType::Codex, "Codex", "codex").await?;
+    let mut ctx = RequestContext::new(
+        &state,
+        &body,
+        &headers,
+        AppType::Codex,
+        crate::gateway::core::IngressProtocol::OpenAiResponsesCompact,
+        "Codex",
+        "codex",
+    )
+    .await?;
     let endpoint = endpoint_with_query(&uri, "/responses/compact");
 
     let is_stream = body
@@ -1217,6 +1138,8 @@ pub async fn handle_responses_compact(
 
     let connection_guard = result.connection_guard.take();
     ctx.outbound_model = result.outbound_model.take();
+    ctx.route_target_id = result.route_target_id.take();
+    ctx.upstream_id = result.upstream_id.take();
     ctx.provider = result.provider;
     let response = result.response;
 
@@ -1940,6 +1863,8 @@ fn codex_proxy_error_code(error: &ProxyError) -> &'static str {
         ProxyError::NoAvailableProvider => "cc_switch_no_available_provider",
         ProxyError::AllProvidersCircuitOpen => "cc_switch_all_providers_circuit_open",
         ProxyError::NoProvidersConfigured => "cc_switch_no_providers_configured",
+        ProxyError::ModelNotFound(_) => "model_not_found",
+        ProxyError::NoAvailableTarget(_) => "no_available_target",
         ProxyError::MaxRetriesExceeded => "cc_switch_max_retries_exceeded",
         ProxyError::ProviderUnhealthy(_) => "cc_switch_provider_unhealthy",
         ProxyError::ConfigError(_) => "cc_switch_config_error",
@@ -1993,17 +1918,39 @@ pub async fn handle_gemini(
         .to_bytes();
     // GET 类只读端点（/v1beta/models、/v1beta/models/<model> 等）没有请求体，
     // 不能强制 parse 为 JSON —— 否则空 body 会被拒绝。
-    let body: Value = if body_bytes.is_empty() {
+    let mut body: Value = if body_bytes.is_empty() {
         Value::Null
     } else {
         serde_json::from_slice(&body_bytes)
             .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?
     };
 
-    // Gemini 的模型名称在 URI 中
-    let mut ctx = RequestContext::new(&state, &body, &headers, AppType::Gemini, "Gemini", "gemini")
-        .await?
-        .with_model_from_uri(&uri);
+    let path = uri.path();
+    let request_model = super::handler_context::extract_gemini_model_from_path(path)
+        .ok_or_else(|| ProxyError::ModelNotFound("unknown".to_string()))?;
+    if !body.is_object() {
+        body = json!({});
+    }
+    body.as_object_mut()
+        .expect("Gemini routing body is object")
+        .insert("model".to_string(), Value::String(request_model));
+    let ingress_protocol = if path.contains(":streamGenerateContent") {
+        crate::gateway::core::IngressProtocol::GeminiStreamGenerateContent
+    } else if path.contains(":countTokens") {
+        crate::gateway::core::IngressProtocol::GeminiCountTokens
+    } else {
+        crate::gateway::core::IngressProtocol::GeminiGenerateContent
+    };
+    let mut ctx = RequestContext::new(
+        &state,
+        &body,
+        &headers,
+        AppType::Gemini,
+        ingress_protocol,
+        "Gemini",
+        "gemini",
+    )
+    .await?;
 
     // 提取完整的路径和查询参数
     let endpoint = uri
@@ -2041,6 +1988,8 @@ pub async fn handle_gemini(
 
     let connection_guard = result.connection_guard.take();
     ctx.outbound_model = result.outbound_model.take();
+    ctx.route_target_id = result.route_target_id.take();
+    ctx.upstream_id = result.upstream_id.take();
     ctx.provider = result.provider;
     let response = result.response;
 

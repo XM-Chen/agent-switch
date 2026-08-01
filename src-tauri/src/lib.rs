@@ -1,15 +1,13 @@
-// 阶段 1 安全网关壳：旧客户端配置/接管/迁移模块仍留在源码树中，但生产启动、
-// IPC、托盘、网关路由均不再触达它们。这些模块计划在阶段 5 整体删除；在此之前
-// 其 dead-code/unused-imports 噪声统一静默，避免淹没真正需要关注的告警。静态
-// 架构守卫 (tests/gateway_safety.rs) 是更强的"未触达客户端配置"保证。
-#![allow(dead_code, unused_imports)]
+// 阶段 5：客户端配置/接管/迁移模块已从生产启动、IPC、托盘、网关路由中移除。
+// 静态架构守卫 (tests/gateway_safety.rs) 是"未触达客户端配置"的强保证。仍保留的
+// 旧数据 provenance 模块（v17 一次性迁移读取旧 providers 表所需）在各自模块内
+// 显式标注 `#[allow(dead_code)]`，其余死代码必须被删除或修复。
 
 mod app_config;
 mod app_store;
 mod auto_launch;
 mod claude_desktop_config;
 mod claude_mcp;
-mod claude_plugin;
 mod codex_config;
 mod codex_history_migration;
 mod codex_state_db;
@@ -36,7 +34,6 @@ mod provider;
 mod provider_defaults;
 mod proxy;
 mod services;
-mod session_manager;
 mod settings;
 mod store;
 

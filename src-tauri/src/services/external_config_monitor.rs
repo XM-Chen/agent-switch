@@ -2851,6 +2851,7 @@ mod tests {
 
     #[tokio::test]
     #[serial]
+    #[ignore = "已退役的客户端配置接管回归，阶段 5 删除"]
     async fn provider_direct_and_proxy_switches_commit_expected_without_monitor_event() {
         let _home = TempHome::new();
         crate::settings::reload_settings().unwrap();
@@ -2859,10 +2860,15 @@ mod tests {
         proxy_config.listen_port = 0;
         db.update_proxy_config(proxy_config).await.unwrap();
         let state = crate::store::AppState::new(db.clone());
-        let sink = Arc::new(CollectingEventSink::default());
+        let monitor = Arc::new(ExternalConfigMonitor::new(
+            db.clone(),
+            state.proxy_service.clone(),
+        ));
         state
-            .external_config_monitor
-            .set_test_event_sink(sink.clone());
+            .proxy_service
+            .set_external_config_monitor(Arc::downgrade(&monitor));
+        let sink = Arc::new(CollectingEventSink::default());
+        monitor.set_test_event_sink(sink.clone());
 
         let make_provider = |id: &str, name: &str, token: &str| {
             Provider::with_id(
@@ -2892,8 +2898,7 @@ mod tests {
             .set_takeover_for_app("opencode", true, RouteMode::Direct)
             .await
             .unwrap();
-        let enabled_generation = state
-            .external_config_monitor
+        let enabled_generation = monitor
             .state_store
             .module_state(&AppType::OpenCode)
             .await
@@ -2905,11 +2910,7 @@ mod tests {
             &second_provider.id,
         )
         .unwrap();
-        let direct = state
-            .external_config_monitor
-            .state_store
-            .module_state(&AppType::OpenCode)
-            .await;
+        let direct = monitor.state_store.module_state(&AppType::OpenCode).await;
         assert!(direct.generation > enabled_generation);
         assert!(direct.expected.is_some());
         assert!(direct.managed_write_generation.is_none());
@@ -2920,8 +2921,7 @@ mod tests {
             .switch_route_mode("opencode", RouteMode::Proxy)
             .await
             .unwrap();
-        let route_generation = state
-            .external_config_monitor
+        let route_generation = monitor
             .state_store
             .module_state(&AppType::OpenCode)
             .await
@@ -2932,11 +2932,7 @@ mod tests {
             &first_provider.id,
         )
         .unwrap();
-        let proxy = state
-            .external_config_monitor
-            .state_store
-            .module_state(&AppType::OpenCode)
-            .await;
+        let proxy = monitor.state_store.module_state(&AppType::OpenCode).await;
         assert!(proxy.generation > route_generation);
         assert!(proxy.expected.is_some());
         assert!(proxy.conflict.is_none());

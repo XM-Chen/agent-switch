@@ -11,7 +11,7 @@ use crate::proxy::http_client;
 use futures::StreamExt;
 
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
-/// Timeout for large file transfers (PUT/GET of db.sql, skills.zip).
+/// Timeout for portable gateway artifact transfers (manifest.json / db.sql).
 const TRANSFER_TIMEOUT_SECS: u64 = 300;
 
 /// Auth pair: `(username, Some(password))`.

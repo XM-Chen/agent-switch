@@ -35,6 +35,12 @@ pub enum ProxyError {
     #[error("未配置供应商")]
     NoProvidersConfigured,
 
+    #[error("网关模型不存在: {0}")]
+    ModelNotFound(String),
+
+    #[error("网关模型没有可用路由候选: {0}")]
+    NoAvailableTarget(String),
+
     #[allow(dead_code)]
     #[error("Provider不健康: {0}")]
     ProviderUnhealthy(String),
@@ -132,6 +138,10 @@ impl IntoResponse for ProxyError {
                         (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
                     }
                     ProxyError::NoProvidersConfigured => {
+                        (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
+                    }
+                    ProxyError::ModelNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
+                    ProxyError::NoAvailableTarget(_) => {
                         (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
                     }
                     ProxyError::ProviderUnhealthy(_) => {

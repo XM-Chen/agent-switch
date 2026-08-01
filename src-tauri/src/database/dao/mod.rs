@@ -4,6 +4,9 @@
 
 pub mod custom_aggregates;
 pub mod failover;
+pub mod gateway_auth;
+pub mod gateway_control;
+pub mod gateway_domain;
 pub mod mcp;
 pub mod profiles;
 pub mod prompts;
@@ -21,6 +24,16 @@ pub mod usage_rollup;
 // 导出 FailoverQueueItem 供外部使用
 pub use failover::FailoverQueueItem;
 // 导出 ProviderModel 供 service/command 层使用
+pub use gateway_auth::GatewayApiKeyRecord;
+pub use gateway_control::{
+    CreateGatewayModelInput, CreateGatewayUpstreamInput, CreateRouteTargetInput,
+    GatewayUpstreamDto, UpdateGatewayModelInput, UpdateGatewayUpstreamInput,
+    UpdateRouteTargetInput, UpstreamCredentialHintDto,
+};
+pub use gateway_domain::{
+    GatewayConfigRecord, GatewayMigrationIssue, GatewayModelRecord, ModelAliasRecord,
+    RouteTargetHealthRecord, RouteTargetRecord, UpstreamModelRecord, UpstreamRecord,
+};
 pub use provider_models::ProviderModel;
 // 导出 Profile 供 service/command 层使用
 pub use profiles::Profile;

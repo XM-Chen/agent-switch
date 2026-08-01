@@ -14,6 +14,11 @@ pub struct RequestLog {
     pub request_id: String,
     pub provider_id: String,
     pub app_type: String,
+    pub ingress_protocol: Option<String>,
+    pub gateway_model_id: Option<String>,
+    pub route_target_id: Option<String>,
+    pub upstream_id: Option<String>,
+    pub target_model: Option<String>,
     pub model: String,
     pub request_model: String,
     /// 写入时实际用于计价的模型名（pricing_model_source 解析后的结果）。
@@ -83,16 +88,23 @@ impl<'a> UsageLogger<'a> {
 
         conn.execute(
             "INSERT OR REPLACE INTO proxy_request_logs (
-                request_id, provider_id, app_type, model, request_model, pricing_model,
+                request_id, provider_id, app_type, ingress_protocol, gateway_model_id,
+                route_target_id, upstream_id, target_model,
+                model, request_model, pricing_model,
                 input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
                 input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd, total_cost_usd,
                 latency_ms, first_token_ms, status_code, error_message, session_id,
                 provider_type, is_streaming, cost_multiplier, created_at, input_token_semantics
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)",
             rusqlite::params![
                 log.request_id,
                 log.provider_id,
                 log.app_type,
+                log.ingress_protocol,
+                log.gateway_model_id,
+                log.route_target_id,
+                log.upstream_id,
+                log.target_model,
                 log.model,
                 log.request_model,
                 log.pricing_model,
@@ -144,6 +156,11 @@ impl<'a> UsageLogger<'a> {
             request_id,
             provider_id,
             app_type,
+            ingress_protocol: None,
+            gateway_model_id: None,
+            route_target_id: None,
+            upstream_id: None,
+            target_model: None,
             model,
             request_model,
             // 错误行未经过计价，留空（回填的 has_usage 闸门也不会碰全 0 行）
@@ -185,6 +202,11 @@ impl<'a> UsageLogger<'a> {
             request_id,
             provider_id,
             app_type,
+            ingress_protocol: None,
+            gateway_model_id: None,
+            route_target_id: None,
+            upstream_id: None,
+            target_model: None,
             model,
             request_model,
             // 错误行未经过计价，留空（回填的 has_usage 闸门也不会碰全 0 行）
@@ -201,6 +223,23 @@ impl<'a> UsageLogger<'a> {
             cost_multiplier: "1.0".to_string(),
         };
 
+        self.log_request(&log)
+    }
+
+    pub fn log_with_gateway_context(
+        &self,
+        mut log: RequestLog,
+        ingress_protocol: String,
+        gateway_model_id: String,
+        route_target_id: Option<String>,
+        upstream_id: Option<String>,
+        target_model: Option<String>,
+    ) -> Result<(), AppError> {
+        log.ingress_protocol = Some(ingress_protocol);
+        log.gateway_model_id = Some(gateway_model_id);
+        log.route_target_id = route_target_id;
+        log.upstream_id = upstream_id;
+        log.target_model = target_model;
         self.log_request(&log)
     }
 
@@ -315,7 +354,7 @@ impl<'a> UsageLogger<'a> {
 
     /// 计算并记录请求
     #[allow(clippy::too_many_arguments)]
-    pub fn log_with_calculation(
+    pub fn calculate_request_log(
         &self,
         request_id: String,
         provider_id: String,
@@ -331,7 +370,7 @@ impl<'a> UsageLogger<'a> {
         session_id: Option<String>,
         provider_type: Option<String>,
         is_streaming: bool,
-    ) -> Result<(), AppError> {
+    ) -> Result<RequestLog, AppError> {
         let pricing = self.get_model_pricing(&pricing_model)?;
 
         let has_usage = usage.input_tokens > 0
@@ -354,6 +393,11 @@ impl<'a> UsageLogger<'a> {
             request_id,
             provider_id,
             app_type,
+            ingress_protocol: None,
+            gateway_model_id: None,
+            route_target_id: None,
+            upstream_id: None,
+            target_model: None,
             model,
             request_model,
             pricing_model,
@@ -369,6 +413,44 @@ impl<'a> UsageLogger<'a> {
             cost_multiplier: cost_multiplier.to_string(),
         };
 
+        Ok(log)
+    }
+
+    /// 兼容旧调用方的计算并记录入口。
+    #[allow(clippy::too_many_arguments)]
+    pub fn log_with_calculation(
+        &self,
+        request_id: String,
+        provider_id: String,
+        app_type: String,
+        model: String,
+        request_model: String,
+        pricing_model: String,
+        usage: TokenUsage,
+        cost_multiplier: Decimal,
+        latency_ms: u64,
+        first_token_ms: Option<u64>,
+        status_code: u16,
+        session_id: Option<String>,
+        provider_type: Option<String>,
+        is_streaming: bool,
+    ) -> Result<(), AppError> {
+        let log = self.calculate_request_log(
+            request_id,
+            provider_id,
+            app_type,
+            model,
+            request_model,
+            pricing_model,
+            usage,
+            cost_multiplier,
+            latency_ms,
+            first_token_ms,
+            status_code,
+            session_id,
+            provider_type,
+            is_streaming,
+        )?;
         self.log_request(&log)
     }
 }
@@ -431,6 +513,63 @@ mod tests {
             .unwrap();
         assert_eq!(count, 1);
         assert_eq!(request_model, "req-model");
+        Ok(())
+    }
+
+    #[test]
+    fn gateway_context_persists_all_route_dimensions() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let logger = UsageLogger::new(&db);
+        let log = logger.calculate_request_log(
+            "gateway-req".into(),
+            "provider-projection".into(),
+            "claude".into(),
+            "response-model".into(),
+            "stable-model".into(),
+            "vendor-model".into(),
+            TokenUsage::default(),
+            Decimal::ONE,
+            12,
+            None,
+            200,
+            None,
+            None,
+            false,
+        )?;
+        logger.log_with_gateway_context(
+            log,
+            "anthropic_messages".into(),
+            "gateway-model-1".into(),
+            Some("route-target-1".into()),
+            Some("upstream-1".into()),
+            Some("vendor-model".into()),
+        )?;
+
+        let conn = crate::database::lock_conn!(db.conn);
+        let dimensions: (String, String, String, String, String) = conn.query_row(
+            "SELECT ingress_protocol, gateway_model_id, route_target_id, upstream_id, target_model
+             FROM proxy_request_logs WHERE request_id = 'gateway-req'",
+            [],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )?;
+        assert_eq!(
+            dimensions,
+            (
+                "anthropic_messages".into(),
+                "gateway-model-1".into(),
+                "route-target-1".into(),
+                "upstream-1".into(),
+                "vendor-model".into()
+            )
+        );
         Ok(())
     }
 

@@ -44,14 +44,12 @@ pub fn should_trigger_for_table(table: &str) -> bool {
     let normalized = table.trim().to_ascii_lowercase();
     matches!(
         normalized.as_str(),
-        "providers"
-            | "provider_endpoints"
-            | "mcp_servers"
-            | "prompts"
-            | "skills"
-            | "skill_repos"
-            | "settings"
-            | "proxy_config"
+        "upstreams"
+            | "upstream_models"
+            | "gateway_models"
+            | "model_aliases"
+            | "route_targets"
+            | "model_pricing"
     )
 }
 
@@ -205,11 +203,16 @@ mod tests {
     use tokio::sync::mpsc::channel;
 
     #[test]
-    fn should_trigger_sync_for_config_tables_only() {
-        assert!(should_trigger_for_table("providers"));
-        assert!(should_trigger_for_table("settings"));
+    fn should_trigger_sync_for_portable_gateway_tables_only() {
+        assert!(should_trigger_for_table("upstreams"));
+        assert!(should_trigger_for_table("route_targets"));
+        assert!(should_trigger_for_table("model_pricing"));
+        assert!(!should_trigger_for_table("providers"));
+        assert!(!should_trigger_for_table("skills"));
+        assert!(!should_trigger_for_table("settings"));
+        assert!(!should_trigger_for_table("upstream_credentials"));
+        assert!(!should_trigger_for_table("gateway_api_keys"));
         assert!(!should_trigger_for_table("proxy_request_logs"));
-        assert!(!should_trigger_for_table("provider_health"));
     }
 
     #[test]
@@ -232,8 +235,8 @@ mod tests {
     #[tokio::test]
     async fn enqueue_change_signal_drops_when_channel_is_full() {
         let (tx, _rx) = channel::<String>(1);
-        assert!(enqueue_change_signal(&tx, "providers"));
-        assert!(!enqueue_change_signal(&tx, "providers"));
+        assert!(enqueue_change_signal(&tx, "upstreams"));
+        assert!(!enqueue_change_signal(&tx, "upstreams"));
     }
 
     #[test]

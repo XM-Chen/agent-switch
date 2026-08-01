@@ -41,6 +41,10 @@ use tokio::sync::RwLock;
 
 const PROXY_AUTH_PLACEHOLDER: &str = "PROXY_MANAGED";
 
+fn adapter_for_candidate(candidate: &RouteCandidate) -> Box<dyn ProviderAdapter> {
+    get_adapter_for(&candidate.adapter_app_type, &candidate.provider)
+}
+
 pub struct ForwardResult {
     pub response: ProxyResponse,
     pub provider: Provider,
@@ -50,6 +54,8 @@ pub struct ForwardResult {
     /// usage 归因不能依赖 ctx.request_model（映射前的客户端别名）：上游响应
     /// 缺失 model 或回显别名时，接管流量会被记成 claude-* 并按其定价计费。
     pub outbound_model: Option<String>,
+    pub route_target_id: Option<String>,
+    pub upstream_id: Option<String>,
     /// 活跃连接 RAII guard：随响应一起流转到 response_processor / handle_claude_transform，
     /// 最终被 move 进流式 body future（或非流式响应作用域），覆盖整个响应生命周期。
     pub(crate) connection_guard: Option<ActiveConnectionGuard>,
@@ -234,10 +240,23 @@ impl RequestForwarder {
 
     async fn record_success_result(
         &self,
+        route_target_id: Option<&str>,
         provider_id: &str,
         app_type: &str,
         used_half_open_permit: bool,
     ) {
+        if let Some(route_target_id) = route_target_id {
+            if let Err(error) = self
+                .router
+                .record_route_target_result(route_target_id, used_half_open_permit, true, None)
+                .await
+            {
+                log::warn!(
+                    "记录 RouteTarget 成功结果失败: route_target_id={route_target_id}, error={error}"
+                );
+            }
+            return;
+        }
         if used_half_open_permit {
             if let Err(e) = self
                 .router
@@ -266,6 +285,56 @@ impl RequestForwarder {
         });
     }
 
+    async fn release_health_permit_neutral(
+        &self,
+        route_target_id: Option<&str>,
+        provider_id: &str,
+        app_type: &str,
+        used_half_open_permit: bool,
+    ) {
+        if let Some(route_target_id) = route_target_id {
+            self.router
+                .release_route_target_permit_neutral(route_target_id, used_half_open_permit)
+                .await;
+        } else {
+            self.router
+                .release_permit_neutral(provider_id, app_type, used_half_open_permit)
+                .await;
+        }
+    }
+
+    async fn record_failure_result(
+        &self,
+        route_target_id: Option<&str>,
+        provider_id: &str,
+        app_type: &str,
+        used_half_open_permit: bool,
+        error: String,
+    ) {
+        if let Some(route_target_id) = route_target_id {
+            let _ = self
+                .router
+                .record_route_target_result(
+                    route_target_id,
+                    used_half_open_permit,
+                    false,
+                    Some(error),
+                )
+                .await;
+        } else {
+            let _ = self
+                .router
+                .record_result(
+                    provider_id,
+                    app_type,
+                    used_half_open_permit,
+                    false,
+                    Some(error),
+                )
+                .await;
+        }
+    }
+
     /// 整流（thinking signature 或 budget）重试失败后的统一收尾。
     ///
     /// `None` 表示已记录熔断器、累积 `last_error`/`last_provider`，
@@ -277,6 +346,7 @@ impl RequestForwarder {
         &self,
         retry_err: ProxyError,
         provider: &Provider,
+        route_target_id: Option<&str>,
         app_type_str: &str,
         used_half_open_permit: bool,
         rectifier_label: &str,
@@ -292,16 +362,14 @@ impl RequestForwarder {
         };
 
         if is_provider_error {
-            let _ = self
-                .router
-                .record_result(
-                    &provider.id,
-                    app_type_str,
-                    used_half_open_permit,
-                    false,
-                    Some(retry_err.to_string()),
-                )
-                .await;
+            self.record_failure_result(
+                route_target_id,
+                &provider.id,
+                app_type_str,
+                used_half_open_permit,
+                retry_err.to_string(),
+            )
+            .await;
             {
                 let mut status = self.status.write().await;
                 status.last_error = Some(format!(
@@ -314,9 +382,13 @@ impl RequestForwarder {
             return None;
         }
 
-        self.router
-            .release_permit_neutral(&provider.id, app_type_str, used_half_open_permit)
-            .await;
+        self.release_health_permit_neutral(
+            route_target_id,
+            &provider.id,
+            app_type_str,
+            used_half_open_permit,
+        )
+        .await;
         let mut status = self.status.write().await;
         status.failed_requests += 1;
         status.last_error = Some(retry_err.to_string());
@@ -408,12 +480,15 @@ impl RequestForwarder {
         // 依次尝试每个候选
         for candidate in candidates.iter() {
             let provider = &candidate.provider;
-            // provider-aware adapter 解析：OpenCode/OpenClaw/Hermes 的 canonical 协议随
-            // provider schema 变化（`api`/`api_mode`/`npm`），凭据字段位置也与 Codex 不同，
-            // 需要逐候选按 provider 规范化，不能在候选循环外只按 app_type 解析一次。
-            let adapter = get_adapter_for(app_type, provider);
+            // adapter 必须按 RouteCandidate 携带的上游身份选择。入站 AppType 只描述 caller，
+            // 跨协议路由时不能用它覆盖上游 adapter。
+            let adapter = adapter_for_candidate(candidate);
             // 聚合模式下该候选要改写成的上游模型 id（None = 沿用现有 model_mapper 逻辑）。
             let target_model = candidate.target_model.as_deref();
+            let health_key = candidate
+                .route_target_id
+                .as_deref()
+                .unwrap_or(provider.id.as_str());
             // 整流器重试标记：每个 provider 独立持有，避免标记跨 provider 短路故障转移
             // —— 首家 provider 整流后被 5xx/timeout 击落时，下家仍能用整流后的请求体走整流流程
             let mut rectifier_retried = false;
@@ -436,10 +511,13 @@ impl RequestForwarder {
             let (allowed, used_half_open_permit) = if bypass_circuit_breaker {
                 (true, false)
             } else {
-                let permit = self
-                    .router
-                    .allow_provider_request(&provider.id, app_type_str)
-                    .await;
+                let permit = if candidate.route_target_id.is_some() {
+                    self.router.allow_route_target_request(health_key).await
+                } else {
+                    self.router
+                        .allow_provider_request(&provider.id, app_type_str)
+                        .await
+                };
                 (permit.allowed, permit.used_half_open_permit)
             };
 
@@ -494,8 +572,13 @@ impl RequestForwarder {
                 Ok((response, claude_api_format, outbound_model)) => {
                     // 成功：普通闭合熔断状态异步记录，避免阻塞流式首包返回；
                     // HalfOpen 探测仍同步等待，保证 permit 与熔断状态及时释放。
-                    self.record_success_result(&provider.id, app_type_str, used_half_open_permit)
-                        .await;
+                    self.record_success_result(
+                        candidate.route_target_id.as_deref(),
+                        &provider.id,
+                        app_type_str,
+                        used_half_open_permit,
+                    )
+                    .await;
 
                     // 更新当前应用类型使用的 provider
                     {
@@ -540,12 +623,17 @@ impl RequestForwarder {
                         provider: provider.clone(),
                         claude_api_format,
                         outbound_model,
+                        route_target_id: candidate.route_target_id.clone(),
+                        upstream_id: candidate.upstream_id.clone(),
                         connection_guard: None,
                     });
                 }
                 Err(e) => {
                     // 检测是否需要触发整流器（仅 Claude/ClaudeAuth 供应商）
-                    let provider_type = ProviderType::from_app_type_and_config(app_type, provider);
+                    let provider_type = ProviderType::from_app_type_and_config(
+                        &candidate.adapter_app_type,
+                        provider,
+                    );
                     let is_anthropic_provider = matches!(
                         provider_type,
                         ProviderType::Claude | ProviderType::ClaudeAuth
@@ -596,6 +684,7 @@ impl RequestForwarder {
                                         "[{app_type_str}] [Media] Unsupported-image retry succeeded"
                                     );
                                     self.record_success_result(
+                                        candidate.route_target_id.as_deref(),
                                         &provider.id,
                                         app_type_str,
                                         used_half_open_permit,
@@ -644,6 +733,8 @@ impl RequestForwarder {
                                         provider: provider.clone(),
                                         claude_api_format,
                                         outbound_model,
+                                        route_target_id: candidate.route_target_id.clone(),
+                                        upstream_id: candidate.upstream_id.clone(),
                                         connection_guard: None,
                                     });
                                 }
@@ -655,6 +746,7 @@ impl RequestForwarder {
                                         .handle_rectifier_retry_failure(
                                             retry_err,
                                             provider,
+                                            candidate.route_target_id.as_deref(),
                                             app_type_str,
                                             used_half_open_permit,
                                             "media 降级",
@@ -681,13 +773,13 @@ impl RequestForwarder {
                             if rectifier_retried {
                                 log::warn!("[{app_type_str}] [RECT-005] 整流器已触发过，不再重试");
                                 // 释放 HalfOpen permit（不记录熔断器，这是客户端兼容性问题）
-                                self.router
-                                    .release_permit_neutral(
-                                        &provider.id,
-                                        app_type_str,
-                                        used_half_open_permit,
-                                    )
-                                    .await;
+                                self.release_health_permit_neutral(
+                                    candidate.route_target_id.as_deref(),
+                                    &provider.id,
+                                    app_type_str,
+                                    used_half_open_permit,
+                                )
+                                .await;
                                 let mut status = self.status.write().await;
                                 status.failed_requests += 1;
                                 status.last_error = Some(e.to_string());
@@ -741,6 +833,7 @@ impl RequestForwarder {
                                     Ok((response, claude_api_format, outbound_model)) => {
                                         log::info!("[{app_type_str}] [RECT-002] 整流重试成功");
                                         self.record_success_result(
+                                            candidate.route_target_id.as_deref(),
                                             &provider.id,
                                             app_type_str,
                                             used_half_open_permit,
@@ -794,6 +887,8 @@ impl RequestForwarder {
                                             provider: provider.clone(),
                                             claude_api_format,
                                             outbound_model,
+                                            route_target_id: candidate.route_target_id.clone(),
+                                            upstream_id: candidate.upstream_id.clone(),
                                             connection_guard: None,
                                         });
                                     }
@@ -805,6 +900,7 @@ impl RequestForwarder {
                                             .handle_rectifier_retry_failure(
                                                 retry_err,
                                                 provider,
+                                                candidate.route_target_id.as_deref(),
                                                 app_type_str,
                                                 used_half_open_permit,
                                                 "整流",
@@ -834,13 +930,13 @@ impl RequestForwarder {
                                 log::warn!(
                                     "[{app_type_str}] [RECT-013] budget 整流器已触发过，不再重试"
                                 );
-                                self.router
-                                    .release_permit_neutral(
-                                        &provider.id,
-                                        app_type_str,
-                                        used_half_open_permit,
-                                    )
-                                    .await;
+                                self.release_health_permit_neutral(
+                                    candidate.route_target_id.as_deref(),
+                                    &provider.id,
+                                    app_type_str,
+                                    used_half_open_permit,
+                                )
+                                .await;
                                 let mut status = self.status.write().await;
                                 status.failed_requests += 1;
                                 status.last_error = Some(e.to_string());
@@ -860,13 +956,13 @@ impl RequestForwarder {
                                 log::warn!(
                                     "[{app_type_str}] [RECT-014] budget 整流器触发但无可整流内容，不做无意义重试"
                                 );
-                                self.router
-                                    .release_permit_neutral(
-                                        &provider.id,
-                                        app_type_str,
-                                        used_half_open_permit,
-                                    )
-                                    .await;
+                                self.release_health_permit_neutral(
+                                    candidate.route_target_id.as_deref(),
+                                    &provider.id,
+                                    app_type_str,
+                                    used_half_open_permit,
+                                )
+                                .await;
                                 let mut status = self.status.write().await;
                                 status.failed_requests += 1;
                                 status.last_error = Some(e.to_string());
@@ -908,6 +1004,7 @@ impl RequestForwarder {
                                 Ok((response, claude_api_format, outbound_model)) => {
                                     log::info!("[{app_type_str}] [RECT-011] budget 整流重试成功");
                                     self.record_success_result(
+                                        candidate.route_target_id.as_deref(),
                                         &provider.id,
                                         app_type_str,
                                         used_half_open_permit,
@@ -955,6 +1052,8 @@ impl RequestForwarder {
                                         provider: provider.clone(),
                                         claude_api_format,
                                         outbound_model,
+                                        route_target_id: candidate.route_target_id.clone(),
+                                        upstream_id: candidate.upstream_id.clone(),
                                         connection_guard: None,
                                     });
                                 }
@@ -966,6 +1065,7 @@ impl RequestForwarder {
                                         .handle_rectifier_retry_failure(
                                             retry_err,
                                             provider,
+                                            candidate.route_target_id.as_deref(),
                                             app_type_str,
                                             used_half_open_permit,
                                             "budget 整流",
@@ -983,13 +1083,13 @@ impl RequestForwarder {
                     }
 
                     if signature_rectifier_non_retryable_client_error {
-                        self.router
-                            .release_permit_neutral(
-                                &provider.id,
-                                app_type_str,
-                                used_half_open_permit,
-                            )
-                            .await;
+                        self.release_health_permit_neutral(
+                            candidate.route_target_id.as_deref(),
+                            &provider.id,
+                            app_type_str,
+                            used_half_open_permit,
+                        )
+                        .await;
                         let mut status = self.status.write().await;
                         status.failed_requests += 1;
                         status.last_error = Some(e.to_string());
@@ -1012,16 +1112,14 @@ impl RequestForwarder {
                     match category {
                         ErrorCategory::Retryable => {
                             // 可重试：真正的 provider 故障 → 记录失败并更新熔断器/DB 健康度
-                            let _ = self
-                                .router
-                                .record_result(
-                                    &provider.id,
-                                    app_type_str,
-                                    used_half_open_permit,
-                                    false,
-                                    Some(e.to_string()),
-                                )
-                                .await;
+                            self.record_failure_result(
+                                candidate.route_target_id.as_deref(),
+                                &provider.id,
+                                app_type_str,
+                                used_half_open_permit,
+                                e.to_string(),
+                            )
+                            .await;
 
                             {
                                 let mut status = self.status.write().await;
@@ -1044,13 +1142,13 @@ impl RequestForwarder {
                         }
                         ErrorCategory::NonRetryable | ErrorCategory::ClientAbort => {
                             // 不可重试：客户端层错误或客户端断连 → 不污染健康度，仅释放 HalfOpen permit
-                            self.router
-                                .release_permit_neutral(
-                                    &provider.id,
-                                    app_type_str,
-                                    used_half_open_permit,
-                                )
-                                .await;
+                            self.release_health_permit_neutral(
+                                candidate.route_target_id.as_deref(),
+                                &provider.id,
+                                app_type_str,
+                                used_half_open_permit,
+                            )
+                            .await;
                             {
                                 let mut status = self.status.write().await;
                                 status.failed_requests += 1;
@@ -3175,6 +3273,28 @@ mod tests {
             icon_color: None,
             in_failover_queue: false,
         }
+    }
+
+    #[test]
+    fn cross_protocol_candidate_selects_upstream_adapter_identity() {
+        let candidate = RouteCandidate {
+            route_target_id: Some("target-1".into()),
+            upstream_id: Some("up-1".into()),
+            adapter_app_type: AppType::Codex,
+            provider: Provider::with_id(
+                "up-1".into(),
+                "OpenAI upstream".into(),
+                json!({
+                    "base_url": "https://api.example.com/v1",
+                    "env": {"OPENAI_API_KEY": "runtime-only-secret"}
+                }),
+                None,
+            ),
+            target_model: Some("vendor-model".into()),
+        };
+
+        assert_eq!(adapter_for_candidate(&candidate).name(), "Codex");
+        assert_ne!(candidate.adapter_app_type, AppType::Claude);
     }
 
     fn test_forwarder(

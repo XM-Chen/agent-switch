@@ -1,33 +1,25 @@
-//! Transport-agnostic sync protocol layer.
+//! Transport-agnostic portable gateway sync protocol.
 //!
-//! Shared by WebDAV, S3, and future transports. Artifact set: `db.sql` + `skills.zip`.
+//! Shared by WebDAV, S3, and future transports. Artifact set is exactly `db.sql`.
+//! Credentials, local trust state, client domains, Skills, and runtime state are omitted.
 
 use std::collections::BTreeMap;
-use std::fs;
 use std::process::Command;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tempfile::tempdir;
 
 use crate::error::AppError;
 
-// Re-export archive functions for use by transport layers.
-pub(crate) use super::webdav_sync::archive::{
-    backup_current_skills, restore_skills_from_backup, restore_skills_zip, zip_skills_ssot,
-};
-
 // ─── Protocol constants ──────────────────────────────────────
 
-/// Wire-format identifier stored in remote manifests.
-/// Retains historic "webdav" naming for backward compatibility with existing remotes.
-pub(crate) const PROTOCOL_FORMAT: &str = "cc-switch-webdav-sync";
-pub(crate) const PROTOCOL_VERSION: u32 = 2;
-pub(crate) const DB_COMPAT_VERSION: u32 = 6;
-pub(crate) const LEGACY_DB_COMPAT_VERSION: u32 = 5;
+/// Portable gateway wire-format identifier. Old v2 `cc-switch-webdav-sync` manifests are
+/// deliberately incompatible and may only be displayed as legacy metadata; they are never applied.
+pub(crate) const PROTOCOL_FORMAT: &str = "agent-switch-gateway-sync";
+pub(crate) const PROTOCOL_VERSION: u32 = 3;
+pub(crate) const GATEWAY_DATA_VERSION: u32 = 1;
 pub(crate) const REMOTE_DB_SQL: &str = "db.sql";
-pub(crate) const REMOTE_SKILLS_ZIP: &str = "skills.zip";
 pub(crate) const REMOTE_MANIFEST: &str = "manifest.json";
 pub(crate) const MAX_DEVICE_NAME_LEN: usize = 64;
 pub(crate) const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
@@ -80,7 +72,6 @@ pub(crate) struct ArtifactMeta {
 
 pub(crate) struct LocalSnapshot {
     pub db_sql: Vec<u8>,
-    pub skills_zip: Vec<u8>,
     pub manifest_bytes: Vec<u8>,
     pub manifest_hash: String,
 }
@@ -105,24 +96,8 @@ impl RemoteLayout {
 pub(crate) fn build_local_snapshot(
     db: &crate::database::Database,
 ) -> Result<LocalSnapshot, AppError> {
-    // Export database to SQL string
-    let sql_string = db.export_sql_string_for_sync()?;
-    let db_sql = sql_string.into_bytes();
+    let db_sql = db.export_portable_gateway_sql_string()?.into_bytes();
 
-    // Pack skills into deterministic ZIP
-    let tmp = tempdir().map_err(|e| {
-        io_context_localized(
-            "sync.snapshot_tmpdir_failed",
-            "创建快照临时目录失败",
-            "Failed to create temporary directory for snapshot",
-            e,
-        )
-    })?;
-    let skills_zip_path = tmp.path().join(REMOTE_SKILLS_ZIP);
-    zip_skills_ssot(&skills_zip_path)?;
-    let skills_zip = fs::read(&skills_zip_path).map_err(|e| AppError::io(&skills_zip_path, e))?;
-
-    // Build artifact map and compute hashes
     let mut artifacts = BTreeMap::new();
     artifacts.insert(
         REMOTE_DB_SQL.to_string(),
@@ -131,19 +106,12 @@ pub(crate) fn build_local_snapshot(
             size: db_sql.len() as u64,
         },
     );
-    artifacts.insert(
-        REMOTE_SKILLS_ZIP.to_string(),
-        ArtifactMeta {
-            sha256: sha256_hex(&skills_zip),
-            size: skills_zip.len() as u64,
-        },
-    );
 
     let snapshot_id = compute_snapshot_id(&artifacts);
     let manifest = SyncManifest {
         format: PROTOCOL_FORMAT.to_string(),
         version: PROTOCOL_VERSION,
-        db_compat_version: Some(DB_COMPAT_VERSION),
+        db_compat_version: Some(GATEWAY_DATA_VERSION),
         device_name: detect_system_device_name().unwrap_or_else(|| "Unknown Device".to_string()),
         created_at: Utc::now().to_rfc3339(),
         artifacts,
@@ -155,7 +123,6 @@ pub(crate) fn build_local_snapshot(
 
     Ok(LocalSnapshot {
         db_sql,
-        skills_zip,
         manifest_bytes,
         manifest_hash,
     })
@@ -176,17 +143,22 @@ pub(crate) fn compute_snapshot_id(artifacts: &BTreeMap<String, ArtifactMeta>) ->
 
 pub(crate) fn effective_db_compat_version(
     manifest: &SyncManifest,
-    layout: RemoteLayout,
+    _layout: RemoteLayout,
 ) -> Option<u32> {
-    manifest
-        .db_compat_version
-        .or_else(|| (layout == RemoteLayout::Legacy).then_some(LEGACY_DB_COMPAT_VERSION))
+    manifest.db_compat_version
 }
 
 pub(crate) fn validate_manifest_compat(
     manifest: &SyncManifest,
     layout: RemoteLayout,
 ) -> Result<(), AppError> {
+    if layout != RemoteLayout::Current {
+        return Err(localized(
+            "sync.legacy_manifest_blocked",
+            "检测到旧版 v2 同步包；其中可能包含客户端域、Skills 或本机凭据，当前版本禁止自动导入。请在可信旧版本中转换为 portable gateway v3 包。",
+            "A legacy v2 sync package was found. It may contain client domains, Skills, or local credentials and cannot be imported automatically. Convert it to a portable gateway v3 package using a trusted older version.",
+        ));
+    }
     if manifest.format != PROTOCOL_FORMAT {
         return Err(localized(
             "sync.manifest_format_incompatible",
@@ -210,37 +182,46 @@ pub(crate) fn validate_manifest_compat(
             ),
         ));
     }
-    let Some(db_compat_version) = effective_db_compat_version(manifest, layout) else {
+    if manifest.db_compat_version != Some(GATEWAY_DATA_VERSION) {
         return Err(localized(
-            "sync.manifest_db_version_missing",
-            "远端 manifest 缺少数据库兼容版本",
-            "Remote manifest is missing the database compatibility version.",
+            "sync.manifest_gateway_data_version_incompatible",
+            format!(
+                "远端网关数据版本不兼容: {:?} (本地 gateway-v{GATEWAY_DATA_VERSION})",
+                manifest.db_compat_version
+            ),
+            format!(
+                "Remote gateway data version is incompatible: {:?} (local gateway-v{GATEWAY_DATA_VERSION})",
+                manifest.db_compat_version
+            ),
         ));
-    };
-    match layout {
-        RemoteLayout::Current if db_compat_version != DB_COMPAT_VERSION => {
-            return Err(localized(
-                "sync.manifest_db_version_incompatible",
-                format!(
-                    "远端数据库快照版本不兼容: db-v{db_compat_version} (本地 db-v{DB_COMPAT_VERSION})"
-                ),
-                format!(
-                    "Remote database snapshot version is incompatible: db-v{db_compat_version} (local db-v{DB_COMPAT_VERSION})"
-                ),
-            ));
-        }
-        RemoteLayout::Legacy if db_compat_version > DB_COMPAT_VERSION => {
-            return Err(localized(
-                "sync.manifest_db_version_incompatible",
-                format!(
-                    "远端数据库快照版本不兼容: db-v{db_compat_version} (本地最高支持 db-v{DB_COMPAT_VERSION})"
-                ),
-                format!(
-                    "Remote database snapshot version is incompatible: db-v{db_compat_version} (local supports up to db-v{DB_COMPAT_VERSION})"
-                ),
-            ));
-        }
-        _ => {}
+    }
+
+    let expected_artifacts = [REMOTE_DB_SQL.to_string()]
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    let actual_artifacts = manifest
+        .artifacts
+        .keys()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    if actual_artifacts != expected_artifacts {
+        return Err(localized(
+            "sync.manifest_artifact_set_incompatible",
+            format!(
+                "远端 artifact 集合不符合 portable gateway 契约: {actual_artifacts:?}"
+            ),
+            format!(
+                "Remote artifact set does not match the portable gateway contract: {actual_artifacts:?}"
+            ),
+        ));
+    }
+    let expected_snapshot_id = compute_snapshot_id(&manifest.artifacts);
+    if manifest.snapshot_id != expected_snapshot_id {
+        return Err(localized(
+            "sync.manifest_snapshot_id_mismatch",
+            "远端 snapshotId 与 artifact 哈希不匹配",
+            "Remote snapshotId does not match the artifact hashes.",
+        ));
     }
     Ok(())
 }
@@ -309,7 +290,6 @@ pub(crate) fn verify_artifact(
 pub(crate) fn apply_snapshot(
     db: &crate::database::Database,
     db_sql: &[u8],
-    skills_zip: &[u8],
 ) -> Result<(), AppError> {
     let sql_str = std::str::from_utf8(db_sql).map_err(|e| {
         localized(
@@ -318,25 +298,7 @@ pub(crate) fn apply_snapshot(
             format!("SQL is not valid UTF-8: {e}"),
         )
     })?;
-    let skills_backup = backup_current_skills()?;
-
-    // Replace skills first, then import database; roll back skills on DB failure.
-    restore_skills_zip(skills_zip)?;
-
-    if let Err(db_err) = db.import_sql_string_for_sync(sql_str) {
-        if let Err(rollback_err) = restore_skills_from_backup(&skills_backup) {
-            return Err(localized(
-                "sync.db_import_and_rollback_failed",
-                format!("导入数据库失败: {db_err}; 同时回滚 Skills 失败: {rollback_err}"),
-                format!(
-                    "Database import failed: {db_err}; skills rollback also failed: {rollback_err}"
-                ),
-            ));
-        }
-        return Err(db_err);
-    }
-
-    Ok(())
+    db.import_portable_gateway_sql_string(sql_str)
 }
 
 // ─── Utilities ───────────────────────────────────────────────
@@ -430,7 +392,6 @@ mod tests {
     fn snapshot_id_is_stable() {
         let mut artifacts = BTreeMap::new();
         artifacts.insert("db.sql".to_string(), artifact("abc123", 100));
-        artifacts.insert("skills.zip".to_string(), artifact("def456", 200));
 
         let id1 = compute_snapshot_id(&artifacts);
         let id2 = compute_snapshot_id(&artifacts);
@@ -481,31 +442,40 @@ mod tests {
         assert!(!ok);
     }
 
-    fn manifest_with(format: &str, version: u32, db_compat_version: Option<u32>) -> SyncManifest {
+    fn manifest_with(
+        format: &str,
+        version: u32,
+        gateway_data_version: Option<u32>,
+    ) -> SyncManifest {
         let mut artifacts = BTreeMap::new();
         artifacts.insert("db.sql".to_string(), artifact("abc", 1));
-        artifacts.insert("skills.zip".to_string(), artifact("def", 2));
+        let snapshot_id = compute_snapshot_id(&artifacts);
         SyncManifest {
             format: format.to_string(),
             version,
-            db_compat_version,
-            device_name: "My MacBook".to_string(),
+            db_compat_version: gateway_data_version,
+            device_name: "My Windows Host".to_string(),
             created_at: "2026-02-12T00:00:00Z".to_string(),
             artifacts,
-            snapshot_id: "snap-1".to_string(),
+            snapshot_id,
         }
     }
 
     #[test]
     fn validate_manifest_compat_accepts_supported_manifest() {
-        let manifest = manifest_with(PROTOCOL_FORMAT, PROTOCOL_VERSION, Some(DB_COMPAT_VERSION));
+        let manifest = manifest_with(
+            PROTOCOL_FORMAT,
+            PROTOCOL_VERSION,
+            Some(GATEWAY_DATA_VERSION),
+        );
         assert!(validate_manifest_compat(&manifest, RemoteLayout::Current).is_ok());
     }
 
     #[test]
-    fn validate_manifest_compat_rejects_wrong_format() {
-        let manifest = manifest_with("other-format", PROTOCOL_VERSION, Some(DB_COMPAT_VERSION));
+    fn validate_manifest_compat_rejects_wrong_format_and_legacy_v2() {
+        let manifest = manifest_with("cc-switch-webdav-sync", 2, Some(GATEWAY_DATA_VERSION));
         assert!(validate_manifest_compat(&manifest, RemoteLayout::Current).is_err());
+        assert!(validate_manifest_compat(&manifest, RemoteLayout::Legacy).is_err());
     }
 
     #[test]
@@ -513,47 +483,71 @@ mod tests {
         let manifest = manifest_with(
             PROTOCOL_FORMAT,
             PROTOCOL_VERSION + 1,
-            Some(DB_COMPAT_VERSION),
+            Some(GATEWAY_DATA_VERSION),
         );
         assert!(validate_manifest_compat(&manifest, RemoteLayout::Current).is_err());
     }
 
     #[test]
-    fn validate_manifest_compat_accepts_legacy_manifest_without_db_compat() {
-        let manifest = manifest_with(PROTOCOL_FORMAT, PROTOCOL_VERSION, None);
-        assert!(validate_manifest_compat(&manifest, RemoteLayout::Legacy).is_ok());
+    fn validate_manifest_compat_rejects_wrong_or_missing_gateway_data_version() {
+        let wrong = manifest_with(
+            PROTOCOL_FORMAT,
+            PROTOCOL_VERSION,
+            Some(GATEWAY_DATA_VERSION + 1),
+        );
+        assert!(validate_manifest_compat(&wrong, RemoteLayout::Current).is_err());
+        let missing = manifest_with(PROTOCOL_FORMAT, PROTOCOL_VERSION, None);
+        assert!(validate_manifest_compat(&missing, RemoteLayout::Current).is_err());
     }
 
     #[test]
-    fn validate_manifest_compat_rejects_current_manifest_with_wrong_db_compat() {
-        let manifest = manifest_with(
+    fn validate_manifest_compat_requires_exact_db_sql_artifact_set() {
+        let mut extra = manifest_with(
             PROTOCOL_FORMAT,
             PROTOCOL_VERSION,
-            Some(LEGACY_DB_COMPAT_VERSION),
+            Some(GATEWAY_DATA_VERSION),
         );
+        extra
+            .artifacts
+            .insert("skills.zip".to_string(), artifact("legacy", 1));
+        extra.snapshot_id = compute_snapshot_id(&extra.artifacts);
+        assert!(validate_manifest_compat(&extra, RemoteLayout::Current).is_err());
+
+        let mut missing = manifest_with(
+            PROTOCOL_FORMAT,
+            PROTOCOL_VERSION,
+            Some(GATEWAY_DATA_VERSION),
+        );
+        missing.artifacts.clear();
+        missing.snapshot_id = compute_snapshot_id(&missing.artifacts);
+        assert!(validate_manifest_compat(&missing, RemoteLayout::Current).is_err());
+    }
+
+    #[test]
+    fn validate_manifest_compat_recomputes_snapshot_id() {
+        let mut manifest = manifest_with(
+            PROTOCOL_FORMAT,
+            PROTOCOL_VERSION,
+            Some(GATEWAY_DATA_VERSION),
+        );
+        manifest.snapshot_id = "tampered".to_string();
         assert!(validate_manifest_compat(&manifest, RemoteLayout::Current).is_err());
     }
 
     #[test]
-    fn validate_manifest_compat_rejects_legacy_manifest_from_newer_db_generation() {
+    fn effective_db_compat_version_is_gateway_data_version_only() {
         let manifest = manifest_with(
             PROTOCOL_FORMAT,
             PROTOCOL_VERSION,
-            Some(DB_COMPAT_VERSION + 1),
-        );
-        assert!(validate_manifest_compat(&manifest, RemoteLayout::Legacy).is_err());
-    }
-
-    #[test]
-    fn effective_db_compat_version_defaults_legacy_layout_to_v5() {
-        let manifest = manifest_with(PROTOCOL_FORMAT, PROTOCOL_VERSION, None);
-        assert_eq!(
-            effective_db_compat_version(&manifest, RemoteLayout::Legacy),
-            Some(LEGACY_DB_COMPAT_VERSION)
+            Some(GATEWAY_DATA_VERSION),
         );
         assert_eq!(
             effective_db_compat_version(&manifest, RemoteLayout::Current),
-            None
+            Some(GATEWAY_DATA_VERSION)
+        );
+        assert_eq!(
+            effective_db_compat_version(&manifest, RemoteLayout::Legacy),
+            Some(GATEWAY_DATA_VERSION)
         );
     }
 
@@ -578,7 +572,11 @@ mod tests {
 
     #[test]
     fn manifest_serialization_uses_device_name_only() {
-        let manifest = manifest_with(PROTOCOL_FORMAT, PROTOCOL_VERSION, Some(DB_COMPAT_VERSION));
+        let manifest = manifest_with(
+            PROTOCOL_FORMAT,
+            PROTOCOL_VERSION,
+            Some(GATEWAY_DATA_VERSION),
+        );
         let value = serde_json::to_value(&manifest).expect("serialize manifest");
         assert!(
             value.get("deviceName").is_some(),
@@ -586,7 +584,7 @@ mod tests {
         );
         assert_eq!(
             value.get("dbCompatVersion").and_then(|v| v.as_u64()),
-            Some(DB_COMPAT_VERSION as u64)
+            Some(GATEWAY_DATA_VERSION as u64)
         );
         assert!(
             value.get("deviceId").is_none(),
@@ -596,7 +594,7 @@ mod tests {
 
     #[test]
     fn validate_artifact_size_limit_rejects_oversized_artifacts() {
-        let err = validate_artifact_size_limit("skills.zip", MAX_SYNC_ARTIFACT_BYTES + 1)
+        let err = validate_artifact_size_limit(REMOTE_DB_SQL, MAX_SYNC_ARTIFACT_BYTES + 1)
             .expect_err("artifact larger than limit should be rejected");
         assert!(
             err.to_string().contains("too large") || err.to_string().contains("超过"),
@@ -606,7 +604,7 @@ mod tests {
 
     #[test]
     fn validate_artifact_size_limit_accepts_limit_boundary() {
-        assert!(validate_artifact_size_limit("skills.zip", MAX_SYNC_ARTIFACT_BYTES).is_ok());
+        assert!(validate_artifact_size_limit(REMOTE_DB_SQL, MAX_SYNC_ARTIFACT_BYTES).is_ok());
     }
 
     #[test]
