@@ -5,6 +5,7 @@
 use crate::app_config::AppType;
 use crate::database::{AggregateRef, Database};
 use crate::error::AppError;
+use crate::gateway::core::{IngressProtocol, RouteResolutionError};
 use crate::provider::Provider;
 use crate::proxy::circuit_breaker::{AllowResult, CircuitBreaker, CircuitBreakerConfig};
 use crate::proxy::model_mapper::{classify_tier, Tier};
@@ -26,6 +27,13 @@ use tokio::sync::RwLock;
 ///   `Provider` 并包成本类型。
 #[derive(Debug, Clone)]
 pub struct RouteCandidate {
+    /// 稳定路由候选 ID；阶段 3 熔断/健康以它为 key。
+    /// 旧路由测试构造的兼容候选可为 None，生产模型路由始终为 Some。
+    pub route_target_id: Option<String>,
+    /// 新影子域的 upstream ID；生产模型路由始终为 Some。
+    pub upstream_id: Option<String>,
+    /// 上游 adapter 身份。数据面必须按它选择 adapter，不能复用入站 AppType。
+    pub adapter_app_type: AppType,
     /// 选中的供应商（故障转移链中的一环）。
     pub provider: Provider,
     /// 聚合模式下要改写成的上游模型 id（精确聚合 key）。
@@ -50,6 +58,45 @@ impl ProviderRouter {
             db,
             circuit_breakers: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    pub async fn select_gateway_routes(
+        &self,
+        ingress: IngressProtocol,
+        request_model: &str,
+    ) -> Result<(String, Vec<RouteCandidate>), RouteResolutionError> {
+        let (gateway_model, targets) =
+            crate::gateway::application::resolve_database_route(&self.db, ingress, request_model)?;
+        let mut candidates = Vec::with_capacity(targets.len());
+        for target in targets {
+            let Some(upstream) = self.db.get_upstream(&target.upstream_id).ok().flatten() else {
+                continue;
+            };
+            let (adapter_app_type, provider) =
+                match crate::gateway::infrastructure::load_upstream_provider(&self.db, &upstream) {
+                    Ok(projected) => projected,
+                    Err(error) => {
+                        log::warn!(
+                            "跳过运行时不可用的上游: upstream_id={}, error={error}",
+                            upstream.id
+                        );
+                        continue;
+                    }
+                };
+            candidates.push(RouteCandidate {
+                route_target_id: Some(target.route_target_id),
+                upstream_id: Some(target.upstream_id),
+                adapter_app_type,
+                provider,
+                target_model: Some(target.target_model),
+            });
+        }
+        if candidates.is_empty() {
+            return Err(RouteResolutionError::NoAvailableTarget {
+                gateway_model_id: request_model.to_string(),
+            });
+        }
+        Ok((gateway_model.gateway_model_id, candidates))
     }
 
     /// 选择可用的候选（支持聚合模式 / 故障转移）
@@ -80,6 +127,8 @@ impl ProviderRouter {
         let mut result: Vec<RouteCandidate> = Vec::new();
         let mut total_providers = 0usize;
         let mut circuit_open_count = 0usize;
+        let adapter_app_type = AppType::from_str(app_type)
+            .map_err(|error| AppError::InvalidInput(error.to_string()))?;
 
         // 检查该应用的自动故障转移开关是否开启（从 proxy_config 表读取）
         let auto_failover_enabled = match self.db.get_proxy_config_for_app(app_type).await {
@@ -114,6 +163,9 @@ impl ProviderRouter {
 
                 if breaker.is_available().await {
                     result.push(RouteCandidate {
+                        route_target_id: None,
+                        upstream_id: None,
+                        adapter_app_type: adapter_app_type.clone(),
                         provider,
                         target_model: None,
                     });
@@ -136,6 +188,9 @@ impl ProviderRouter {
                 if let Some(current) = self.db.get_provider_by_id(&current_id, app_type)? {
                     total_providers = 1;
                     result.push(RouteCandidate {
+                        route_target_id: None,
+                        upstream_id: None,
+                        adapter_app_type: adapter_app_type.clone(),
                         provider: current,
                         target_model: None,
                     });
@@ -221,6 +276,8 @@ impl ProviderRouter {
 
         // 解析 provider_id → Provider，并按熔断器可用性过滤（key 仍 app_type:provider_id，D12）。
         let all_providers = self.db.get_all_providers(app_type)?;
+        let adapter_app_type = AppType::from_str(app_type)
+            .map_err(|error| AppError::InvalidInput(error.to_string()))?;
         let total = flat.len();
         let mut circuit_open_count = 0usize;
         let mut candidates: Vec<RouteCandidate> = Vec::with_capacity(flat.len());
@@ -239,6 +296,9 @@ impl ProviderRouter {
             let breaker = self.get_or_create_circuit_breaker(&circuit_key).await;
             if breaker.is_available().await {
                 candidates.push(RouteCandidate {
+                    route_target_id: None,
+                    upstream_id: None,
+                    adapter_app_type: adapter_app_type.clone(),
                     provider,
                     target_model: Some(member.model_id),
                 });
@@ -257,6 +317,52 @@ impl ProviderRouter {
         }
 
         Ok(Some(candidates))
+    }
+
+    pub async fn allow_route_target_request(&self, route_target_id: &str) -> AllowResult {
+        let breaker = self.get_or_create_circuit_breaker(route_target_id).await;
+        breaker.allow_request().await
+    }
+
+    pub async fn record_route_target_result(
+        &self,
+        route_target_id: &str,
+        used_half_open_permit: bool,
+        success: bool,
+        error_msg: Option<String>,
+    ) -> Result<(), AppError> {
+        let breaker = self.get_or_create_circuit_breaker(route_target_id).await;
+        if success {
+            breaker.record_success(used_half_open_permit).await;
+        } else {
+            breaker.record_failure(used_half_open_permit).await;
+        }
+        let stats = breaker.get_stats().await;
+        let state = breaker.get_state().await;
+        let opened_at = matches!(state, crate::proxy::circuit_breaker::CircuitState::Open)
+            .then(|| chrono::Utc::now().timestamp_millis());
+        self.db.persist_route_target_health(
+            route_target_id,
+            &state.to_string(),
+            stats.consecutive_failures,
+            stats.consecutive_successes,
+            Some(success),
+            error_msg.as_deref(),
+            opened_at,
+        )?;
+        Ok(())
+    }
+
+    pub async fn release_route_target_permit_neutral(
+        &self,
+        route_target_id: &str,
+        used_half_open_permit: bool,
+    ) {
+        if !used_half_open_permit {
+            return;
+        }
+        let breaker = self.get_or_create_circuit_breaker(route_target_id).await;
+        breaker.release_half_open_permit();
     }
 
     /// 请求执行前获取熔断器“放行许可”
@@ -424,7 +530,9 @@ impl ProviderRouter {
 mod tests {
     use super::*;
     use crate::database::{AggregateRef, CcAggregateConfig, Database, TierSelection};
+    use crate::services::credential_protector::{CredentialProtector, PlatformCredentialProtector};
     use crate::services::model_fetch::FetchedModel;
+    use rusqlite::params;
     use serde_json::json;
     use serial_test::serial;
     use std::env;
@@ -487,6 +595,104 @@ mod tests {
 
         let breaker = router.get_or_create_circuit_breaker("claude:test").await;
         assert!(breaker.allow_request().await.allowed);
+    }
+
+    #[tokio::test]
+    async fn gateway_route_health_is_keyed_by_route_target_id() {
+        let db = Arc::new(Database::memory().unwrap());
+        let now = chrono::Utc::now().timestamp_millis();
+        {
+            let conn = db.conn.lock().expect("lock");
+            conn.execute_batch(&format!(
+                "INSERT INTO upstreams
+                    (id, name, enabled, protocol, adapter_type, base_url, config_json, created_at, updated_at)
+                 VALUES ('up-1', 'Upstream', 1, 'anthropic', 'claude', 'https://up.invalid',
+                         '{{\"legacySettings\":{{}},\"legacyMeta\":{{}}}}', {now}, {now});
+                 INSERT INTO gateway_models
+                    (id, model_id, display_name, enabled, source, migration_status, created_at, updated_at)
+                 VALUES ('gm-1', 'stable-model', 'Stable', 1, 'manual', 'active', {now}, {now});
+                 INSERT INTO route_targets
+                    (id, gateway_model_id, upstream_id, target_model, position, enabled, created_at, updated_at)
+                 VALUES ('target-1', 'gm-1', 'up-1', 'vendor-model', 0, 1, {now}, {now});"
+            ))
+            .expect("seed route target");
+            let protector = PlatformCredentialProtector;
+            let encrypted = protector
+                .protect(b"runtime-secret")
+                .expect("protect credential");
+            conn.execute(
+                "INSERT INTO upstream_credentials
+                    (id, upstream_id, credential_kind, encrypted_payload, encryption_scheme,
+                     created_at, updated_at)
+                 VALUES ('cred-1', 'up-1', 'x_api_key', ?1, ?2, ?3, ?3)",
+                params![encrypted, protector.scheme(), now],
+            )
+            .expect("seed credential");
+        }
+
+        let router = ProviderRouter::new(db.clone());
+        let (gateway_model_id, candidates) = router
+            .select_gateway_routes(IngressProtocol::AnthropicMessages, "stable-model")
+            .await
+            .expect("select route");
+        assert_eq!(gateway_model_id, "gm-1");
+        assert_eq!(candidates[0].route_target_id.as_deref(), Some("target-1"));
+        assert_eq!(candidates[0].adapter_app_type, AppType::Claude);
+        assert_eq!(
+            candidates[0]
+                .provider
+                .settings_config
+                .pointer("/env/ANTHROPIC_API_KEY")
+                .and_then(serde_json::Value::as_str),
+            Some("runtime-secret")
+        );
+
+        for _ in 0..4 {
+            router
+                .record_route_target_result("target-1", false, false, Some("boom".into()))
+                .await
+                .expect("record failure");
+        }
+        let health = db.list_route_target_health().expect("read health");
+        assert_eq!(health.len(), 1);
+        assert_eq!(health[0].route_target_id, "target-1");
+        assert_eq!(health[0].state, "open");
+        assert!(matches!(
+            router
+                .select_gateway_routes(IngressProtocol::AnthropicMessages, "stable-model")
+                .await,
+            Err(RouteResolutionError::NoAvailableTarget { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn gateway_route_without_runtime_credential_is_not_forwardable() {
+        let db = Arc::new(Database::memory().unwrap());
+        let now = chrono::Utc::now().timestamp_millis();
+        db.conn
+            .lock()
+            .expect("lock")
+            .execute_batch(&format!(
+                "INSERT INTO upstreams
+                    (id, name, enabled, protocol, adapter_type, base_url, config_json, created_at, updated_at)
+                 VALUES ('up-missing', 'Missing', 1, 'openai_responses', 'codex',
+                         'https://up.invalid', '{{\"legacySettings\":{{}},\"legacyMeta\":{{}}}}', {now}, {now});
+                 INSERT INTO gateway_models
+                    (id, model_id, display_name, enabled, source, migration_status, created_at, updated_at)
+                 VALUES ('gm-missing', 'missing-secret-model', 'Missing', 1, 'manual', 'active', {now}, {now});
+                 INSERT INTO route_targets
+                    (id, gateway_model_id, upstream_id, target_model, position, enabled, created_at, updated_at)
+                 VALUES ('target-missing', 'gm-missing', 'up-missing', 'vendor-model', 0, 1, {now}, {now});"
+            ))
+            .expect("seed missing credential route");
+
+        let router = ProviderRouter::new(db);
+        assert!(matches!(
+            router
+                .select_gateway_routes(IngressProtocol::OpenAiResponses, "missing-secret-model")
+                .await,
+            Err(RouteResolutionError::NoAvailableTarget { .. })
+        ));
     }
 
     #[tokio::test]

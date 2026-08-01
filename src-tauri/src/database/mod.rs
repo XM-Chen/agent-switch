@@ -25,6 +25,7 @@
 
 pub(crate) mod backup;
 mod dao;
+mod gateway_migration;
 mod migration;
 mod schema;
 
@@ -40,6 +41,14 @@ pub(crate) use dao::proxy::{
     PRICING_SOURCE_RESPONSE,
 };
 pub use dao::FailoverQueueItem;
+pub use dao::GatewayApiKeyRecord;
+pub use dao::{
+    CreateGatewayModelInput, CreateGatewayUpstreamInput, CreateRouteTargetInput,
+    GatewayConfigRecord, GatewayMigrationIssue, GatewayModelRecord, GatewayUpstreamDto,
+    ModelAliasRecord, RouteTargetHealthRecord, RouteTargetRecord, UpdateGatewayModelInput,
+    UpdateGatewayUpstreamInput, UpdateRouteTargetInput, UpstreamCredentialHintDto,
+    UpstreamModelRecord, UpstreamRecord,
+};
 pub use dao::{Profile, ProviderModel};
 // CustomAggregate / TierSelection 目前仅在 dao 内部命名，但作为 C2 对 C3/C4 的
 // 契约类型对外导出（dao 模块本身私有，此处是唯一 crate 级暴露点）。
@@ -48,6 +57,8 @@ pub use dao::{AggregateRef, CcAggregateConfig, CustomAggregate, TierSelection};
 
 use crate::config::get_app_config_dir;
 use crate::error::AppError;
+use crate::gateway::credential;
+use crate::services::credential_protector::{CredentialProtector, PlatformCredentialProtector};
 use rusqlite::{hooks::Action, Connection};
 use serde::Serialize;
 use std::sync::Mutex;
@@ -55,8 +66,10 @@ use std::sync::Mutex;
 // DAO 方法通过 impl Database 提供，无需额外导出
 
 /// 当前 Schema 版本号
-/// 每次修改表结构时递增，并在 schema.rs 中添加相应的迁移逻辑
-pub(crate) const SCHEMA_VERSION: i32 = 15;
+///
+/// v18 净化迁移由三道 fail-closed 门保护：早期 v17 泛型凭据精确重分类、启用路由
+/// credential readiness 审计，以及 scope/hash/row-count/FK/DPAPI 均通过的本机回滚恢复点。
+pub(crate) const SCHEMA_VERSION: i32 = 18;
 
 /// 安全地序列化 JSON，避免 unwrap panic
 pub(crate) fn to_json_string<T: Serialize>(value: &T) -> Result<String, AppError> {
@@ -97,6 +110,135 @@ fn register_db_change_hook(conn: &Connection) {
 }
 
 impl Database {
+    /// v18 净化前的 fail-closed 凭据就绪门。
+    ///
+    /// 审计所有启用上游（包括尚未挂路由的上游）：每个上游必须恰有一个精确类型化凭据，
+    /// 使用当前平台 protector 可解密，payload 与 adapter 语义均可直接运行。此过程只读
+    /// Agent Switch 自有数据库，不探测或读取任何客户端配置。
+    pub(crate) fn ensure_v18_credential_readiness(&self) -> Result<(), AppError> {
+        let protector = PlatformCredentialProtector;
+        self.ensure_v18_credential_readiness_with_protector(&protector)
+    }
+
+    fn ensure_v18_credential_readiness_with_protector(
+        &self,
+        protector: &dyn CredentialProtector,
+    ) -> Result<(), AppError> {
+        #[derive(Debug)]
+        struct Candidate {
+            upstream_id: String,
+            protocol: String,
+            adapter_type: String,
+            credential_kind: String,
+            encrypted_payload: Vec<u8>,
+            encryption_scheme: String,
+        }
+
+        let candidates = {
+            let conn = lock_conn!(self.conn);
+            let mut stmt = conn
+                .prepare(
+                    "SELECT u.id, u.protocol, u.adapter_type,
+                            COUNT(c.id) AS credential_count,
+                            MIN(c.credential_kind), MIN(c.encrypted_payload),
+                            MIN(c.encryption_scheme)
+                     FROM upstreams u
+                     LEFT JOIN upstream_credentials c ON c.upstream_id = u.id
+                     WHERE u.enabled = 1
+                     GROUP BY u.id, u.protocol, u.adapter_type
+                     ORDER BY u.id",
+                )
+                .map_err(|e| AppError::Database(format!("准备 v18 凭据就绪审计失败: {e}")))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<Vec<u8>>>(5)?,
+                        row.get::<_, Option<String>>(6)?,
+                    ))
+                })
+                .map_err(|e| AppError::Database(format!("执行 v18 凭据就绪审计失败: {e}")))?;
+
+            let mut candidates = Vec::new();
+            for row in rows {
+                let (upstream_id, protocol, adapter_type, count, kind, payload, scheme) =
+                    row.map_err(|e| AppError::Database(format!("解析 v18 凭据就绪审计失败: {e}")))?;
+                if count != 1 {
+                    return Err(AppError::Config(format!(
+                        "v18 净化被阻止：启用路由上游 {upstream_id} 必须恰有一个凭据，实际为 {count}"
+                    )));
+                }
+                candidates.push(Candidate {
+                    upstream_id,
+                    protocol,
+                    adapter_type,
+                    credential_kind: kind.ok_or_else(|| {
+                        AppError::Config("v18 凭据审计缺少 credential_kind".to_string())
+                    })?,
+                    encrypted_payload: payload.ok_or_else(|| {
+                        AppError::Config("v18 凭据审计缺少 encrypted_payload".to_string())
+                    })?,
+                    encryption_scheme: scheme.ok_or_else(|| {
+                        AppError::Config("v18 凭据审计缺少 encryption_scheme".to_string())
+                    })?,
+                });
+            }
+            candidates
+        };
+
+        for candidate in candidates {
+            if !credential::is_ready_kind(&candidate.credential_kind) {
+                return Err(AppError::Config(format!(
+                    "v18 净化被阻止：启用路由上游 {} 仍使用未精确分类的凭据类型 {}",
+                    candidate.upstream_id, candidate.credential_kind
+                )));
+            }
+            if !credential::kind_can_serve(
+                &candidate.credential_kind,
+                &candidate.protocol,
+                &candidate.adapter_type,
+            ) {
+                return Err(AppError::Config(format!(
+                    "v18 净化被阻止：启用路由上游 {} 的凭据类型与 adapter 不兼容",
+                    candidate.upstream_id
+                )));
+            }
+            if candidate.encryption_scheme != protector.scheme() {
+                return Err(AppError::Config(format!(
+                    "v18 净化被阻止：启用路由上游 {} 的凭据加密方案不可用",
+                    candidate.upstream_id
+                )));
+            }
+            let plaintext = protector
+                .unprotect(&candidate.encrypted_payload)
+                .map_err(|_| {
+                    AppError::Config(format!(
+                        "v18 净化被阻止：启用路由上游 {} 的凭据无法解密",
+                        candidate.upstream_id
+                    ))
+                })?;
+            if !credential::validate_payload(&candidate.credential_kind, &plaintext) {
+                return Err(AppError::Config(format!(
+                    "v18 净化被阻止：启用路由上游 {} 的凭据 payload 不可直接运行",
+                    candidate.upstream_id
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn ensure_v18_credential_readiness_for_test(
+        &self,
+        protector: &dyn CredentialProtector,
+    ) -> Result<(), AppError> {
+        self.ensure_v18_credential_readiness_with_protector(protector)
+    }
+
     /// 初始化数据库连接并创建表
     ///
     /// 数据库文件位于 `~/.agent-switch/agent-switch.db`
@@ -127,22 +269,44 @@ impl Database {
         };
         db.create_tables()?;
 
-        // Pre-migration backup: only when upgrading from an existing database
-        {
+        // 阶段 5 破坏性迁移编排：先迁到 v17（影子网关域完整），强制落盘纯网关
+        // 回滚导出，只有写入成功后才执行 v18 purge。
+        //
+        // 历史逻辑会在每次升级前创建包含客户端 live 快照/旧 providers 明文 secret 的
+        // 整库 `.db` 备份，并在备份失败时继续迁移；这既复制了敏感残留，也无法保证 purge
+        // 前存在安全恢复点。v18 起改为严格 fail-closed 的纯网关 SQL 回滚导出。
+        let stored_version = {
             let conn = lock_conn!(db.conn);
-            let version = Self::get_user_version(&conn)?;
-            drop(conn);
-            if version > 0 && version < SCHEMA_VERSION {
-                log::info!(
-                    "Creating pre-migration database backup (v{version} → v{SCHEMA_VERSION})"
-                );
-                if let Err(e) = db.backup_database_file() {
-                    log::warn!("Pre-migration backup failed, continuing migration: {e}");
-                }
-            }
+            Self::get_user_version(&conn)?
+        };
+        if stored_version < 17 {
+            db.apply_schema_migrations_to_version(17)?;
         }
-
+        let pre_purge_version = {
+            let conn = lock_conn!(db.conn);
+            Self::get_user_version(&conn)?
+        };
+        let performs_v18_purge = db_exists && pre_purge_version == 17 && SCHEMA_VERSION >= 18;
+        if performs_v18_purge {
+            {
+                let conn = lock_conn!(db.conn);
+                gateway_migration::reclassify_v17_credentials(&conn)?;
+            }
+            db.ensure_v18_credential_readiness()?;
+            let rollback_path = db.backup_pure_gateway_before_v18()?;
+            db.verify_local_gateway_rollback_file(&rollback_path)?;
+            log::info!(
+                "已在 v18 purge 前生成并验证纯网关回滚导出: {}",
+                rollback_path.display()
+            );
+        }
         db.apply_schema_migrations()?;
+        if performs_v18_purge {
+            let sanitized_backups = db.reclaim_sensitive_history_after_v18()?;
+            log::info!(
+                "v18 purge 后历史敏感残留清理完成（主库 VACUUM，清理应用自有备份 {sanitized_backups} 个）"
+            );
+        }
         if let Err(e) = db.ensure_incremental_auto_vacuum() {
             log::warn!("Failed to ensure incremental auto-vacuum: {e}");
         }

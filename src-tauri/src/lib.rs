@@ -1,3 +1,9 @@
+// 阶段 1 安全网关壳：旧客户端配置/接管/迁移模块仍留在源码树中，但生产启动、
+// IPC、托盘、网关路由均不再触达它们。这些模块计划在阶段 5 整体删除；在此之前
+// 其 dead-code/unused-imports 噪声统一静默，避免淹没真正需要关注的告警。静态
+// 架构守卫 (tests/gateway_safety.rs) 是更强的"未触达客户端配置"保证。
+#![allow(dead_code, unused_imports)]
+
 mod app_config;
 mod app_store;
 mod auto_launch;
@@ -12,6 +18,7 @@ mod config;
 mod database;
 mod deeplink;
 mod error;
+pub mod gateway;
 mod gemini_config;
 mod gemini_mcp;
 pub mod hermes_config;
@@ -61,7 +68,9 @@ pub use services::{
     ConfigService, EndpointLatency, McpService, PromptService, ProviderService, ProxyService,
     SkillService, SpeedtestService,
 };
-pub use settings::{update_settings, AppSettings};
+pub use settings::{
+    reload_settings as reload_settings_for_test_hook, update_settings, AppSettings,
+};
 pub use store::AppState;
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -69,7 +78,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
 use tauri::image::Image;
-use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+use tauri::tray::TrayIconBuilder;
 use tauri::RunEvent;
 use tauri::{Emitter, Manager};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
@@ -138,7 +147,6 @@ fn handle_deeplink_url(
 
     let redacted_url = redact_url_for_log(url_str);
     log::info!("✓ Deep link URL detected from {source}: {redacted_url}");
-    log::debug!("Deep link URL (raw) from {source}: {url_str}");
 
     match crate::deeplink::parse_deeplink_url(url_str) {
         Ok(request) => {
@@ -174,7 +182,7 @@ fn handle_deeplink_url(
             if let Err(emit_err) = app.emit(
                 "deeplink-error",
                 serde_json::json!({
-                    "url": url_str,
+                    "url": redacted_url,
                     "error": e.to_string()
                 }),
             ) {
@@ -375,43 +383,13 @@ pub fn run() {
             // 放在日志系统初始化之后，确保 init 的日志能正常输出。
             usage_events::init(app.handle().clone());
 
-            // 初始化数据库
+            // 只初始化 Agent Switch 自身数据库。
+            //
+            // 旧版 config.json 迁移已停用：历史 loader 会进一步探测客户端 Prompt、
+            // Skills 与 Live 配置，不符合独立网关的零客户端文件访问边界。旧文件原样
+            // 保留，后续如需迁移必须由只解析 Agent Switch 数据的显式工具完成。
             let app_config_dir = crate::config::get_app_config_dir();
             let db_path = app_config_dir.join("agent-switch.db");
-            let json_path = app_config_dir.join("config.json");
-
-            // 检查是否需要从 config.json 迁移到 SQLite
-            let has_json = json_path.exists();
-            let has_db = db_path.exists();
-
-            // 如果需要迁移，先验证 config.json 是否可以加载（在创建数据库之前）
-            // 这样如果加载失败用户选择退出，数据库文件还没被创建，下次可以正常重试
-            let migration_config = if !has_db && has_json {
-                log::info!("检测到旧版配置文件，验证配置文件...");
-
-                // 循环：支持用户重试加载配置文件
-                loop {
-                    match crate::app_config::MultiAppConfig::load() {
-                        Ok(config) => {
-                            log::info!("✓ 配置文件加载成功");
-                            break Some(config);
-                        }
-                        Err(e) => {
-                            log::error!("加载旧配置文件失败: {e}");
-                            // 弹出系统对话框让用户选择
-                            if !show_migration_error_dialog(app.handle(), &e.to_string()) {
-                                // 用户选择退出（此时数据库还没创建，下次启动可以重试）
-                                log::info!("用户选择退出程序");
-                                std::process::exit(1);
-                            }
-                            // 用户选择重试，继续循环
-                            log::info!("用户选择重试加载配置文件");
-                        }
-                    }
-                }
-            } else {
-                None
-            };
 
             // 现在创建数据库（包含 Schema 迁移）
             //
@@ -464,368 +442,30 @@ pub fn run() {
                 }
             };
 
-            // 如果有预加载的配置，执行迁移
-            if let Some(config) = migration_config {
-                log::info!("开始执行数据迁移...");
-
-                match db.migrate_from_json(&config) {
-                    Ok(_) => {
-                        log::info!("✓ 配置迁移成功");
-                        // 标记迁移成功，供前端显示 Toast
-                        crate::init_status::set_migration_success();
-                        // 归档旧配置文件（重命名而非删除，便于用户恢复）
-                        let archive_path = json_path.with_extension("json.migrated");
-                        if let Err(e) = std::fs::rename(&json_path, &archive_path) {
-                            log::warn!("归档旧配置文件失败: {e}");
-                        } else {
-                            log::info!("✓ 旧配置已归档为 config.json.migrated");
-                        }
-                    }
-                    Err(e) => {
-                        // 配置加载成功但迁移失败的情况极少（磁盘满等），仅记录日志
-                        log::error!("配置迁移失败: {e}，将从现有配置导入");
-                    }
-                }
-            }
-
             let app_state = AppState::new(db);
 
-            // 设置 AppHandle 用于代理故障转移和外部配置变化的 UI 更新
+            match crate::services::gateway_auth::GatewayAuthService::migrate_legacy_token(
+                &app_state.db,
+            ) {
+                Ok(true) => log::info!("✓ 已将旧网关 token 迁移为不可逆哈希"),
+                Ok(false) => {}
+                Err(error) => log::error!("迁移旧网关 token 失败: {error}"),
+            }
+            if let Err(error) = app_state.db.set_gateway_auth_required(true) {
+                log::error!("强制启用独立网关鉴权失败: {error}");
+            }
+
+            // 网关运行事件仍通过 AppHandle 通知前端；不再启动或连接任何
+            // 客户端配置监控器。
             app_state.proxy_service.set_app_handle(app.handle().clone());
-            app_state
-                .external_config_monitor
-                .set_app_handle(app.handle().clone());
 
-            // ============================================================
-            // 按表独立判断的导入逻辑（各类数据独立检查，互不影响）
-            // ============================================================
-
-            // 1. 初始化默认 Skills 仓库（已有内置检查：表非空则跳过）
-            match app_state.db.init_default_skill_repos() {
-                Ok(count) if count > 0 => {
-                    log::info!("✓ Initialized {count} default skill repositories");
-                }
-                Ok(_) => {} // 表非空，静默跳过
-                Err(e) => log::warn!("✗ Failed to initialize default skill repos: {e}"),
-            }
-
-            // 1.1. Skills 统一管理迁移：当数据库迁移到 v3 结构后，自动从各应用目录导入到 SSOT
-            // 触发条件由 schema 迁移设置 settings.skills_ssot_migration_pending = true 控制。
-            match app_state.db.get_setting("skills_ssot_migration_pending") {
-                Ok(Some(flag)) if flag == "true" || flag == "1" => {
-                    // 安全保护：如果用户已经有 v3 结构的 Skills 数据，就不要自动清空重建。
-                    let has_existing = app_state
-                        .db
-                        .get_all_installed_skills()
-                        .map(|skills| !skills.is_empty())
-                        .unwrap_or(false);
-
-                    if has_existing {
-                        log::info!(
-                            "Detected skills_ssot_migration_pending but skills table not empty; skipping auto import."
-                        );
-                        let _ = app_state
-                            .db
-                            .set_setting("skills_ssot_migration_pending", "false");
-                    } else {
-                        match crate::services::skill::migrate_skills_to_ssot(&app_state.db) {
-                            Ok(count) => {
-                                log::info!("✓ Auto imported {count} skill(s) into SSOT");
-                                if count > 0 {
-                                    crate::init_status::set_skills_migration_result(count);
-                                }
-                                let _ = app_state
-                                    .db
-                                    .set_setting("skills_ssot_migration_pending", "false");
-                            }
-                            Err(e) => {
-                                log::warn!("✗ Failed to auto import legacy skills to SSOT: {e}");
-                                crate::init_status::set_skills_migration_error(e.to_string());
-                                // 保留 pending 标志，方便下次启动重试
-                            }
-                        }
-                    }
-                }
-                Ok(_) => {} // 未开启迁移标志，静默跳过
-                Err(e) => log::warn!("✗ Failed to read skills migration flag: {e}"),
-            }
-
-            // 1.5. 自动导入 live 配置 + seed 官方预设供应商（Claude / Codex / Gemini）
-            //
-            // 先 import 后 seed 是有意为之：先把用户手动配置的 settings.json / auth.json / .env
-            // 落成 "default" provider 设为 current，再追加官方预设（is_current=false）。
-            // 这样用户切到官方预设时，回填机制会保护原 live 配置不丢失。
-            //
-            // 捕获首次运行快照：所有全新装用户都会看到欢迎弹窗介绍 Agent Switch 的工作方式。
-            // 读失败时默认不弹，宁可漏弹也不要因为故障打扰用户。
-            let first_run_already_confirmed = crate::settings::get_settings()
-                .first_run_notice_confirmed
-                .unwrap_or(false);
-            let fresh_install_at_startup =
-                app_state.db.is_providers_empty().unwrap_or(false);
-
-            for app_type in
-                crate::app_config::AppType::all().filter(|t| !t.is_additive_mode())
-            {
-                if !crate::services::provider::should_import_default_config_on_startup(
-                    &app_state,
-                    &app_type,
-                )
-                .unwrap_or(false)
-                {
-                    log::debug!(
-                        "○ {} already has providers; live import skipped",
-                        app_type.as_str()
-                    );
-                    continue;
-                }
-
-                match crate::services::provider::import_default_config(
-                    &app_state,
-                    app_type.clone(),
-                ) {
-                    Ok(true) => log::info!(
-                        "✓ Imported live config for {} as default provider",
-                        app_type.as_str()
-                    ),
-                    Ok(false) => log::debug!(
-                        "○ {} already has providers; live import skipped",
-                        app_type.as_str()
-                    ),
-                    Err(e) => log::debug!(
-                        "○ No live config to import for {}: {e}",
-                        app_type.as_str()
-                    ),
-                }
-            }
-
+            // 官方上游模板仅写入 Agent Switch 自身数据库，不读取客户端配置。
             match app_state.db.init_default_official_providers() {
                 Ok(count) if count > 0 => {
-                    log::info!("✓ Seeded {count} official provider(s)");
+                    log::info!("✓ Seeded {count} official upstream template(s)");
                 }
                 Ok(_) => {}
-                Err(e) => log::warn!("✗ Failed to seed official providers: {e}"),
-            }
-
-            {
-                let db_for_codex_history_migration = app_state.db.clone();
-                tauri::async_runtime::spawn_blocking(move || {
-                    match crate::codex_history_migration::maybe_migrate_codex_third_party_history_provider_bucket(
-                        &db_for_codex_history_migration,
-                    ) {
-                        Ok(outcome) => {
-                            if let Some(reason) = outcome.skipped_reason {
-                                log::debug!("○ Codex history provider bucket migration skipped: {reason}");
-                            } else {
-                                log::info!(
-                                    "✓ Codex history provider bucket migration completed: sources={}, jsonl_files={}, state_rows={}",
-                                    outcome.source_provider_ids.len(),
-                                    outcome.migrated_jsonl_files,
-                                    outcome.migrated_state_rows
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("✗ Codex history provider bucket migration failed: {e}");
-                        }
-                    }
-
-                    match crate::codex_history_migration::maybe_migrate_codex_provider_template_bucket(
-                        &db_for_codex_history_migration,
-                    ) {
-                        Ok(outcome) => {
-                            if let Some(reason) = outcome.skipped_reason {
-                                log::debug!("○ Codex provider template bucket migration skipped: {reason}");
-                            } else if !outcome.migrated_provider_ids.is_empty() {
-                                log::info!(
-                                    "✓ Codex provider template bucket migration completed: providers={}",
-                                    outcome.migrated_provider_ids.len()
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("✗ Codex provider template bucket migration failed: {e}");
-                        }
-                    }
-
-                    // 统一会话开关的官方历史迁移：开关开启但上次未完成（如文件被占用
-                    // 中途失败）时在启动期重试；函数内部自门控，开关关闭时直接跳过。
-                    match crate::codex_history_migration::maybe_migrate_codex_official_history_to_unified_bucket() {
-                        Ok(outcome) => {
-                            if let Some(reason) = outcome.skipped_reason {
-                                log::debug!("○ Codex official history unify migration skipped: {reason}");
-                            } else {
-                                log::info!(
-                                    "✓ Codex official history unify migration completed: jsonl_files={}, state_rows={}",
-                                    outcome.migrated_jsonl_files,
-                                    outcome.migrated_state_rows
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("✗ Codex official history unify migration failed: {e}");
-                        }
-                    }
-                });
-            }
-
-            // 老用户 / 已确认的路径由 `fresh_install_at_startup` 自行拦截，这里不做写入。
-            // 字段只由前端在用户点击"我知道了"时 save_settings 回写，语义是"用户显式确认过"。
-            if !first_run_already_confirmed && fresh_install_at_startup {
-                log::info!("✓ First-run welcome notice pending");
-            }
-
-            // 1.6. 自动同步 OpenCode / OpenClaw 的 live providers 到数据库
-            //
-            // additive 模式（OpenCode / OpenClaw）的 import 函数按 id 幂等——
-            // 新 id 执行导入，已有 id 则更新 settings 和 display name，所以每次
-            // 启动都跑是安全的：既保证新装用户开箱可见 live 中的供应商，也让外部
-            // 修改的 live 文件能在重启后同步到数据库（与之前依赖前端"导入当前配置"
-            // 按钮手动触发不同）。
-            //
-            // 底层 read_*_config 在文件不存在时返回默认空配置，因此新装且无
-            // live 文件的用户走 Ok(0) 路径，不会产生错误日志噪音。
-            match crate::services::provider::import_opencode_providers_from_live(&app_state) {
-                Ok(count) if count > 0 => {
-                    log::info!("✓ Synced {count} OpenCode provider(s) from live config");
-                }
-                Ok(_) => log::debug!("○ No OpenCode provider changes from live config"),
-                Err(e) => log::warn!("✗ Failed to import OpenCode providers: {e}"),
-            }
-            match crate::services::provider::import_openclaw_providers_from_live(&app_state) {
-                Ok(count) if count > 0 => {
-                    log::info!("✓ Imported {count} OpenClaw provider(s) from live config");
-                }
-                Ok(_) => log::debug!("○ No new OpenClaw providers to import"),
-                Err(e) => log::warn!("✗ Failed to import OpenClaw providers: {e}"),
-            }
-            match crate::services::provider::import_hermes_providers_from_live(&app_state) {
-                Ok(count) if count > 0 => {
-                    log::info!("✓ Imported {count} Hermes provider(s) from live config");
-                }
-                Ok(_) => log::debug!("○ No new Hermes providers to import"),
-                Err(e) => log::warn!("✗ Failed to import Hermes providers: {e}"),
-            }
-
-            // 2. OMO 配置导入（当数据库中无 OMO provider 时，从本地文件导入）
-            {
-                let has_omo = app_state
-                    .db
-                    .get_all_providers("opencode")
-                    .map(|providers| providers.values().any(|p| p.category.as_deref() == Some("omo")))
-                    .unwrap_or(false);
-                if !has_omo {
-                    match crate::services::OmoService::import_from_local(&app_state, &crate::services::omo::STANDARD) {
-                        Ok(provider) => {
-                            log::info!("✓ Imported OMO config from local as provider '{}'", provider.name);
-                        }
-                        Err(AppError::OmoConfigNotFound) => {
-                            log::debug!("○ No OMO config to import");
-                        }
-                        Err(e) => {
-                            log::warn!("✗ Failed to import OMO config from local: {e}");
-                        }
-                    }
-                }
-            }
-
-            // 2.3 OMO Slim config import (when no omo-slim provider in DB, import from local)
-            {
-                let has_omo_slim = app_state
-                    .db
-                    .get_all_providers("opencode")
-                    .map(|providers| {
-                        providers
-                            .values()
-                            .any(|p| p.category.as_deref() == Some("omo-slim"))
-                    })
-                    .unwrap_or(false);
-                if !has_omo_slim {
-                    match crate::services::OmoService::import_from_local(&app_state, &crate::services::omo::SLIM) {
-                        Ok(provider) => {
-                            log::info!(
-                                "✓ Imported OMO Slim config from local as provider '{}'",
-                                provider.name
-                            );
-                        }
-                        Err(AppError::OmoConfigNotFound) => {
-                            log::debug!("○ No OMO Slim config to import");
-                        }
-                        Err(e) => {
-                            log::warn!("✗ Failed to import OMO Slim config from local: {e}");
-                        }
-                    }
-                }
-            }
-
-            // 3. 导入 MCP 服务器配置（表空时触发）
-            if app_state.db.is_mcp_table_empty().unwrap_or(false) {
-                log::info!("MCP table empty, importing from live configurations...");
-
-                match crate::services::mcp::McpService::import_from_claude(&app_state) {
-                    Ok(count) if count > 0 => {
-                        log::info!("✓ Imported {count} MCP server(s) from Claude");
-                    }
-                    Ok(_) => log::debug!("○ No Claude MCP servers found to import"),
-                    Err(e) => log::warn!("✗ Failed to import Claude MCP: {e}"),
-                }
-
-                match crate::services::mcp::McpService::import_from_codex(&app_state) {
-                    Ok(count) if count > 0 => {
-                        log::info!("✓ Imported {count} MCP server(s) from Codex");
-                    }
-                    Ok(_) => log::debug!("○ No Codex MCP servers found to import"),
-                    Err(e) => log::warn!("✗ Failed to import Codex MCP: {e}"),
-                }
-
-                match crate::services::mcp::McpService::import_from_gemini(&app_state) {
-                    Ok(count) if count > 0 => {
-                        log::info!("✓ Imported {count} MCP server(s) from Gemini");
-                    }
-                    Ok(_) => log::debug!("○ No Gemini MCP servers found to import"),
-                    Err(e) => log::warn!("✗ Failed to import Gemini MCP: {e}"),
-                }
-
-                match crate::services::mcp::McpService::import_from_opencode(&app_state) {
-                    Ok(count) if count > 0 => {
-                        log::info!("✓ Imported {count} MCP server(s) from OpenCode");
-                    }
-                    Ok(_) => log::debug!("○ No OpenCode MCP servers found to import"),
-                    Err(e) => log::warn!("✗ Failed to import OpenCode MCP: {e}"),
-                }
-
-                match crate::services::mcp::McpService::import_from_hermes(&app_state) {
-                    Ok(count) if count > 0 => {
-                        log::info!("✓ Imported {count} MCP server(s) from Hermes");
-                    }
-                    Ok(_) => log::debug!("○ No Hermes MCP servers found to import"),
-                    Err(e) => log::warn!("✗ Failed to import Hermes MCP: {e}"),
-                }
-            }
-
-            // 4. 导入提示词文件（表空时触发）
-            if app_state.db.is_prompts_table_empty().unwrap_or(false) {
-                log::info!("Prompts table empty, importing from live configurations...");
-
-                for app in [
-                    crate::app_config::AppType::Claude,
-                    crate::app_config::AppType::Codex,
-                    crate::app_config::AppType::Gemini,
-                    crate::app_config::AppType::OpenCode,
-                    crate::app_config::AppType::OpenClaw,
-                    crate::app_config::AppType::Hermes,
-                ] {
-                    match crate::services::prompt::PromptService::import_from_file_on_first_launch(
-                        &app_state,
-                        app.clone(),
-                    ) {
-                        Ok(count) if count > 0 => {
-                            log::info!("✓ Imported {count} prompt(s) for {}", app.as_str());
-                        }
-                        Ok(_) => log::debug!("○ No prompt file found for {}", app.as_str()),
-                        Err(e) => log::warn!("✗ Failed to import prompt for {}: {e}", app.as_str()),
-                    }
-                }
+                Err(e) => log::warn!("✗ Failed to seed official upstream templates: {e}"),
             }
 
             // 迁移旧的 app_config_dir 配置到 Store
@@ -905,18 +545,6 @@ pub fn run() {
             // 构建托盘
             let mut tray_builder = TrayIconBuilder::with_id(tray::TRAY_ID)
                 .tooltip("Agent-Switch") // 鼠标悬停提示
-                .on_tray_icon_event(|tray, event| match event {
-                    // 鼠标悬停/点击到托盘图标时，后台异步刷新用量缓存，
-                    // 让用户下一次（或快速打开菜单的那一刻）看到较新的数字。
-                    // refresh_all_usage_in_tray 内部有 10 秒防抖。
-                    TrayIconEvent::Enter { .. } | TrayIconEvent::Click { .. } => {
-                        let app = tray.app_handle().clone();
-                        tauri::async_runtime::spawn(async move {
-                            crate::tray::refresh_all_usage_in_tray(&app).await;
-                        });
-                    }
-                    _ => log::debug!("unhandled event {event:?}"),
-                })
                 .menu(&menu)
                 .on_menu_event(|app, event| {
                     tray::handle_tray_menu_event(app, &event.id.0);
@@ -946,15 +574,9 @@ pub fn run() {
             }
 
             let _tray = tray_builder.build(app)?;
-            crate::services::webdav_auto_sync::start_worker(
-                app_state.db.clone(),
-                app.handle().clone(),
-            );
-            crate::services::s3_auto_sync::start_worker(
-                app_state.db.clone(),
-                app.handle().clone(),
-            );
-            // 将同一个实例注入到全局状态，避免重复创建导致的不一致
+            // 将同一个实例注入到全局状态，避免重复创建导致的不一致。
+            // WebDAV/S3 自动同步在完成“仅网关数据”审计前保持停用，防止旧导入链
+            // 通过 post-import hook 间接投影到客户端 Live 配置。
             app.manage(app_state);
 
             // 从数据库加载日志配置并应用
@@ -1029,114 +651,20 @@ pub fn run() {
                 }
             }
 
-            // 启动恢复只清理遗留所有权，绝不自动启动网关或重新接管。
+            // 新进程尚无 server，运行镜像必须归零。此处只访问 Agent Switch DB；
+            // 不执行 crash restore、common snippet 提取、客户端会话扫描或外部配置监控。
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = app_handle.state::<AppState>();
-
-                // proxy_enabled 只是本进程运行镜像；新进程尚无 server，必须先归零。
                 if let Err(error) = state.db.reset_proxy_runtime_mirror().await {
-                    log::error!("归零代理运行镜像失败: {error}");
+                    log::error!("归零网关运行镜像失败: {error}");
                 }
 
-                // 必须在 common snippets 抽取前恢复 proxy 残留；direct 只放弃所有权。
-                if let Err(error) = state.proxy_service.recover_from_crash().await {
-                    log::error!("启动时回收遗留接管状态失败: {error}");
-                }
-
-                initialize_common_config_snippets(&state);
-
-                // 仅在 crash recovery 与 common snippet 初始化完成后启动一次外部配置监控。
-                match state.external_config_monitor.start().await {
-                    Ok(true) => log::info!("七模块外部配置 monitor 已启动"),
-                    Ok(false) => log::debug!("七模块外部配置 monitor 已在本进程启动，跳过重复启动"),
-                    Err(error) => log::error!("启动七模块外部配置 monitor 失败: {error}"),
-                }
-
-                // CC 聚合模型缓存调度：防抖增量刷新 + 每日 04:00(上海) 全量 + 启动补跑
+                // 模型缓存调度只访问项目数据库和已配置的远程上游，属于网关域。
                 crate::services::model_cache::start_schedulers(state.db.clone());
 
-                // Periodic backup check (on startup)
-                if let Err(e) = state.db.periodic_backup_if_needed() {
-                    log::warn!("Periodic backup failed on startup: {e}");
-                }
-
-                // Periodic maintenance timer: run once per day while the app is running
-                let db_for_timer = state.db.clone();
-                tauri::async_runtime::spawn(async move {
-                    const PERIODIC_MAINTENANCE_INTERVAL_SECS: u64 = 24 * 60 * 60;
-                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(
-                        PERIODIC_MAINTENANCE_INTERVAL_SECS,
-                    ));
-                    interval.tick().await; // skip immediate first tick (already checked above)
-                    loop {
-                        interval.tick().await;
-                        if let Err(e) = db_for_timer.periodic_backup_if_needed() {
-                            log::warn!("Periodic maintenance timer failed: {e}");
-                        }
-                    }
-                });
-
-                // Session log usage sync: 启动时同步一次，之后每 60 秒检查
-                let db_for_session_sync = state.db.clone();
-                tauri::async_runtime::spawn(async move {
-                    const SESSION_SYNC_INTERVAL_SECS: u64 = 60;
-
-                    fn run_step<T>(name: &str, result: Result<T, crate::error::AppError>) {
-                        if let Err(e) = result {
-                            log::warn!("{name} failed: {e}");
-                        }
-                    }
-
-                    let db = &db_for_session_sync;
-
-                    // 首次同步
-                    run_step(
-                        "Usage cost startup backfill",
-                        db.backfill_missing_usage_costs(),
-                    );
-                    run_step(
-                        "Session usage initial sync",
-                        crate::services::session_usage::sync_claude_session_logs(db),
-                    );
-                    run_step(
-                        "Codex usage initial sync",
-                        crate::services::session_usage_codex::sync_codex_usage(db),
-                    );
-                    run_step(
-                        "Gemini usage initial sync",
-                        crate::services::session_usage_gemini::sync_gemini_usage(db),
-                    );
-                    run_step(
-                        "OpenCode usage initial sync",
-                        crate::services::session_usage_opencode::sync_opencode_usage(db),
-                    );
-
-                    // 定期同步
-                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(
-                        SESSION_SYNC_INTERVAL_SECS,
-                    ));
-                    interval.tick().await; // skip immediate first tick
-                    loop {
-                        interval.tick().await;
-                        run_step(
-                            "Session usage periodic sync",
-                            crate::services::session_usage::sync_claude_session_logs(db),
-                        );
-                        run_step(
-                            "Codex usage periodic sync",
-                            crate::services::session_usage_codex::sync_codex_usage(db),
-                        );
-                        run_step(
-                            "Gemini usage periodic sync",
-                            crate::services::session_usage_gemini::sync_gemini_usage(db),
-                        );
-                        run_step(
-                            "OpenCode usage periodic sync",
-                            crate::services::session_usage_opencode::sync_opencode_usage(db),
-                        );
-                    }
-                });
+                // 自动整库备份暂时停用。旧库可能仍含客户端 Live 快照，复制整库会继续
+                // 持有/扩散这些历史数据；阶段 5 改为仅导出纯网关表后再恢复自动备份。
             });
 
             // Linux: 禁用 WebKitGTK 硬件加速，防止 EGL 初始化失败导致白屏
@@ -1188,351 +716,58 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::get_providers,
-            commands::get_current_provider,
-            commands::add_provider,
-            commands::update_provider,
-            commands::delete_provider,
-            commands::remove_provider_from_live_config,
-            commands::switch_provider,
-            commands::import_default_config,
-            commands::get_claude_desktop_status,
-            commands::get_claude_desktop_default_routes,
-            commands::import_claude_desktop_providers_from_claude,
-            commands::detect_ccs_channels,
-            commands::sync_ccs_channels,
-            commands::ensure_claude_desktop_official_provider,
-            commands::ensure_codex_official_provider,
-            commands::get_claude_config_status,
-            commands::get_config_status,
-            commands::get_claude_code_config_path,
-            commands::get_config_dir,
-            commands::open_config_folder,
-            commands::pick_directory,
+            // GatewayShell 基础设施
             commands::open_external,
             commands::get_init_error,
-            commands::get_migration_result,
-            commands::get_skills_migration_result,
-            commands::get_app_config_path,
-            commands::open_app_config_folder,
-            commands::get_claude_common_config_snippet,
-            commands::set_claude_common_config_snippet,
-            commands::get_common_config_snippet,
-            commands::set_common_config_snippet,
-            commands::update_toml_common_config_snippet,
-            commands::extract_common_config_snippet,
-            commands::read_live_provider_settings,
             commands::get_settings,
             commands::save_settings,
-            commands::has_codex_unify_history_backup,
-            commands::restore_codex_unified_history,
-            commands::get_rectifier_config,
-            commands::set_rectifier_config,
-            commands::get_optimizer_config,
-            commands::set_optimizer_config,
-            commands::get_copilot_optimizer_config,
-            commands::set_copilot_optimizer_config,
-            commands::get_claude_client_profile_config,
-            commands::set_claude_client_profile_config,
-            commands::get_log_config,
-            commands::set_log_config,
-            commands::restart_app,
             commands::install_update_and_restart,
             commands::check_app_update_available,
-            commands::check_for_updates,
-            commands::is_portable_mode,
-            commands::copy_text_to_clipboard,
-            commands::get_claude_plugin_status,
-            commands::read_claude_plugin_config,
-            commands::apply_claude_plugin_config,
-            commands::is_claude_plugin_applied,
-            commands::apply_claude_onboarding_skip,
-            commands::clear_claude_onboarding_skip,
-            // Claude MCP management
-            commands::get_claude_mcp_status,
-            commands::read_claude_mcp_config,
-            commands::upsert_claude_mcp_server,
-            commands::delete_claude_mcp_server,
-            commands::validate_mcp_command,
-            // usage query
-            commands::queryProviderUsage,
-            commands::testUsageScript,
-            // subscription quota
-            commands::get_subscription_quota,
-            commands::get_codex_oauth_quota,
-            commands::get_codex_oauth_models,
-            commands::get_coding_plan_quota,
-            commands::get_balance,
-            // New MCP via config.json (SSOT)
-            commands::get_mcp_config,
-            commands::upsert_mcp_server_in_config,
-            commands::delete_mcp_server_in_config,
-            commands::set_mcp_enabled,
-            // Unified MCP management
-            commands::get_mcp_servers,
-            commands::upsert_mcp_server,
-            commands::delete_mcp_server,
-            commands::toggle_mcp_app,
-            commands::import_mcp_from_apps,
-            // Prompt management
-            commands::get_prompts,
-            commands::upsert_prompt,
-            commands::delete_prompt,
-            commands::enable_prompt,
-            commands::import_prompt_from_file,
-            commands::get_current_prompt_file_content,
-            // Project Profiles backend (UI/tray navigation intentionally deferred)
-            commands::list_profiles,
-            commands::create_profile,
-            commands::update_profile,
-            commands::delete_profile,
-            commands::clear_current_profile,
-            commands::apply_profile,
-            // model list fetch (OpenAI-compatible /v1/models)
-            commands::fetch_models_for_config,
-            commands::list_provider_models,
-            commands::add_manual_model,
-            commands::remove_manual_model,
-            commands::refresh_provider_models_now,
-            commands::get_model_cache_status,
-            // CC 聚合派生 + 自定义聚合（C2）
-            commands::get_aggregates,
-            commands::get_custom_aggregates,
-            commands::create_custom_aggregate,
-            commands::update_custom_aggregate,
-            commands::delete_custom_aggregate,
-            commands::reorder_custom_aggregates,
-            commands::get_cc_aggregate_config,
-            commands::set_cc_aggregate_config,
-            // ours: endpoint speed test + custom endpoint management
-            commands::test_api_endpoints,
-            commands::get_custom_endpoints,
-            commands::add_custom_endpoint,
-            commands::remove_custom_endpoint,
-            commands::update_endpoint_last_used,
-            // app_config_dir override via Store
-            commands::get_app_config_dir_override,
-            commands::set_app_config_dir_override,
-            // provider sort order management
-            commands::update_providers_sort_order,
-            // theirs: config import/export and dialogs
-            commands::export_config_to_file,
-            commands::import_config_from_file,
-            commands::webdav_test_connection,
-            commands::webdav_sync_upload,
-            commands::webdav_sync_download,
-            commands::webdav_sync_save_settings,
-            commands::webdav_sync_fetch_remote_info,
-            commands::s3_test_connection,
-            commands::s3_sync_upload,
-            commands::s3_sync_download,
-            commands::s3_sync_save_settings,
-            commands::s3_sync_fetch_remote_info,
-            commands::save_file_dialog,
-            commands::open_file_dialog,
-            commands::open_zip_file_dialog,
-            commands::create_db_backup,
-            commands::list_db_backups,
-            commands::restore_db_backup,
-            commands::rename_db_backup,
-            commands::delete_db_backup,
-            commands::sync_current_providers_live,
-            // Deep link import
-            commands::parse_deeplink,
-            commands::merge_deeplink_config,
-            commands::import_from_deeplink,
-            commands::import_from_deeplink_unified,
             update_tray_menu,
-            // Environment variable management
-            commands::check_env_conflicts,
-            commands::delete_env_vars,
-            commands::restore_env_backup,
-            // Skill management (v3.10.0+ unified)
-            commands::get_installed_skills,
-            commands::get_skill_backups,
-            commands::delete_skill_backup,
-            commands::install_skill_unified,
-            commands::uninstall_skill_unified,
-            commands::restore_skill_backup,
-            commands::toggle_skill_app,
-            commands::scan_unmanaged_skills,
-            commands::import_skills_from_apps,
-            commands::discover_available_skills,
-            commands::check_skill_updates,
-            commands::update_skill,
-            commands::migrate_skill_storage,
-            commands::search_skills_sh,
-            // Skill management (legacy API compatibility)
-            commands::get_skills,
-            commands::get_skills_for_app,
-            commands::install_skill,
-            commands::install_skill_for_app,
-            commands::uninstall_skill,
-            commands::uninstall_skill_for_app,
-            commands::get_skill_repos,
-            commands::add_skill_repo,
-            commands::remove_skill_repo,
-            commands::install_skills_from_zip,
-            // Auto launch
-            commands::set_auto_launch,
-            commands::get_auto_launch_status,
-            // Proxy server management
+            commands::set_window_theme,
+            // 网关生命周期
             commands::start_proxy_server,
             commands::stop_proxy_server,
-            commands::stop_proxy_with_restore,
-            commands::get_proxy_takeover_status,
-            commands::get_external_config_status,
-            commands::accept_external_config_change,
-            commands::reject_external_config_change,
-            commands::set_proxy_takeover_for_app,
-            commands::set_proxy_route_mode,
             commands::get_proxy_status,
-            commands::get_proxy_config,
-            commands::update_proxy_config,
-            // Global & Per-App Config
-            commands::get_global_proxy_config,
-            commands::update_global_proxy_config,
-            commands::get_proxy_config_for_app,
-            commands::update_proxy_config_for_app,
-            commands::get_default_cost_multiplier,
-            commands::set_default_cost_multiplier,
-            commands::get_pricing_model_source,
-            commands::set_pricing_model_source,
-            commands::is_proxy_running,
-            commands::is_live_takeover_active,
-            commands::switch_proxy_provider,
-            // Proxy failover commands
-            commands::get_provider_health,
-            commands::reset_circuit_breaker,
-            commands::get_circuit_breaker_config,
-            commands::update_circuit_breaker_config,
-            commands::get_circuit_breaker_stats,
-            // Failover queue management
-            commands::get_failover_queue,
-            commands::get_available_providers_for_failover,
-            commands::add_to_failover_queue,
-            commands::remove_from_failover_queue,
-            commands::get_auto_failover_enabled,
-            commands::set_auto_failover_enabled,
-            // Usage statistics
-            commands::get_usage_summary,
-            commands::get_usage_summary_by_app,
-            commands::get_usage_trends,
-            commands::get_provider_stats,
-            commands::get_model_stats,
-            commands::get_request_logs,
-            commands::get_request_detail,
-            commands::get_model_pricing,
-            commands::update_model_pricing,
-            commands::delete_model_pricing,
-            commands::check_provider_limits,
-            // Session usage sync
-            commands::sync_session_usage,
-            commands::get_usage_data_sources,
-            // Stream health check
-            commands::stream_check_provider,
-            commands::stream_check_all_providers,
-            commands::get_stream_check_config,
-            commands::save_stream_check_config,
-            // Session manager
-            commands::list_sessions,
-            commands::get_session_messages,
-            commands::delete_session,
-            commands::delete_sessions,
-            commands::launch_session_terminal,
-            commands::get_tool_versions,
-            commands::run_tool_lifecycle_action,
-            commands::probe_tool_installations,
-            // Provider terminal
-            commands::open_provider_terminal,
-            // Universal Provider management
-            commands::get_universal_providers,
-            commands::get_universal_provider,
-            commands::upsert_universal_provider,
-            commands::delete_universal_provider,
-            commands::sync_universal_provider,
-            // OpenCode specific
-            commands::import_opencode_providers_from_live,
-            commands::get_opencode_live_provider_ids,
-            // OpenClaw specific
-            commands::import_openclaw_providers_from_live,
-            commands::get_openclaw_live_provider_ids,
-            commands::get_openclaw_live_provider,
-            commands::scan_openclaw_config_health,
-            commands::get_openclaw_default_model,
-            commands::set_openclaw_default_model,
-            commands::get_openclaw_model_catalog,
-            commands::set_openclaw_model_catalog,
-            commands::get_openclaw_agents_defaults,
-            commands::set_openclaw_agents_defaults,
-            commands::get_openclaw_env,
-            commands::set_openclaw_env,
-            commands::get_openclaw_tools,
-            commands::set_openclaw_tools,
-            // Hermes specific
-            commands::import_hermes_providers_from_live,
-            commands::get_hermes_live_provider_ids,
-            commands::get_hermes_live_provider,
-            commands::get_hermes_model_config,
-            commands::open_hermes_web_ui,
-            commands::launch_hermes_dashboard,
-            commands::get_hermes_memory,
-            commands::set_hermes_memory,
-            commands::get_hermes_memory_limits,
-            commands::set_hermes_memory_enabled,
-            // Global upstream proxy
-            commands::get_global_proxy_url,
-            commands::set_global_proxy_url,
-            commands::test_proxy_url,
-            commands::get_upstream_proxy_status,
-            commands::scan_local_proxies,
-            // Window theme control
-            commands::set_window_theme,
-            // Generic managed auth commands
-            commands::auth_start_login,
-            commands::auth_poll_for_account,
-            commands::auth_list_accounts,
-            commands::auth_get_status,
-            commands::auth_remove_account,
-            commands::auth_set_default_account,
-            commands::auth_logout,
-            // Copilot OAuth commands (multi-account support)
-            commands::copilot_start_device_flow,
-            commands::copilot_poll_for_auth,
-            commands::copilot_poll_for_account,
-            commands::copilot_list_accounts,
-            commands::copilot_remove_account,
-            commands::copilot_set_default_account,
-            commands::copilot_get_auth_status,
-            commands::copilot_logout,
-            commands::copilot_is_authenticated,
-            commands::copilot_get_token,
-            commands::copilot_get_token_for_account,
-            commands::copilot_get_models,
-            commands::copilot_get_models_for_account,
-            commands::copilot_get_usage,
-            commands::copilot_get_usage_for_account,
-            // OMO commands
-            commands::read_omo_local_file,
-            commands::get_current_omo_provider_id,
-            commands::disable_current_omo,
-            commands::read_omo_slim_local_file,
-            commands::get_current_omo_slim_provider_id,
-            commands::disable_current_omo_slim,
-            // Workspace files (OpenClaw)
-            commands::read_workspace_file,
-            commands::write_workspace_file,
-            // Daily memory files (OpenClaw workspace)
-            commands::list_daily_memory_files,
-            commands::read_daily_memory_file,
-            commands::write_daily_memory_file,
-            commands::delete_daily_memory_file,
-            commands::search_daily_memory_files,
-            commands::open_workspace_directory,
-            // lightweight mode (for testing or low-resource environments)
-            commands::enter_lightweight_mode,
-            commands::exit_lightweight_mode,
-            commands::is_lightweight_mode,
+            // 网关鉴权
+            commands::get_gateway_auth_status,
+            commands::create_gateway_api_key,
+            commands::revoke_gateway_api_key,
+            commands::set_gateway_auth_required,
+            // 独立网关控制面（仅访问项目数据库）
+            commands::get_gateway_domain_config,
+            commands::update_gateway_domain_config,
+            commands::list_gateway_upstreams,
+            commands::get_gateway_upstream,
+            commands::create_gateway_upstream,
+            commands::update_gateway_upstream,
+            commands::delete_gateway_upstream,
+            commands::set_gateway_upstream_enabled,
+            commands::list_gateway_upstream_credential_hints,
+            commands::replace_gateway_upstream_credential,
+            commands::delete_gateway_upstream_credential,
+            commands::list_gateway_upstream_models,
+            commands::list_gateway_models,
+            commands::create_gateway_model,
+            commands::update_gateway_model,
+            commands::delete_gateway_model,
+            commands::set_gateway_model_enabled,
+            commands::set_gateway_model_state,
+            commands::list_gateway_model_aliases,
+            commands::upsert_gateway_model_alias,
+            commands::delete_gateway_model_alias,
+            commands::list_gateway_routes,
+            commands::create_gateway_route_target,
+            commands::update_gateway_route_target,
+            commands::delete_gateway_route_target,
+            commands::set_gateway_route_enabled,
+            commands::set_gateway_route_target_enabled,
+            commands::reorder_gateway_routes,
+            commands::reorder_gateway_route_targets,
+            commands::list_gateway_route_health,
+            commands::list_gateway_migration_issues,
+            // 本机纯网关回滚（scope/hash/DPAPI/外键均 fail-closed 验证）
+            commands::import_local_gateway_rollback,
         ]);
 
     let app = builder
@@ -1563,7 +798,7 @@ pub fn run() {
                 // 重启路径交还 Tauri 默认流程即可：
                 //   - 窗口状态：插件 Exit 钩子在主线程保存（同线程读取窗口几何，无死锁）
                 //   - 托盘图标：Tauri 内部 cleanup_before_exit 清理，正常走 Drop
-                //   - 代理/Live 配置：无需恢复，重启后新实例立即接管并恢复代理状态
+                //   - 网关：重启会终止当前监听器，新实例按用户操作重新启动
                 //   - 100ms 落盘等待：重启前的 DB 写入均为命令驱动、此刻已完成，
                 //     与所有 Tauri 应用默认重启路径的行为一致，无需额外等待
                 ExitRequestAction::DeferToTauriRestart => {
@@ -1622,7 +857,10 @@ pub fn run() {
                 RunEvent::Opened { urls } => {
                     if let Some(url) = urls.first() {
                         let url_str = url.to_string();
-                        log::info!("RunEvent::Opened with URL: {url_str}");
+                        log::info!(
+                            "RunEvent::Opened with URL: {}",
+                            redact_url_for_log(&url_str)
+                        );
 
                         if url_str.starts_with("agentswitch://") || url_str.starts_with("ccswitch://") {
                             if crate::lightweight::is_lightweight_mode() {
@@ -1657,7 +895,7 @@ pub fn run() {
                                     if let Err(emit_err) = app_handle.emit(
                                         "deeplink-error",
                                         serde_json::json!({
-                                            "url": url_str,
+                                            "url": redact_url_for_log(&url_str),
                                             "error": e.to_string()
                                         }),
                                     ) {
@@ -1692,22 +930,16 @@ pub fn run() {
 // 应用退出清理
 // ============================================================
 
-/// 应用退出前按模块 route_mode 回收接管所有权，再停止网关。
-/// proxy 恢复成功后原子清状态与快照；direct 不写 Live，只放弃所有权。
+/// 应用退出时只停止本进程内的网关并归零运行镜像。
+/// 客户端配置、接管快照和外部文件监控均不属于退出清理边界。
 pub async fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
     if let Some(state) = app_handle.try_state::<store::AppState>() {
-        // 必须先停轮询并等待 worker 退出，避免接管恢复过程被误判为外部变化。
-        match state.external_config_monitor.stop().await {
-            Ok(true) => log::info!("七模块外部配置 monitor 已停止"),
-            Ok(false) => {}
-            Err(error) => log::error!("停止七模块外部配置 monitor 失败: {error}"),
-        }
-
-        if let Err(error) = state.proxy_service.stop_with_restore_keep_state().await {
-            // 恢复失败时状态与快照会保留，供下次启动重试。
-            log::error!("退出清理未全部完成: {error}");
-        } else {
-            log::info!("退出清理完成：接管所有权已释放，网关已停止");
+        if state.proxy_service.is_running().await {
+            if let Err(error) = state.proxy_service.stop().await {
+                log::error!("退出时停止网关失败: {error}");
+            }
+        } else if let Err(error) = state.db.reset_proxy_runtime_mirror().await {
+            log::error!("退出时归零网关运行镜像失败: {error}");
         }
     }
 }
@@ -1733,90 +965,7 @@ pub(crate) fn remove_tray_icon_before_exit(app_handle: &tauri::AppHandle) {
 }
 
 // ============================================================
-// 启动时 common config 初始化
-// ============================================================
-
-fn initialize_common_config_snippets(state: &store::AppState) {
-    // Auto-extract common config snippets from clean live files when snippet is missing.
-    // This must run before proxy takeover is restored on startup, otherwise we'd read
-    // proxy-placeholder configs instead of the user's actual live settings.
-    for app_type in crate::app_config::AppType::all() {
-        if !state
-            .db
-            .should_auto_extract_config_snippet(app_type.as_str())
-            .unwrap_or(false)
-        {
-            continue;
-        }
-
-        let settings = match crate::services::provider::ProviderService::read_live_settings(
-            app_type.clone(),
-        ) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-
-        match crate::services::provider::ProviderService::extract_common_config_snippet_from_settings(
-            app_type.clone(),
-            &settings,
-        ) {
-            Ok(snippet) if !snippet.is_empty() && snippet != "{}" => {
-                match state.db.set_config_snippet(app_type.as_str(), Some(snippet)) {
-                    Ok(()) => {
-                        let _ = state.db.set_config_snippet_cleared(app_type.as_str(), false);
-                        log::info!(
-                            "✓ Auto-extracted common config snippet for {}",
-                            app_type.as_str()
-                        );
-                    }
-                    Err(e) => log::warn!(
-                        "✗ Failed to save config snippet for {}: {e}",
-                        app_type.as_str()
-                    ),
-                }
-            }
-            Ok(_) => log::debug!(
-                "○ Live config for {} has no extractable common fields",
-                app_type.as_str()
-            ),
-            Err(e) => log::warn!(
-                "✗ Failed to extract config snippet for {}: {e}",
-                app_type.as_str()
-            ),
-        }
-    }
-
-    let should_run_legacy_migration = state
-        .db
-        .is_legacy_common_config_migrated()
-        .map(|done| !done)
-        .unwrap_or(true);
-
-    if should_run_legacy_migration {
-        for app_type in [
-            crate::app_config::AppType::Claude,
-            crate::app_config::AppType::Codex,
-            crate::app_config::AppType::Gemini,
-        ] {
-            if let Err(e) = crate::services::provider::ProviderService::migrate_legacy_common_config_usage_if_needed(
-                state,
-                app_type.clone(),
-            ) {
-                log::warn!(
-                    "✗ Failed to migrate legacy common-config usage for {}: {e}",
-                    app_type.as_str()
-                );
-            }
-        }
-
-        if let Err(e) = state.db.set_legacy_common_config_migrated(true) {
-            log::warn!("✗ Failed to persist legacy common-config migration flag: {e}");
-        }
-    }
-}
-
-// ============================================================
-// 迁移错误对话框辅助函数
+// 数据库初始化错误对话框
 // ============================================================
 
 /// 检测是否为中文环境
@@ -1826,57 +975,6 @@ fn is_chinese_locale() -> bool {
         .or_else(|_| std::env::var("LC_MESSAGES"))
         .map(|lang| lang.starts_with("zh"))
         .unwrap_or(false)
-}
-
-/// 显示迁移错误对话框
-/// 返回 true 表示用户选择重试，false 表示用户选择退出
-fn show_migration_error_dialog(app: &tauri::AppHandle, error: &str) -> bool {
-    let title = if is_chinese_locale() {
-        "配置迁移失败"
-    } else {
-        "Migration Failed"
-    };
-
-    let message = if is_chinese_locale() {
-        format!(
-            "从旧版本迁移配置时发生错误：\n\n{error}\n\n\
-            您的数据尚未丢失，旧配置文件仍然保留。\n\
-            建议回退到旧版本 Agent Switch 以保护数据。\n\n\
-            点击「重试」重新尝试迁移\n\
-            点击「退出」关闭程序（可回退版本后重新打开）"
-        )
-    } else {
-        format!(
-            "An error occurred while migrating configuration:\n\n{error}\n\n\
-            Your data is NOT lost - the old config file is still preserved.\n\
-            Consider rolling back to an older Agent Switch version.\n\n\
-            Click 'Retry' to attempt migration again\n\
-            Click 'Exit' to close the program"
-        )
-    };
-
-    let retry_text = if is_chinese_locale() {
-        "重试"
-    } else {
-        "Retry"
-    };
-    let exit_text = if is_chinese_locale() {
-        "退出"
-    } else {
-        "Exit"
-    };
-
-    // 使用 blocking_show 同步等待用户响应
-    // OkCancelCustom: 第一个按钮（重试）返回 true，第二个按钮（退出）返回 false
-    app.dialog()
-        .message(&message)
-        .title(title)
-        .kind(MessageDialogKind::Error)
-        .buttons(MessageDialogButtons::OkCancelCustom(
-            retry_text.to_string(),
-            exit_text.to_string(),
-        ))
-        .blocking_show()
 }
 
 /// 显示数据库初始化/Schema 迁移失败对话框
@@ -2020,7 +1118,30 @@ pub fn restart_process(app_handle: &tauri::AppHandle) -> ! {
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_exit_request, ExitRequestAction};
+    use super::{classify_exit_request, redact_url_for_log, ExitRequestAction};
+
+    #[test]
+    fn deep_link_log_redaction_never_keeps_query_values() {
+        let secret = "agsk_super-secret-value";
+        let redacted = redact_url_for_log(&format!(
+            "agentswitch://provider/import?api_key={secret}&name=demo"
+        ));
+
+        assert_eq!(
+            redacted,
+            "agentswitch://provider/import?[keys:api_key,name]"
+        );
+        assert!(!redacted.contains(secret));
+    }
+
+    #[test]
+    fn malformed_deep_link_log_redaction_drops_query_and_fragment() {
+        let redacted = redact_url_for_log("agentswitch://bad path?token=secret#fragment");
+
+        assert_eq!(redacted, "agentswitch://bad path?[redacted]");
+        assert!(!redacted.contains("secret"));
+        assert!(!redacted.contains("fragment"));
+    }
 
     #[test]
     fn no_code_keeps_app_alive_in_tray() {

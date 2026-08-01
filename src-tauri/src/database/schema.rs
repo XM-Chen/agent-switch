@@ -7,6 +7,10 @@ use crate::error::AppError;
 use rusqlite::{params, Connection};
 use serde::Serialize;
 
+/// 已实现但尚未对正常启动开放的 schema 草案上限。
+/// `SCHEMA_VERSION` 仍是当前可发布版本；测试可显式迁到此上限验证 v18 草案。
+const MAX_IMPLEMENTED_SCHEMA_VERSION: i32 = 18;
+
 #[derive(Serialize)]
 struct LegacySkillMigrationRow {
     directory: String,
@@ -151,11 +155,22 @@ impl Database {
         // 与 migrate_v12_to_v13 使用同一句 SQL，保证 create/migrate 两处一致且幂等。
         Self::create_profiles_table(conn)?;
 
+        // 22. 独立网关鉴权配置与 API Key 哈希。
+        Self::create_gateway_auth_tables(conn)?;
+
+        // 23. 独立网关影子领域表（阶段 2）。
+        Self::create_gateway_domain_tables(conn)?;
+
         // 10. Proxy Request Logs 表
         // pricing_model = 写入时实际用于计价的模型名（pricing_model_source 解析结果），
         // 回填按它重算；NULL 表示 v11 之前的历史行，'' 表示未计价的错误行。
         conn.execute("CREATE TABLE IF NOT EXISTS proxy_request_logs (
             request_id TEXT PRIMARY KEY, provider_id TEXT NOT NULL, app_type TEXT NOT NULL, model TEXT NOT NULL,
+            ingress_protocol TEXT,
+            gateway_model_id TEXT,
+            route_target_id TEXT,
+            upstream_id TEXT,
+            target_model TEXT,
             request_model TEXT,
             pricing_model TEXT,
             input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
@@ -189,6 +204,12 @@ impl Database {
             [],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_request_logs_gateway_route
+             ON proxy_request_logs(gateway_model_id, route_target_id, created_at)",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建网关请求日志路由索引失败: {e}")))?;
         Self::create_request_logs_usage_indexes_if_supported(conn)?;
 
         // 11. Model Pricing 表
@@ -428,27 +449,56 @@ impl Database {
 
     /// 应用 Schema 迁移
     pub(crate) fn apply_schema_migrations(&self) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
-        Self::apply_schema_migrations_on_conn(&conn)
+        self.apply_schema_migrations_to_version(SCHEMA_VERSION)
     }
 
-    /// 在指定连接上应用 Schema 迁移
+    /// 将数据库迁移到指定目标版本（不得高于当前 [`SCHEMA_VERSION`]）。
+    /// 阶段 5 启动编排用它先迁到 v17、落盘纯网关回滚导出，再执行 v18 purge。
+    pub(crate) fn apply_schema_migrations_to_version(
+        &self,
+        target_version: i32,
+    ) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        Self::apply_schema_migrations_on_conn_to_version(&conn, target_version)
+    }
+
+    /// 在指定连接上应用全部 Schema 迁移
     pub(crate) fn apply_schema_migrations_on_conn(conn: &Connection) -> Result<(), AppError> {
+        Self::apply_schema_migrations_on_conn_to_version(conn, SCHEMA_VERSION)
+    }
+
+    /// 在指定连接上迁移到目标版本。
+    pub(crate) fn apply_schema_migrations_on_conn_to_version(
+        conn: &Connection,
+        target_version: i32,
+    ) -> Result<(), AppError> {
+        if !(0..=MAX_IMPLEMENTED_SCHEMA_VERSION).contains(&target_version) {
+            return Err(AppError::Database(format!(
+                "无效目标数据库版本 {target_version}，当前仅实现 0..={MAX_IMPLEMENTED_SCHEMA_VERSION}"
+            )));
+        }
         conn.execute("SAVEPOINT schema_migration;", [])
             .map_err(|e| AppError::Database(format!("开启迁移 savepoint 失败: {e}")))?;
 
         let mut version = Self::get_user_version(conn)?;
 
-        if version > SCHEMA_VERSION {
+        if version > MAX_IMPLEMENTED_SCHEMA_VERSION {
             conn.execute("ROLLBACK TO schema_migration;", []).ok();
             conn.execute("RELEASE schema_migration;", []).ok();
             return Err(AppError::Database(format!(
-                "数据库版本过新（{version}），当前应用仅支持 {SCHEMA_VERSION}，请升级应用后再尝试。"
+                "数据库版本过新（{version}），当前仅实现到 {MAX_IMPLEMENTED_SCHEMA_VERSION}，请升级应用后再尝试。"
+            )));
+        }
+        if version > target_version {
+            conn.execute("ROLLBACK TO schema_migration;", []).ok();
+            conn.execute("RELEASE schema_migration;", []).ok();
+            return Err(AppError::Database(format!(
+                "数据库版本过新（{version}），当前目标版本为 {target_version}，不支持降级迁移"
             )));
         }
 
         let result = (|| {
-            while version < SCHEMA_VERSION {
+            while version < target_version {
                 match version {
                     0 => {
                         log::info!("检测到 user_version=0，迁移到 1（补齐缺失列并设置版本）");
@@ -532,6 +582,23 @@ impl Database {
                         );
                         Self::migrate_v14_to_v15(conn)?;
                         Self::set_user_version(conn, 15)?;
+                    }
+                    15 => {
+                        log::info!("迁移数据库从 v15 到 v16（新增独立网关鉴权表）");
+                        Self::migrate_v15_to_v16(conn)?;
+                        Self::set_user_version(conn, 16)?;
+                    }
+                    16 => {
+                        log::info!("迁移数据库从 v16 到 v17（新增独立网关影子领域表与幂等迁移）");
+                        Self::migrate_v16_to_v17(conn)?;
+                        Self::set_user_version(conn, 17)?;
+                    }
+                    17 => {
+                        log::info!(
+                            "迁移数据库从 v17 到 v18（清除客户端 live 快照、明文 secret 与接管设置）"
+                        );
+                        Self::migrate_v17_to_v18(conn)?;
+                        Self::set_user_version(conn, 18)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1596,6 +1663,412 @@ impl Database {
 
         log::info!("v14 -> v15 迁移完成：proxy_config 已扩展为七模块并新增 route_mode");
         Ok(())
+    }
+
+    fn create_gateway_auth_tables(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS gateway_config (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                auth_required INTEGER NOT NULL DEFAULT 1,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 gateway_config 失败: {e}")))?;
+
+        let now = chrono::Utc::now().timestamp_millis();
+        conn.execute(
+            "INSERT OR IGNORE INTO gateway_config (id, auth_required, created_at, updated_at)
+             VALUES (1, 1, ?1, ?1)",
+            [now],
+        )
+        .map_err(|e| AppError::Database(format!("初始化 gateway_config 失败: {e}")))?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS gateway_api_keys (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                key_hash TEXT NOT NULL,
+                key_prefix TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                revoked_at INTEGER,
+                last_used_at INTEGER
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 gateway_api_keys 失败: {e}")))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_gateway_api_keys_active
+             ON gateway_api_keys(revoked_at, created_at)",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 gateway_api_keys 索引失败: {e}")))?;
+        Ok(())
+    }
+
+    fn migrate_v15_to_v16(conn: &Connection) -> Result<(), AppError> {
+        Self::create_gateway_auth_tables(conn)?;
+        log::info!("v15 -> v16 迁移完成：已新增默认开启的网关鉴权配置与 API Key 表");
+        Ok(())
+    }
+
+    fn create_gateway_domain_tables(conn: &Connection) -> Result<(), AppError> {
+        // fresh 数据库（user_version=0）直接补齐完整配置；旧 v16 数据库则将
+        // ALTER TABLE 留给 savepoint 内的 v16 -> v17 迁移，避免备份前改写旧表。
+        let version = Self::get_user_version(conn)?;
+        if version == 0 || version >= 17 {
+            Self::add_gateway_config_domain_columns(conn)?;
+        }
+
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS upstreams (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                base_url TEXT,
+                protocol TEXT NOT NULL,
+                adapter_type TEXT NOT NULL,
+                config_json TEXT NOT NULL DEFAULT '{}',
+                notes TEXT,
+                legacy_app_type TEXT,
+                legacy_provider_id TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                UNIQUE (legacy_app_type, legacy_provider_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_upstreams_enabled
+                ON upstreams(enabled, name, id);
+
+            CREATE TABLE IF NOT EXISTS upstream_credentials (
+                id TEXT PRIMARY KEY,
+                upstream_id TEXT NOT NULL,
+                credential_kind TEXT NOT NULL,
+                encrypted_payload BLOB NOT NULL,
+                encryption_scheme TEXT NOT NULL,
+                key_hint TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                UNIQUE (upstream_id, credential_kind),
+                FOREIGN KEY (upstream_id) REFERENCES upstreams(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS upstream_models (
+                upstream_id TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                source TEXT NOT NULL CHECK (source IN ('fetched', 'manual')),
+                owned_by TEXT,
+                refreshed_at INTEGER NOT NULL,
+                legacy_app_type TEXT,
+                legacy_provider_id TEXT,
+                PRIMARY KEY (upstream_id, model_id),
+                FOREIGN KEY (upstream_id) REFERENCES upstreams(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_upstream_models_model
+                ON upstream_models(model_id, upstream_id);
+
+            CREATE TABLE IF NOT EXISTS gateway_models (
+                id TEXT PRIMARY KEY,
+                model_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                source TEXT NOT NULL CHECK (source IN ('legacy_model', 'legacy_aggregate', 'manual')),
+                migration_status TEXT NOT NULL DEFAULT 'draft'
+                    CHECK (migration_status IN ('active', 'draft', 'conflict')),
+                legacy_app_type TEXT,
+                legacy_source_id TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_gateway_models_lookup
+                ON gateway_models(model_id, enabled, migration_status);
+
+            CREATE TABLE IF NOT EXISTS model_aliases (
+                alias TEXT PRIMARY KEY,
+                gateway_model_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY (gateway_model_id) REFERENCES gateway_models(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS route_targets (
+                id TEXT PRIMARY KEY,
+                gateway_model_id TEXT NOT NULL,
+                upstream_id TEXT NOT NULL,
+                target_model TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                legacy_app_type TEXT,
+                legacy_aggregate_id TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                UNIQUE (gateway_model_id, position),
+                UNIQUE (gateway_model_id, upstream_id, target_model),
+                FOREIGN KEY (gateway_model_id) REFERENCES gateway_models(id) ON DELETE CASCADE,
+                FOREIGN KEY (upstream_id) REFERENCES upstreams(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_route_targets_order
+                ON route_targets(gateway_model_id, enabled, position);
+
+            CREATE TABLE IF NOT EXISTS route_target_health (
+                route_target_id TEXT PRIMARY KEY,
+                state TEXT NOT NULL DEFAULT 'closed'
+                    CHECK (state IN ('closed', 'open', 'half_open')),
+                consecutive_failures INTEGER NOT NULL DEFAULT 0,
+                consecutive_successes INTEGER NOT NULL DEFAULT 0,
+                last_success_at INTEGER,
+                last_failure_at INTEGER,
+                opened_at INTEGER,
+                last_error TEXT,
+                updated_at INTEGER NOT NULL,
+                FOREIGN KEY (route_target_id) REFERENCES route_targets(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS gateway_migration_report (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                migration_key TEXT NOT NULL UNIQUE,
+                severity TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'error')),
+                entity_type TEXT NOT NULL,
+                legacy_app_type TEXT,
+                legacy_entity_id TEXT,
+                code TEXT NOT NULL,
+                details_json TEXT NOT NULL DEFAULT '{}',
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_gateway_migration_report_severity
+                ON gateway_migration_report(severity, entity_type, code);",
+        )
+        .map_err(|e| AppError::Database(format!("创建独立网关影子领域表失败: {e}")))?;
+
+        Ok(())
+    }
+
+    fn add_gateway_config_domain_columns(conn: &Connection) -> Result<(), AppError> {
+        // gateway_config 在 v16 只包含鉴权开关。阶段 2 仅以幂等增量列扩展它；
+        // 旧 proxy_config 的公共值随后在同一 savepoint 内回填。
+        for (column, definition) in [
+            ("listen_address", "TEXT NOT NULL DEFAULT '127.0.0.1'"),
+            ("listen_port", "INTEGER NOT NULL DEFAULT 42567"),
+            ("enable_logging", "INTEGER NOT NULL DEFAULT 1"),
+            ("max_retries", "INTEGER NOT NULL DEFAULT 3"),
+            (
+                "streaming_first_byte_timeout",
+                "INTEGER NOT NULL DEFAULT 60",
+            ),
+            ("streaming_idle_timeout", "INTEGER NOT NULL DEFAULT 120"),
+            ("non_streaming_timeout", "INTEGER NOT NULL DEFAULT 600"),
+            ("circuit_failure_threshold", "INTEGER NOT NULL DEFAULT 4"),
+            ("circuit_success_threshold", "INTEGER NOT NULL DEFAULT 2"),
+            ("circuit_timeout_seconds", "INTEGER NOT NULL DEFAULT 60"),
+            ("circuit_error_rate_threshold", "REAL NOT NULL DEFAULT 0.6"),
+            ("circuit_min_requests", "INTEGER NOT NULL DEFAULT 10"),
+        ] {
+            Self::add_column_if_missing(conn, "gateway_config", column, definition)?;
+        }
+        Ok(())
+    }
+
+    fn migrate_v16_to_v17(conn: &Connection) -> Result<(), AppError> {
+        Self::add_gateway_config_domain_columns(conn)?;
+        Self::create_gateway_domain_tables(conn)?;
+        if Self::table_exists(conn, "proxy_request_logs")? {
+            for (column, definition) in [
+                ("ingress_protocol", "TEXT"),
+                ("gateway_model_id", "TEXT"),
+                ("route_target_id", "TEXT"),
+                ("upstream_id", "TEXT"),
+                ("target_model", "TEXT"),
+            ] {
+                Self::add_column_if_missing(conn, "proxy_request_logs", column, definition)?;
+            }
+            if Self::has_column(conn, "proxy_request_logs", "created_at")? {
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_request_logs_gateway_route
+                     ON proxy_request_logs(gateway_model_id, route_target_id, created_at)",
+                    [],
+                )
+                .map_err(|e| AppError::Database(format!("创建网关请求日志路由索引失败: {e}")))?;
+            }
+        }
+
+        Self::migrate_gateway_config_from_proxy_config(conn)?;
+        Self::migrate_legacy_gateway_domain(conn)?;
+        log::info!("v16 -> v17 迁移完成：已新增并填充独立网关影子领域表");
+        Ok(())
+    }
+
+    /// v17 -> v18 迁移：阶段 5 数据库收敛--清除客户端 live 快照、明文 secret 与接管设置。
+    ///
+    /// 这是破坏性数据清除（不可逆），purge 前应已调用 `export_pure_gateway_sql_string`
+    /// 生成纯网关回滚导出。安全前提（阶段 1-4 已满足）：
+    /// - 模型优先路由从 `upstreams` + `upstream_credentials`(DPAPI) 读凭据，不读 `providers` 表，
+    ///   故 scrub `providers.settings_config`/`meta` 不影响运行时路由；
+    /// - 接管命令已从 invoke_handler 注销、启动期接管已切断，`proxy_live_backup` 运行时无写入；
+    /// - `claude_desktop_gateway_token` 由 `GatewayAuthService::migrate_legacy_token`（lib.rs 启动期，
+    ///   schema 迁移之后）先 hash 入 gateway_api_keys 再删明文；v18 刻意不删它，以免在
+    ///   migrate_legacy_token 运行前先删导致未迁移的明文 token 丢失。
+    ///
+    /// 不 DROP 任何表：`providers` 仍被路由过渡桥与 `provider_models`/`provider_endpoints` 外键引用，
+    /// `proxy_live_backup` DAO 方法仍在编译；表 DROP 留到步骤 6 删除 DAO/service 后。
+    /// 幂等：所有语句对已清除状态安全（DELETE 无行、UPDATE 无副作用、redact 对已 redact JSON 无变化）。
+    fn migrate_v17_to_v18(conn: &Connection) -> Result<(), AppError> {
+        // 1. 清除客户端 live 配置快照（proxy_live_backup.original_config 存的是客户端真实配置原文）
+        if Self::table_exists(conn, "proxy_live_backup")? {
+            conn.execute("DELETE FROM proxy_live_backup", [])
+                .map_err(|e| AppError::Database(format!("清除 proxy_live_backup 失败: {e}")))?;
+        }
+
+        // 2. scrub providers.settings_config 与 meta 中的明文 secret（保留行与外键完整性）
+        if Self::table_exists(conn, "providers")? {
+            let rows: Vec<(String, String, String, String)> = {
+                let mut stmt = conn
+                    .prepare("SELECT id, app_type, settings_config, meta FROM providers")
+                    .map_err(|e| AppError::Database(format!("读取 providers 失败: {e}")))?;
+                let mapped = stmt
+                    .query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                        ))
+                    })
+                    .map_err(|e| AppError::Database(format!("扫描 providers 失败: {e}")))?;
+                mapped
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| AppError::Database(format!("收集 providers 行失败: {e}")))?
+            };
+            for (id, app_type, settings, meta) in rows {
+                let scrubbed_settings = Self::redact_secrets_in_json_string(&settings);
+                let scrubbed_meta = Self::redact_secrets_in_json_string(&meta);
+                if scrubbed_settings != settings || scrubbed_meta != meta {
+                    conn.execute(
+                        "UPDATE providers SET settings_config = ?1, meta = ?2
+                         WHERE id = ?3 AND app_type = ?4",
+                        params![scrubbed_settings, scrubbed_meta, id, app_type],
+                    )
+                    .map_err(|e| {
+                        AppError::Database(format!("scrub provider {id}/{app_type} 失败: {e}"))
+                    })?;
+                }
+            }
+        }
+
+        // 3. 清除接管设置（settings 表）。注意：`claude_desktop_gateway_token` 不在此处删除--
+        //    它由 `GatewayAuthService::migrate_legacy_token`（lib.rs 启动期，schema 迁移之后）
+        //    先 hash 入 gateway_api_keys 再删明文。若 v18 在此先删，未迁移的明文 token 会在
+        //    migrate_legacy_token 运行前丢失。故仅删纯布尔接管状态（无迁移语义）。
+        //    部分历史最小 fixture 不含 settings 表，需幂等跳过。
+        if Self::table_exists(conn, "settings")? {
+            conn.execute(
+                "DELETE FROM settings
+                 WHERE key LIKE 'proxy_takeover_%'
+                    OR key LIKE 'auto_failover_enabled_%'",
+                [],
+            )
+            .map_err(|e| AppError::Database(format!("清除接管设置失败: {e}")))?;
+        }
+
+        // 4. 冻结 proxy_config 接管状态（不 DROP 表，DAO 仍引用）
+        if Self::table_exists(conn, "proxy_config")? {
+            conn.execute(
+                "UPDATE proxy_config SET live_takeover_active = 0, enabled = 0",
+                [],
+            )
+            .map_err(|e| AppError::Database(format!("冻结 proxy_config 接管状态失败: {e}")))?;
+            if Self::has_column(conn, "proxy_config", "route_mode")? {
+                conn.execute("UPDATE proxy_config SET route_mode = 'direct'", [])
+                    .map_err(|e| AppError::Database(format!("重置 route_mode 失败: {e}")))?;
+            }
+        }
+
+        log::info!("v17 -> v18 迁移完成：已清除客户端 live 快照、明文 secret 与接管设置");
+        Ok(())
+    }
+
+    /// 递归 redact JSON 中的 secret 值：键名（小写）包含 key/token/secret/password/auth/credential
+    /// 之一的叶子值置为 null。对象/数组递归。解析失败或非对象返回 `'{}'`（保守清除）。
+    /// 用于清除旧 providers.settings_config/meta 中的历史明文 secret，保留非敏感字段作迁移 provenance。
+    fn redact_secrets_in_json_string(raw: &str) -> String {
+        let mut value: serde_json::Value = match serde_json::from_str(raw) {
+            Ok(v) => v,
+            Err(_) => return "{}".to_string(),
+        };
+        Self::redact_secret_values(&mut value);
+        serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    fn redact_secret_values(value: &mut serde_json::Value) {
+        const SECRET_MARKERS: &[&str] =
+            &["key", "token", "secret", "password", "auth", "credential"];
+        match value {
+            serde_json::Value::Object(map) => {
+                // 收集键名以避免边遍历边修改
+                let keys: Vec<String> = map.keys().cloned().collect();
+                for k in keys {
+                    let lower = k.to_lowercase();
+                    let is_secret = SECRET_MARKERS.iter().any(|m| lower.contains(m));
+                    if let Some(v) = map.get_mut(&k) {
+                        if is_secret && !(v.is_object() || v.is_array()) {
+                            *v = serde_json::Value::Null;
+                        } else {
+                            // 所有非敏感键继续递归，使 config 等字符串内嵌 token 也被清理；
+                            // 敏感键对应对象/数组同样递归，保留结构但清空叶子值。
+                            Self::redact_secret_values(v);
+                        }
+                    }
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                for v in arr {
+                    Self::redact_secret_values(v);
+                }
+            }
+            // provider settings 中存在少数把多个凭据嵌入 TOML/JSON 字符串的遗留字段
+            //（典型为 Codex config.experimental_bearer_token）。递归按键名无法净化其
+            // 字符串内部；v18 已由 credential readiness 保证运行时不再需要该原文，
+            // 因此对任何包含 secret marker 的叶子字符串保守置空。
+            serde_json::Value::String(text)
+                if SECRET_MARKERS
+                    .iter()
+                    .any(|marker| text.to_lowercase().contains(marker)) =>
+            {
+                *value = serde_json::Value::Null;
+            }
+            _ => {}
+        }
+    }
+
+    fn migrate_gateway_config_from_proxy_config(conn: &Connection) -> Result<(), AppError> {
+        if !Self::table_exists(conn, "proxy_config")? {
+            return Ok(());
+        }
+
+        conn.execute(
+            "UPDATE gateway_config
+             SET listen_address = COALESCE((SELECT listen_address FROM proxy_config WHERE app_type = 'claude'), listen_address),
+                 listen_port = COALESCE((SELECT listen_port FROM proxy_config WHERE app_type = 'claude'), listen_port),
+                 enable_logging = COALESCE((SELECT enable_logging FROM proxy_config WHERE app_type = 'claude'), enable_logging),
+                 max_retries = COALESCE((SELECT max_retries FROM proxy_config WHERE app_type = 'claude'), max_retries),
+                 streaming_first_byte_timeout = COALESCE((SELECT streaming_first_byte_timeout FROM proxy_config WHERE app_type = 'claude'), streaming_first_byte_timeout),
+                 streaming_idle_timeout = COALESCE((SELECT streaming_idle_timeout FROM proxy_config WHERE app_type = 'claude'), streaming_idle_timeout),
+                 non_streaming_timeout = COALESCE((SELECT non_streaming_timeout FROM proxy_config WHERE app_type = 'claude'), non_streaming_timeout),
+                 circuit_failure_threshold = COALESCE((SELECT circuit_failure_threshold FROM proxy_config WHERE app_type = 'claude'), circuit_failure_threshold),
+                 circuit_success_threshold = COALESCE((SELECT circuit_success_threshold FROM proxy_config WHERE app_type = 'claude'), circuit_success_threshold),
+                 circuit_timeout_seconds = COALESCE((SELECT circuit_timeout_seconds FROM proxy_config WHERE app_type = 'claude'), circuit_timeout_seconds),
+                 circuit_error_rate_threshold = COALESCE((SELECT circuit_error_rate_threshold FROM proxy_config WHERE app_type = 'claude'), circuit_error_rate_threshold),
+                 circuit_min_requests = COALESCE((SELECT circuit_min_requests FROM proxy_config WHERE app_type = 'claude'), circuit_min_requests),
+                 updated_at = ?1
+             WHERE id = 1",
+            [chrono::Utc::now().timestamp_millis()],
+        )
+        .map_err(|e| AppError::Database(format!("迁移网关公共配置失败: {e}")))?;
+        Ok(())
+    }
+
+    fn migrate_legacy_gateway_domain(conn: &Connection) -> Result<(), AppError> {
+        super::gateway_migration::migrate(conn)
     }
 
     /// 插入默认模型定价数据
@@ -3069,5 +3542,168 @@ mod pricing_tests {
         assert_eq!(pricing(&conn, "gpt-5.6-sol").3, "6.25");
         assert_eq!(pricing(&conn, "gpt-5.6-terra").0, "9");
         assert_eq!(pricing(&conn, "gpt-5.6-terra").3, "0");
+    }
+}
+
+#[cfg(test)]
+mod v18_purge_tests {
+    use super::Database;
+    use crate::AppError;
+
+    /// v18 迁移清除客户端 live 快照、providers 明文 secret、接管设置，并冻结 proxy_config。
+    /// 安全不变量：providers 非敏感字段保留（外键完整性 + provenance），secret 值置 null。
+    #[test]
+    fn v18_purges_client_snapshots_secrets_and_takeover_state() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        {
+            let conn = crate::database::lock_conn!(db.conn);
+            // 客户端 live 配置快照
+            conn.execute(
+                "INSERT INTO proxy_live_backup (app_type, original_config, backed_up_at)
+                 VALUES ('claude', 'SECRET_CLIENT_CONFIG', '2026-01-01')",
+                [],
+            )
+            .unwrap();
+            // providers：明文 secret + 嵌套 env secret + 非敏感字段
+            conn.execute(
+                "INSERT INTO providers (id, app_type, name, settings_config, meta)
+                 VALUES ('p-1', 'claude', 'Keep Name',
+                    '{\"apiKey\":\"sk-plaintext\",\"name\":\"keep\",\"env\":{\"ANTHROPIC_API_KEY\":\"sk-env\"}}',
+                    '{\"token\":\"t1\",\"note\":\"keep-note\"}')",
+                [],
+            )
+            .unwrap();
+            // 接管设置 + 明文网关 token
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('proxy_takeover_claude', 'true')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('claude_desktop_gateway_token', 'plaintext-gateway-token')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('auto_failover_enabled_claude', 'true')",
+                [],
+            )
+            .unwrap();
+            // proxy_config 接管状态
+            conn.execute(
+                "UPDATE proxy_config SET live_takeover_active = 1, enabled = 1, route_mode = 'proxy'
+                 WHERE app_type = 'claude'",
+                [],
+            )
+            .unwrap();
+
+            Database::migrate_v17_to_v18(&conn).expect("migrate v17->v18");
+
+            // 1. 客户端 live 快照已清除
+            let live_count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM proxy_live_backup", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(live_count, 0, "proxy_live_backup 应被清空");
+
+            // 2. providers secret 已 redact，非敏感字段保留
+            let (settings, meta): (String, String) = conn
+                .query_row(
+                    "SELECT settings_config, meta FROM providers WHERE id = 'p-1'",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap();
+            let s: serde_json::Value = serde_json::from_str(&settings).unwrap();
+            assert_eq!(s["apiKey"], serde_json::Value::Null, "apiKey 应被 redact");
+            assert_eq!(s["name"], "keep", "非敏感字段 name 应保留");
+            assert_eq!(
+                s["env"]["ANTHROPIC_API_KEY"],
+                serde_json::Value::Null,
+                "env 中的 secret 应被 redact"
+            );
+            let m: serde_json::Value = serde_json::from_str(&meta).unwrap();
+            assert_eq!(
+                m["token"],
+                serde_json::Value::Null,
+                "meta token 应被 redact"
+            );
+            assert_eq!(m["note"], "keep-note", "非敏感 meta 字段应保留");
+
+            // 3. 接管布尔设置已清除；明文网关 token 刻意保留（交由 migrate_legacy_token 在
+            //    启动期 hash 后删除，避免 v18 先删导致 token 丢失）
+            let takeover_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM settings
+                     WHERE key LIKE 'proxy_takeover_%' OR key LIKE 'auto_failover_enabled_%'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(takeover_count, 0, "接管布尔设置应被清除");
+            let token_still_present: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM settings WHERE key = 'claude_desktop_gateway_token'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                token_still_present, 1,
+                "明文网关 token 在 v18 应保留，由 migrate_legacy_token 负责迁移删除"
+            );
+
+            // 4. proxy_config 已冻结
+            let (lta, enabled, route_mode): (i64, i64, String) = conn
+                .query_row(
+                    "SELECT live_takeover_active, enabled, route_mode FROM proxy_config
+                     WHERE app_type = 'claude'",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .unwrap();
+            assert_eq!(lta, 0, "live_takeover_active 应被重置");
+            assert_eq!(enabled, 0, "enabled 应被重置");
+            assert_eq!(route_mode, "direct", "route_mode 应被重置为 direct");
+        }
+        Ok(())
+    }
+
+    /// 幂等：对已清除状态再次迁移无副作用、不 panic。
+    #[test]
+    fn v18_migration_is_idempotent() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let conn = crate::database::lock_conn!(db.conn);
+        Database::migrate_v17_to_v18(&conn)?;
+        Database::migrate_v17_to_v18(&conn)?;
+        Ok(())
+    }
+
+    /// 分阶段迁移边界：迁到 v17 时必须保留待 purge 数据，只有迁到 v18 才清除。
+    /// 这是“先落盘纯网关回滚导出，再 purge”的顺序基础。
+    #[test]
+    fn targeted_migration_stops_at_v17_before_purge() -> Result<(), AppError> {
+        let conn = rusqlite::Connection::open_in_memory()?;
+        Database::create_tables_on_conn(&conn)?;
+        conn.execute(
+            "INSERT INTO proxy_live_backup (app_type, original_config, backed_up_at)
+             VALUES ('claude', 'MUST_SURVIVE_UNTIL_V18', '2026-01-01')",
+            [],
+        )?;
+
+        Database::apply_schema_migrations_on_conn_to_version(&conn, 17)?;
+        assert_eq!(Database::get_user_version(&conn)?, 17);
+        let before_purge: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM proxy_live_backup WHERE original_config = 'MUST_SURVIVE_UNTIL_V18'",
+            [],
+            |r| r.get(0),
+        )?;
+        assert_eq!(before_purge, 1, "迁到 v17 时不得提前 purge");
+
+        Database::apply_schema_migrations_on_conn_to_version(&conn, 18)?;
+        assert_eq!(Database::get_user_version(&conn)?, 18);
+        let after_purge: i64 =
+            conn.query_row("SELECT COUNT(*) FROM proxy_live_backup", [], |r| r.get(0))?;
+        assert_eq!(after_purge, 0, "迁到 v18 后应执行 purge");
+        Ok(())
     }
 }

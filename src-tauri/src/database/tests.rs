@@ -640,6 +640,550 @@ fn fresh_create_tables_include_profiles_and_input_token_semantics() {
         Database::has_column(&conn, "proxy_config", "route_mode").expect("route_mode"),
         "fresh create must include route_mode"
     );
+    for table in [
+        "upstreams",
+        "upstream_credentials",
+        "upstream_models",
+        "gateway_models",
+        "model_aliases",
+        "route_targets",
+        "route_target_health",
+        "gateway_migration_report",
+    ] {
+        assert!(
+            Database::table_exists(&conn, table).unwrap_or(false),
+            "fresh create must include {table}"
+        );
+    }
+    assert!(
+        Database::has_column(&conn, "gateway_config", "listen_address")
+            .expect("gateway_config.listen_address"),
+        "fresh create must include full gateway config"
+    );
+    let log_columns = [
+        "ingress_protocol",
+        "gateway_model_id",
+        "route_target_id",
+        "upstream_id",
+        "target_model",
+    ];
+    for column in log_columns {
+        assert!(
+            Database::has_column(&conn, "proxy_request_logs", column).expect("log dimension"),
+            "fresh create must include proxy_request_logs.{column}"
+        );
+    }
+}
+
+fn seed_gateway_domain_dao_fixture(db: &Database) {
+    let conn = db.conn.lock().expect("lock gateway fixture");
+    conn.execute_batch(
+        r#"
+        INSERT INTO upstreams
+            (id, name, enabled, base_url, protocol, adapter_type, created_at, updated_at)
+        VALUES
+            ('upstream-a', 'Upstream A', 1, 'https://a.invalid', 'anthropic', 'claude', 1, 1),
+            ('upstream-b', 'Upstream B', 1, 'https://b.invalid', 'openai_chat', 'module_openai', 1, 1),
+            ('upstream-c', 'Upstream C', 1, 'https://c.invalid', 'openai_responses', 'codex', 1, 1);
+
+        INSERT INTO gateway_models
+            (id, model_id, display_name, enabled, source, migration_status, created_at, updated_at)
+        VALUES
+            ('model-active', 'active-model', 'Active Model', 1, 'manual', 'active', 1, 1),
+            ('model-draft', 'draft-model', 'Draft Model', 0, 'manual', 'draft', 1, 1),
+            ('model-conflict', 'conflict-model', 'Conflict Model', 0, 'manual', 'conflict', 1, 1),
+            ('model-other', 'other-model', 'Other Model', 1, 'manual', 'active', 1, 1),
+            ('model-empty', 'empty-model', 'Empty Model', 1, 'manual', 'active', 1, 1);
+
+        INSERT INTO route_targets
+            (id, gateway_model_id, upstream_id, target_model, position, enabled, created_at, updated_at)
+        VALUES
+            ('route-a', 'model-active', 'upstream-a', 'vendor-a', 1000000, 0, 1, 1),
+            ('route-b', 'model-active', 'upstream-b', 'vendor-b', 1000001, 1, 1, 1),
+            ('route-c', 'model-active', 'upstream-c', 'vendor-c', 1000002, 1, 1, 1),
+            ('route-other', 'model-other', 'upstream-a', 'vendor-other', 0, 1, 1, 1),
+            ('route-draft', 'model-draft', 'upstream-a', 'vendor-draft', 0, 1, 1, 1),
+            ('route-conflict', 'model-conflict', 'upstream-b', 'vendor-conflict', 0, 1, 1, 1);
+        "#,
+    )
+    .expect("seed gateway domain DAO fixture");
+}
+
+fn gateway_model_state(db: &Database, id: &str) -> (bool, String) {
+    let conn = db.conn.lock().expect("lock gateway model state");
+    conn.query_row(
+        "SELECT enabled, migration_status FROM gateway_models WHERE id = ?1",
+        [id],
+        |row| Ok((row.get::<_, i64>(0)? != 0, row.get(1)?)),
+    )
+    .expect("read gateway model state")
+}
+
+fn gateway_route_positions(db: &Database, gateway_model_id: &str) -> Vec<(String, i64)> {
+    let conn = db.conn.lock().expect("lock gateway route positions");
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, position FROM route_targets
+             WHERE gateway_model_id = ?1 ORDER BY position ASC, id ASC",
+        )
+        .expect("prepare gateway route positions");
+    stmt.query_map([gateway_model_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .expect("query gateway route positions")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect gateway route positions")
+}
+
+#[test]
+fn gateway_domain_config_update_validates_all_invariants_without_partial_write() {
+    let db = Database::memory().expect("memory db");
+    let mut valid = db
+        .get_gateway_config_record()
+        .expect("default gateway config");
+    valid.listen_port = 43123;
+    valid.enable_logging = false;
+    valid.max_retries = 0;
+    valid.streaming_first_byte_timeout = 1;
+    valid.streaming_idle_timeout = 2;
+    valid.non_streaming_timeout = 3;
+    valid.circuit_failure_threshold = 1;
+    valid.circuit_success_threshold = 1;
+    valid.circuit_timeout_seconds = 4;
+    valid.circuit_error_rate_threshold = 0.25;
+    valid.circuit_min_requests = 1;
+    db.update_gateway_config_record(&valid)
+        .expect("update valid gateway config");
+    assert_eq!(db.get_gateway_config_record().unwrap(), valid);
+
+    let mut invalid_cases = Vec::new();
+    let mut invalid = valid.clone();
+    invalid.auth_required = false;
+    invalid_cases.push(invalid);
+    let mut invalid = valid.clone();
+    invalid.listen_address = "0.0.0.0".to_string();
+    invalid_cases.push(invalid);
+    let mut invalid = valid.clone();
+    invalid.listen_port = 0;
+    invalid_cases.push(invalid);
+    for field in [
+        "streaming_first_byte_timeout",
+        "streaming_idle_timeout",
+        "non_streaming_timeout",
+        "circuit_timeout_seconds",
+    ] {
+        let mut invalid = valid.clone();
+        match field {
+            "streaming_first_byte_timeout" => invalid.streaming_first_byte_timeout = 0,
+            "streaming_idle_timeout" => invalid.streaming_idle_timeout = 0,
+            "non_streaming_timeout" => invalid.non_streaming_timeout = 0,
+            "circuit_timeout_seconds" => invalid.circuit_timeout_seconds = 0,
+            _ => unreachable!(),
+        }
+        invalid_cases.push(invalid);
+    }
+    for field in [
+        "circuit_failure_threshold",
+        "circuit_success_threshold",
+        "circuit_min_requests",
+    ] {
+        let mut invalid = valid.clone();
+        match field {
+            "circuit_failure_threshold" => invalid.circuit_failure_threshold = 0,
+            "circuit_success_threshold" => invalid.circuit_success_threshold = 0,
+            "circuit_min_requests" => invalid.circuit_min_requests = 0,
+            _ => unreachable!(),
+        }
+        invalid_cases.push(invalid);
+    }
+    for invalid_rate in [-0.01, 1.01, f64::NAN, f64::INFINITY] {
+        let mut invalid = valid.clone();
+        invalid.circuit_error_rate_threshold = invalid_rate;
+        invalid_cases.push(invalid);
+    }
+
+    for invalid in invalid_cases {
+        assert!(matches!(
+            db.update_gateway_config_record(&invalid),
+            Err(crate::error::AppError::InvalidInput(_))
+        ));
+        assert_eq!(
+            db.get_gateway_config_record().unwrap(),
+            valid,
+            "校验失败不得部分更新配置"
+        );
+    }
+}
+
+#[test]
+fn gateway_domain_draft_and_conflict_require_explicit_activation() {
+    let db = Database::memory().expect("memory db");
+    seed_gateway_domain_dao_fixture(&db);
+
+    for model_id in ["model-draft", "model-conflict"] {
+        assert!(matches!(
+            db.set_gateway_model_enabled(model_id, true),
+            Err(crate::error::AppError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            db.set_gateway_model_state(model_id, true, "draft"),
+            Err(crate::error::AppError::InvalidInput(_))
+        ));
+        assert_ne!(gateway_model_state(&db, model_id), (true, "active".into()));
+
+        assert!(db
+            .set_gateway_model_state(model_id, true, "active")
+            .expect("explicitly activate gateway model"));
+        assert_eq!(gateway_model_state(&db, model_id), (true, "active".into()));
+
+        assert!(db
+            .set_gateway_model_enabled(model_id, false)
+            .expect("disable active gateway model"));
+        assert_eq!(gateway_model_state(&db, model_id), (false, "active".into()));
+        assert!(db
+            .set_gateway_model_enabled(model_id, true)
+            .expect("re-enable confirmed gateway model"));
+    }
+
+    assert!(matches!(
+        db.set_gateway_model_state("model-active", true, "unknown"),
+        Err(crate::error::AppError::InvalidInput(_))
+    ));
+    assert_eq!(
+        gateway_model_state(&db, "model-active"),
+        (true, "active".into())
+    );
+    assert!(!db
+        .set_gateway_model_enabled("missing-model", true)
+        .expect("missing model is reported as false"));
+}
+
+#[test]
+fn gateway_domain_route_enable_disable_round_trips_and_reports_missing() {
+    let db = Database::memory().expect("memory db");
+    seed_gateway_domain_dao_fixture(&db);
+
+    assert!(db
+        .set_route_target_enabled("route-a", true)
+        .expect("enable route"));
+    assert!(
+        db.list_route_targets()
+            .unwrap()
+            .into_iter()
+            .find(|route| route.id == "route-a")
+            .expect("route-a")
+            .enabled
+    );
+    assert!(db
+        .set_route_target_enabled("route-a", false)
+        .expect("disable route"));
+    assert!(
+        !db.list_route_targets()
+            .unwrap()
+            .into_iter()
+            .find(|route| route.id == "route-a")
+            .expect("route-a")
+            .enabled
+    );
+    assert!(!db
+        .set_route_target_enabled("missing-route", true)
+        .expect("missing route is reported as false"));
+}
+
+#[test]
+fn gateway_domain_reorder_requires_exact_route_set_and_failures_are_atomic() {
+    let db = Database::memory().expect("memory db");
+    seed_gateway_domain_dao_fixture(&db);
+
+    let reordered = vec!["route-c".into(), "route-a".into(), "route-b".into()];
+    db.reorder_route_targets("model-active", &reordered)
+        .expect("reorder complete route set");
+    assert_eq!(
+        gateway_route_positions(&db, "model-active"),
+        vec![
+            ("route-c".into(), 0),
+            ("route-a".into(), 1),
+            ("route-b".into(), 2),
+        ]
+    );
+
+    let stable = gateway_route_positions(&db, "model-active");
+    for invalid in [
+        vec!["route-a".into(), "route-b".into()],
+        vec!["route-a".into(), "route-a".into(), "route-b".into()],
+        vec!["route-a".into(), "route-b".into(), "route-other".into()],
+    ] {
+        assert!(matches!(
+            db.reorder_route_targets("model-active", &invalid),
+            Err(crate::error::AppError::InvalidInput(_))
+        ));
+        assert_eq!(gateway_route_positions(&db, "model-active"), stable);
+    }
+    assert!(matches!(
+        db.reorder_route_targets("missing-model", &[]),
+        Err(crate::error::AppError::InvalidInput(_))
+    ));
+    db.reorder_route_targets("model-empty", &[])
+        .expect("existing model with no routes accepts empty order");
+
+    {
+        let conn = db.conn.lock().expect("lock forced reorder failure");
+        conn.execute_batch(
+            r#"
+            CREATE TRIGGER fail_route_b_reorder
+            BEFORE UPDATE OF position ON route_targets
+            WHEN OLD.id = 'route-b'
+            BEGIN
+                SELECT RAISE(ABORT, 'forced reorder failure');
+            END;
+            "#,
+        )
+        .expect("install reorder failure trigger");
+    }
+    let before_forced_failure = gateway_route_positions(&db, "model-active");
+    let forced = vec!["route-c".into(), "route-b".into(), "route-a".into()];
+    assert!(matches!(
+        db.reorder_route_targets("model-active", &forced),
+        Err(crate::error::AppError::Database(_))
+    ));
+    assert_eq!(
+        gateway_route_positions(&db, "model-active"),
+        before_forced_failure,
+        "事务中途失败必须回滚此前位置更新"
+    );
+}
+
+#[test]
+fn migration_v16_to_v17_builds_idempotent_shadow_domain_without_changing_legacy_rows() {
+    let db = Database::memory().expect("memory db");
+    let conn = db.conn.lock().expect("lock");
+    conn.execute_batch(
+        r#"
+        INSERT INTO providers
+            (id, app_type, name, settings_config, created_at, sort_index, meta,
+             is_current, in_failover_queue)
+        VALUES
+            ('p-a', 'claude', 'Claude A',
+             '{"env":{"ANTHROPIC_BASE_URL":"https://a.invalid","ANTHROPIC_AUTH_TOKEN":"secret-a"}}',
+             100, 0, '{}', 1, 1),
+            ('p-b', 'claude', 'Claude B',
+             '{"env":{"ANTHROPIC_BASE_URL":"https://b.invalid","ANTHROPIC_API_KEY":"secret-b"}}',
+             200, 1, '{}', 0, 1),
+            ('p-c', 'codex', 'Codex C',
+             '{"auth":{"OPENAI_API_KEY":"secret-c"},"config":"model_provider = \"c\"\n[model_providers.c]\nbase_url = \"https://c.invalid\""}',
+             300, 0, '{}', 1, 1);
+
+        INSERT INTO provider_models
+            (provider_id, app_type, model_id, source, owned_by, fetched_at)
+        VALUES
+            ('p-a', 'claude', 'shared-model', 'manual', NULL, 1000),
+            ('p-b', 'claude', 'shared-model', 'fetched', 'vendor-b', 1001),
+            ('p-c', 'codex', 'shared-model', 'manual', NULL, 1002),
+            ('p-b', 'claude', 'other-model', 'manual', NULL, 1003);
+
+        INSERT INTO custom_aggregates
+            (id, app_type, name, ordered_members, sort_index, created_at, updated_at)
+        VALUES
+            ('agg-1', 'claude', 'Legacy Aggregate',
+             '["shared-model","other-model"]', 0, 400, 500);
+
+        INSERT INTO settings (key, value) VALUES
+            ('cc_aggregate_config:claude',
+             '{"enabled":true,"tierSelection":{"sonnet":{"type":"custom","value":"agg-1"}}}');
+
+        UPDATE proxy_config
+        SET listen_port = 43123, max_retries = 7
+        WHERE app_type = 'claude';
+        "#,
+    )
+    .expect("seed v16 data");
+    Database::set_user_version(&conn, 16).expect("set v16");
+
+    Database::apply_schema_migrations_on_conn(&conn).expect("migrate v16 to v17");
+    assert_eq!(
+        Database::get_user_version(&conn).expect("version"),
+        SCHEMA_VERSION
+    );
+
+    let legacy_provider_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM providers", [], |row| row.get(0))
+        .expect("legacy providers");
+    assert_eq!(legacy_provider_count, 3, "旧 Provider 行必须原样保留");
+
+    let upstream_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM upstreams", [], |row| row.get(0))
+        .expect("upstreams");
+    let upstream_model_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM upstream_models", [], |row| row.get(0))
+        .expect("upstream models");
+    assert_eq!(upstream_count, 3);
+    assert_eq!(upstream_model_count, 4);
+
+    let config: (i64, i64) = conn
+        .query_row(
+            "SELECT listen_port, max_retries FROM gateway_config WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("gateway config");
+    assert_eq!(config, (43123, 7));
+
+    let status: (String, i64) = conn
+        .query_row(
+            "SELECT migration_status, enabled FROM gateway_models
+             WHERE model_id = 'shared-model' AND source = 'legacy_model'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("shared model status");
+    assert_eq!(status, ("conflict".to_string(), 0));
+
+    let active_status: (String, i64) = conn
+        .query_row(
+            "SELECT migration_status, enabled FROM gateway_models
+             WHERE model_id = 'other-model' AND source = 'legacy_model'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("unambiguous model status");
+    assert_eq!(active_status, ("active".to_string(), 1));
+
+    let exact_route_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM route_targets rt
+             JOIN gateway_models gm ON gm.id = rt.gateway_model_id
+             WHERE gm.model_id = 'shared-model'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("exact routes");
+    assert_eq!(exact_route_count, 3);
+
+    let aggregate_positions: Vec<i64> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT rt.position FROM route_targets rt
+                 JOIN gateway_models gm ON gm.id = rt.gateway_model_id
+                 WHERE gm.legacy_source_id = 'agg-1'
+                 ORDER BY rt.position",
+            )
+            .expect("prepare aggregate positions");
+        stmt.query_map([], |row| row.get(0))
+            .expect("query positions")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect positions")
+    };
+    assert_eq!(aggregate_positions, vec![0, 1, 2]);
+
+    let conflicts: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM gateway_migration_report
+             WHERE code = 'cross_namespace_model_conflict'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("conflict report");
+    assert_eq!(conflicts, 1);
+
+    let credential_plaintext_hits: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM upstream_credentials
+             WHERE CAST(encrypted_payload AS TEXT) LIKE '%secret-%'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("credential plaintext search");
+    assert_eq!(credential_plaintext_hits, 0);
+
+    let config_secret_hits: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM upstreams
+             WHERE config_json LIKE '%secret-a%'
+                OR config_json LIKE '%secret-b%'
+                OR config_json LIKE '%secret-c%'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("config plaintext search");
+    assert_eq!(config_secret_hits, 0);
+
+    let counts_before: (i64, i64, i64, i64) = conn
+        .query_row(
+            "SELECT
+                (SELECT COUNT(*) FROM upstreams),
+                (SELECT COUNT(*) FROM upstream_models),
+                (SELECT COUNT(*) FROM gateway_models),
+                (SELECT COUNT(*) FROM route_targets)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .expect("counts before rerun");
+    super::gateway_migration::migrate(&conn).expect("repeat data migration");
+    let counts_after: (i64, i64, i64, i64) = conn
+        .query_row(
+            "SELECT
+                (SELECT COUNT(*) FROM upstreams),
+                (SELECT COUNT(*) FROM upstream_models),
+                (SELECT COUNT(*) FROM gateway_models),
+                (SELECT COUNT(*) FROM route_targets)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .expect("counts after rerun");
+    assert_eq!(counts_after, counts_before, "重复迁移不得新增重复行");
+}
+
+#[test]
+fn gateway_shadow_domain_foreign_keys_reject_orphans_and_cascade() {
+    let db = Database::memory().expect("memory db");
+    let conn = db.conn.lock().expect("lock");
+    let now = chrono::Utc::now().timestamp_millis();
+    conn.execute(
+        "INSERT INTO upstreams
+            (id, name, enabled, protocol, adapter_type, created_at, updated_at)
+         VALUES ('upstream-1', 'One', 1, 'anthropic', 'claude', ?1, ?1)",
+        [now],
+    )
+    .expect("insert upstream");
+    conn.execute(
+        "INSERT INTO gateway_models
+            (id, model_id, display_name, enabled, source, migration_status, created_at, updated_at)
+         VALUES ('gateway-model-1', 'model-1', 'Model 1', 0, 'manual', 'draft', ?1, ?1)",
+        [now],
+    )
+    .expect("insert gateway model");
+    conn.execute(
+        "INSERT INTO route_targets
+            (id, gateway_model_id, upstream_id, target_model, position, enabled, created_at, updated_at)
+         VALUES ('target-1', 'gateway-model-1', 'upstream-1', 'model-1', 0, 0, ?1, ?1)",
+        [now],
+    )
+    .expect("insert route target");
+    conn.execute(
+        "INSERT INTO route_target_health
+            (route_target_id, state, updated_at) VALUES ('target-1', 'closed', ?1)",
+        [now],
+    )
+    .expect("insert target health");
+
+    let orphan = conn.execute(
+        "INSERT INTO route_targets
+            (id, gateway_model_id, upstream_id, target_model, position, enabled, created_at, updated_at)
+         VALUES ('orphan', 'gateway-model-1', 'missing', 'model-2', 1, 0, ?1, ?1)",
+        [now],
+    );
+    assert!(orphan.is_err(), "外键必须拒绝孤儿 route target");
+
+    conn.execute("DELETE FROM upstreams WHERE id = 'upstream-1'", [])
+        .expect("delete upstream");
+    let remaining: (i64, i64) = conn
+        .query_row(
+            "SELECT
+                (SELECT COUNT(*) FROM route_targets WHERE id = 'target-1'),
+                (SELECT COUNT(*) FROM route_target_health WHERE route_target_id = 'target-1')",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("cascade counts");
+    assert_eq!(remaining, (0, 0));
 }
 
 /// C1：v14 三行旧表迁移到 v15 后得到七行，且历史 enabled=1 -> route_mode=proxy。
@@ -678,12 +1222,10 @@ fn migration_v14_to_v15_expands_proxy_config_and_preserves_proxy_route() {
     )
     .expect("seed v14 proxy_config");
     Database::set_user_version(&conn, 14).expect("set user_version=14");
-    Database::apply_schema_migrations_on_conn(&conn).expect("apply migrations");
+    Database::apply_schema_migrations_on_conn_to_version(&conn, 15)
+        .expect("apply v14->v15 migration");
 
-    assert_eq!(
-        Database::get_user_version(&conn).expect("version"),
-        SCHEMA_VERSION
-    );
+    assert_eq!(Database::get_user_version(&conn).expect("version"), 15);
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM proxy_config", [], |r| r.get(0))
         .expect("count");
@@ -706,8 +1248,9 @@ fn migration_v14_to_v15_expands_proxy_config_and_preserves_proxy_route() {
     assert_eq!(claude_mode, "proxy");
     assert_eq!(codex_mode, "direct");
 
-    // 幂等：重复跑完整迁移链不破坏已有 route_mode。
-    Database::apply_schema_migrations_on_conn(&conn).expect("re-apply migrations");
+    // 幂等：重复跑到 v15 不破坏已有 route_mode。
+    Database::apply_schema_migrations_on_conn_to_version(&conn, 15)
+        .expect("re-apply v15 migrations");
     let claude_mode_again: String = conn
         .query_row(
             "SELECT route_mode FROM proxy_config WHERE app_type = 'claude'",
@@ -1125,5 +1668,190 @@ fn ensure_incremental_auto_vacuum_rebuilds_existing_file_db() {
         Database::get_auto_vacuum_mode(&reopened).expect("auto_vacuum after rebuild"),
         2,
         "file db should persist INCREMENTAL auto_vacuum after VACUUM rebuild"
+    );
+}
+
+#[test]
+fn v18_credential_readiness_is_fail_closed_for_enabled_routes() {
+    use crate::services::credential_protector::CredentialProtector;
+
+    struct TestProtector;
+    impl CredentialProtector for TestProtector {
+        fn scheme(&self) -> &'static str {
+            "test-readiness-v1"
+        }
+        fn protect(&self, plaintext: &[u8]) -> Result<Vec<u8>, AppError> {
+            Ok(plaintext.iter().map(|byte| byte ^ 0xa5).collect())
+        }
+        fn unprotect(&self, ciphertext: &[u8]) -> Result<Vec<u8>, AppError> {
+            self.protect(ciphertext)
+        }
+    }
+
+    let db = Database::memory().expect("memory db");
+    {
+        let conn = db.conn.lock().expect("lock");
+        conn.execute_batch(
+            "INSERT INTO upstreams
+                (id,name,enabled,base_url,protocol,adapter_type,created_at,updated_at)
+             VALUES ('ready-up','Ready',1,'https://ready.invalid','openai_responses','codex',1,1);
+             INSERT INTO gateway_models
+                (id,model_id,display_name,enabled,source,migration_status,created_at,updated_at)
+             VALUES ('ready-gm','ready-model','Ready',1,'manual','active',1,1);
+             INSERT INTO route_targets
+                (id,gateway_model_id,upstream_id,target_model,position,enabled,created_at,updated_at)
+             VALUES ('ready-route','ready-gm','ready-up','vendor-model',0,1,1,1);",
+        )
+        .expect("seed active route");
+    }
+    assert!(db
+        .ensure_v18_credential_readiness_for_test(&TestProtector)
+        .is_err());
+
+    let encrypted = TestProtector.protect(b"sk-ready").expect("protect");
+    {
+        let conn = db.conn.lock().expect("lock");
+        conn.execute(
+            "INSERT INTO upstream_credentials
+                (id,upstream_id,credential_kind,encrypted_payload,encryption_scheme,created_at,updated_at)
+             VALUES ('ready-cred','ready-up','api_key',?1,?2,1,1)",
+            rusqlite::params![encrypted, TestProtector.scheme()],
+        )
+        .expect("seed legacy kind");
+    }
+    assert!(db
+        .ensure_v18_credential_readiness_for_test(&TestProtector)
+        .is_err());
+
+    let encrypted = TestProtector.protect(b"sk-ready").expect("protect");
+    {
+        let conn = db.conn.lock().expect("lock");
+        conn.execute(
+            "UPDATE upstream_credentials
+             SET credential_kind='bearer_token', encrypted_payload=?1, encryption_scheme=?2
+             WHERE id='ready-cred'",
+            rusqlite::params![encrypted, TestProtector.scheme()],
+        )
+        .expect("make credential ready");
+    }
+    db.ensure_v18_credential_readiness_for_test(&TestProtector)
+        .expect("typed decryptable adapter-ready credential must pass");
+
+    {
+        let conn = db.conn.lock().expect("lock");
+        conn.execute(
+            "INSERT INTO upstream_credentials
+                (id,upstream_id,credential_kind,encrypted_payload,encryption_scheme,created_at,updated_at)
+             VALUES ('second-cred','ready-up','x_api_key',X'01',?1,1,1)",
+            [TestProtector.scheme()],
+        )
+        .expect("seed ambiguity");
+    }
+    assert!(db
+        .ensure_v18_credential_readiness_for_test(&TestProtector)
+        .is_err());
+}
+
+/// v18 真实启动编排必须 fail-closed：先将纯网关回滚导出落盘，成功后才 purge。
+/// 同时不得再生成包含客户端快照/旧 providers 明文 secret 的整库 `.db` 预迁移备份。
+#[test]
+#[serial_test::serial]
+fn v18_purge_runs_only_after_readiness_and_verified_local_rollback() {
+    struct EnvGuard(Option<std::ffi::OsString>);
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(value) => std::env::set_var("AGENT_SWITCH_TEST_HOME", value),
+                None => std::env::remove_var("AGENT_SWITCH_TEST_HOME"),
+            }
+        }
+    }
+
+    let temp = tempfile::TempDir::new().expect("create isolated test home");
+    let _env_guard = EnvGuard(std::env::var_os("AGENT_SWITCH_TEST_HOME"));
+    std::env::set_var("AGENT_SWITCH_TEST_HOME", temp.path());
+    let config_dir = temp.path().join(".agent-switch");
+    std::fs::create_dir_all(&config_dir).expect("create config dir");
+    let db_path = config_dir.join("agent-switch.db");
+
+    {
+        let conn = Connection::open(&db_path).expect("open v17 db");
+        Database::create_tables_on_conn(&conn).expect("create schema");
+        Database::set_user_version(&conn, 16).expect("mark as v16 before gateway migration");
+        conn.execute(
+            "INSERT INTO providers (id, app_type, name, settings_config, meta)
+             VALUES ('legacy-p', 'codex', 'Legacy', ?1, '{}')",
+            [r#"{"config":"base_url = \"https://codex.invalid\"\nexperimental_bearer_token = \"must-migrate-before-purge\""}"#],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO proxy_live_backup (app_type, original_config, backed_up_at)
+             VALUES ('codex', 'CLIENT_SNAPSHOT_MUST_SURVIVE', '2026-01-01')",
+            [],
+        )
+        .unwrap();
+        Database::apply_schema_migrations_on_conn_to_version(&conn, 17)
+            .expect("migrate fixture to v17 gateway domain");
+        let upstream_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM upstreams", [], |row| row.get(0))
+            .expect("count migrated upstreams");
+        let credential_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM upstream_credentials", [], |row| {
+                row.get(0)
+            })
+            .expect("count migrated credentials");
+        assert_eq!(
+            upstream_count, 1,
+            "v17 fixture must include migrated upstream"
+        );
+        assert_eq!(
+            credential_count, 1,
+            "v17 fixture must include migrated credential"
+        );
+    }
+
+    let db = Database::init().expect("ready v17 database should purge to v18");
+    let conn = db.conn.lock().expect("lock upgraded db");
+    assert_eq!(Database::get_user_version(&conn).unwrap(), 18);
+    let live_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM proxy_live_backup", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(live_count, 0, "readiness 通过后 v18 应 purge live backup");
+    let settings: String = conn
+        .query_row(
+            "SELECT settings_config FROM providers WHERE id = 'legacy-p'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        !settings.contains("must-migrate-before-purge"),
+        "v18 应在精确凭据与回滚包验证完成后清除旧 credential source"
+    );
+    let credential_kind: String = conn
+        .query_row(
+            "SELECT credential_kind FROM upstream_credentials LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("precise credential must survive purge");
+    assert_eq!(credential_kind, "bearer_token");
+    drop(conn);
+
+    let rollback_created = config_dir.join("backups").exists()
+        && std::fs::read_dir(config_dir.join("backups"))
+            .expect("list backups")
+            .filter_map(Result::ok)
+            .any(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with("gateway_rollback_v17_before_v18_"))
+            });
+    assert!(
+        rollback_created,
+        "v18 purge 前必须生成并验证 local-gateway-rollback-v1 文件"
     );
 }
