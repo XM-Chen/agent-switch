@@ -25,7 +25,7 @@ use super::{
     },
     ProxyError,
 };
-use crate::commands::{CodexOAuthState, CopilotAuthState};
+use crate::proxy::auth_state::{CodexOAuthState, CopilotAuthState};
 use crate::proxy::providers::codex_oauth_auth::CodexOAuthManager;
 use crate::proxy::providers::copilot_auth::CopilotAuthManager;
 use crate::{
@@ -1256,7 +1256,7 @@ impl RequestForwarder {
             b["model"] = serde_json::json!(target);
             b
         } else if matches!(app_type, AppType::ClaudeDesktop) {
-            crate::claude_desktop_config::map_proxy_request_model(body.clone(), provider)
+            crate::proxy::claude_desktop_routes::map_proxy_request_model(body.clone(), provider)
                 .map_err(|e| ProxyError::InvalidRequest(e.to_string()))?
         } else {
             let (mapped_body, _original_model, _mapped_model) =

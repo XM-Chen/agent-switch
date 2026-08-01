@@ -144,8 +144,7 @@ impl RequestContext {
             .get_or_create_cc_client_device_id()
             .unwrap_or_default();
 
-        let current_provider_id =
-            crate::settings::get_current_provider(&app_type).unwrap_or_default();
+        let current_provider_id = String::new();
 
         // 从请求体提取模型名称
         let request_model = body
@@ -223,24 +222,6 @@ impl RequestContext {
             claude_client_profile_config,
             cc_client_device_id,
         })
-    }
-
-    /// 从 URI 提取模型名称（Gemini 专用）
-    ///
-    /// Gemini API 的模型名称在 URI 中，格式如：
-    /// `/v1beta/models/gemini-pro:generateContent`
-    /// Gemini 模型必须在路由前从 URI 提取；路由后修改 request_model 会导致
-    /// 候选与真实请求模型不一致，因此本方法只保留给旧测试并明确禁止生产使用。
-    #[deprecated(note = "Gemini 模型应在 RequestContext::new 前写入 body.model")]
-    pub fn with_model_from_uri(mut self, uri: &axum::http::Uri) -> Self {
-        // 用 path() 而不是 path_and_query()：模型名必须从路径段中解析，
-        // 否则 GET /v1beta/models/<id>?key=... 会把 query 拼到 request_model 上。
-        let endpoint = uri.path();
-
-        self.request_model =
-            extract_gemini_model_from_path(endpoint).unwrap_or_else(|| "unknown".to_string());
-
-        self
     }
 
     /// 创建 RequestForwarder

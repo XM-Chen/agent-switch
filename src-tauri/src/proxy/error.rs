@@ -29,12 +29,6 @@ pub enum ProxyError {
     #[error("无可用的Provider")]
     NoAvailableProvider,
 
-    #[error("所有供应商已熔断，无可用渠道")]
-    AllProvidersCircuitOpen,
-
-    #[error("未配置供应商")]
-    NoProvidersConfigured,
-
     #[error("网关模型不存在: {0}")]
     ModelNotFound(String),
 
@@ -132,12 +126,6 @@ impl IntoResponse for ProxyError {
                     }
                     ProxyError::ForwardFailed(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
                     ProxyError::NoAvailableProvider => {
-                        (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
-                    }
-                    ProxyError::AllProvidersCircuitOpen => {
-                        (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
-                    }
-                    ProxyError::NoProvidersConfigured => {
                         (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
                     }
                     ProxyError::ModelNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),

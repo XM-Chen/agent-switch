@@ -885,7 +885,16 @@ impl Database {
         let mut stmt = conn
             .prepare(
                 "SELECT c.upstream_id, c.credential_kind, c.encrypted_payload,
-                        c.encryption_scheme, u.protocol, u.adapter_type
+                        c.encryption_scheme, u.protocol, u.adapter_type,
+                        EXISTS(
+                            SELECT 1 FROM route_targets r
+                            JOIN gateway_models g ON g.id = r.gateway_model_id
+                            WHERE r.upstream_id = u.id
+                              AND r.enabled = 1
+                              AND u.enabled = 1
+                              AND g.enabled = 1
+                              AND g.migration_status = 'active'
+                        ) AS required_by_active_route
                  FROM upstream_credentials c
                  JOIN upstreams u ON u.id = c.upstream_id
                  ORDER BY c.upstream_id, c.credential_kind",
@@ -900,14 +909,25 @@ impl Database {
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, String>(5)?,
+                    row.get::<_, bool>(6)?,
                 ))
             })
             .map_err(|e| AppError::Database(format!("查询本机回滚凭据失败: {e}")))?;
         for row in rows {
-            let (upstream_id, kind, encrypted, scheme, protocol, adapter_type) =
-                row.map_err(|e| AppError::Database(format!("解析本机回滚凭据失败: {e}")))?;
-            if !credential::is_ready_kind(&kind)
-                || !credential::kind_can_serve(&kind, &protocol, &adapter_type)
+            let (
+                upstream_id,
+                kind,
+                encrypted,
+                scheme,
+                protocol,
+                adapter_type,
+                required_by_active_route,
+            ) = row.map_err(|e| AppError::Database(format!("解析本机回滚凭据失败: {e}")))?;
+            // 历史 v17 可能保留 disabled/orphan upstream 的不可运行凭据。这些行作为
+            // provenance 可以安全回滚；只有活跃路由真正依赖的凭据才必须满足运行时矩阵。
+            if required_by_active_route
+                && (!credential::is_ready_kind(&kind)
+                    || !credential::kind_can_serve(&kind, &protocol, &adapter_type))
             {
                 return Err(AppError::InvalidInput(format!(
                     "本机回滚上游 {upstream_id} 的凭据类型不可直接运行"
@@ -1107,9 +1127,16 @@ impl Database {
         Ok(())
     }
 
-    /// Periodic backup: create a new backup if the latest one is older than the configured interval
+    /// Periodic maintenance: prune old stream-check logs and roll up usage, then
+    /// incremental-vacuum. Auto DB-file backup is retired in the gateway (old
+    /// whole-DB backups may still carry client Live snapshots); this method keeps
+    /// only the maintenance half for compatibility callers.
+    #[cfg(test)]
     pub(crate) fn periodic_backup_if_needed(&self) -> Result<(), AppError> {
-        let interval_hours = crate::settings::effective_backup_interval_hours();
+        let interval_hours = self
+            .get_setting("backup_interval_hours")?
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(24);
         if interval_hours > 0 {
             let backup_dir = get_app_config_dir().join("backups");
             if !backup_dir.exists() {
@@ -1141,16 +1168,8 @@ impl Database {
             }
         }
 
-        // Periodic maintenance is always enabled, regardless of auto-backup settings.
+        // Periodic gateway usage maintenance is always enabled.
         let mut reclaimed_rows = 0u64;
-        match self.cleanup_old_stream_check_logs(7) {
-            Ok(deleted) => {
-                reclaimed_rows += deleted;
-            }
-            Err(e) => {
-                log::warn!("Periodic stream_check_logs cleanup failed: {e}");
-            }
-        }
         match self.rollup_and_prune(30) {
             Ok(deleted) => {
                 reclaimed_rows += deleted;
@@ -1778,7 +1797,6 @@ mod tests {
         let db = Database::memory()?;
         let now = chrono::Utc::now().timestamp();
         let old_ts = now - 40 * 86400;
-        let old_stream_ts = now - 8 * 86400;
 
         {
             let conn = crate::database::lock_conn!(db.conn);
@@ -1790,41 +1808,26 @@ mod tests {
                 ) VALUES ('old-req', 'p1', 'claude', 'claude-3', 100, 50, '0.01', 100, 200, ?1)",
                 [old_ts],
             )?;
-            conn.execute(
-                "INSERT INTO stream_check_logs (
-                    provider_id, provider_name, app_type, status, success, message,
-                    response_time_ms, http_status, model_used, retry_count, tested_at
-                ) VALUES ('p1', 'Provider 1', 'claude', 'operational', 1, 'ok', 42, 200, 'claude-3', 0, ?1)",
-                [old_stream_ts],
-            )?;
         }
 
         db.periodic_backup_if_needed()?;
 
-        let (remaining_request_logs, stream_logs, rollups): (i64, i64, i64) = {
+        let (remaining_request_logs, rollups): (i64, i64) = {
             let conn = crate::database::lock_conn!(db.conn);
             let remaining_request_logs =
                 conn.query_row("SELECT COUNT(*) FROM proxy_request_logs", [], |row| {
-                    row.get(0)
-                })?;
-            let stream_logs =
-                conn.query_row("SELECT COUNT(*) FROM stream_check_logs", [], |row| {
                     row.get(0)
                 })?;
             let rollups =
                 conn.query_row("SELECT COUNT(*) FROM usage_daily_rollups", [], |row| {
                     row.get(0)
                 })?;
-            (remaining_request_logs, stream_logs, rollups)
+            (remaining_request_logs, rollups)
         };
 
         assert_eq!(
             remaining_request_logs, 0,
             "old request logs should still be pruned when auto backup is disabled"
-        );
-        assert_eq!(
-            stream_logs, 0,
-            "old stream check logs should still be pruned when auto backup is disabled"
         );
         assert_eq!(rollups, 1, "old request logs should be rolled up");
 
@@ -1970,6 +1973,47 @@ mod tests {
             |row| row.get(0),
         )?;
         assert_eq!(target_model, "upstream-model", "失败导入不得污染主库");
+        Ok(())
+    }
+
+    #[test]
+    fn local_gateway_rollback_allows_incompatible_disabled_upstream_route_provenance(
+    ) -> Result<(), AppError> {
+        let source = Database::memory()?;
+        let orphan_encrypted = TestProtector.protect(b"orphan-secret")?;
+        let healthy_encrypted = TestProtector.protect(b"healthy-secret")?;
+        {
+            let conn = crate::database::lock_conn!(source.conn);
+            conn.execute_batch(
+                "INSERT INTO upstreams
+                    (id, name, enabled, protocol, adapter_type, created_at, updated_at)
+                 VALUES
+                    ('healthy-up', 'Healthy', 1, 'openai_responses', 'codex', 1, 1),
+                    ('orphan-up', 'Orphan', 0, 'unknown', 'unsupported', 1, 1);
+                 INSERT INTO gateway_models
+                    (id, model_id, display_name, enabled, source, migration_status,
+                     created_at, updated_at)
+                 VALUES ('gm', 'gateway-model', 'Gateway Model', 1, 'manual', 'active', 1, 1);
+                 INSERT INTO route_targets
+                    (id, gateway_model_id, upstream_id, target_model, position, enabled,
+                     created_at, updated_at)
+                 VALUES
+                    ('healthy-route', 'gm', 'healthy-up', 'healthy-model', 0, 1, 1, 1),
+                    ('orphan-route', 'gm', 'orphan-up', 'orphan-model', 1, 1, 1, 1);",
+            )?;
+            conn.execute(
+                "INSERT INTO upstream_credentials
+                    (id, upstream_id, credential_kind, encrypted_payload, encryption_scheme,
+                     created_at, updated_at)
+                 VALUES
+                    ('healthy-cred', 'healthy-up', 'bearer_token', ?1, ?3, 1, 1),
+                    ('orphan-cred', 'orphan-up', 'x_api_key', ?2, ?3, 1, 1)",
+                rusqlite::params![healthy_encrypted, orphan_encrypted, TestProtector.scheme()],
+            )?;
+        }
+
+        let sql = source.export_pure_gateway_sql_string()?;
+        Database::load_verified_local_gateway_rollback(&sql, &TestProtector)?;
         Ok(())
     }
 

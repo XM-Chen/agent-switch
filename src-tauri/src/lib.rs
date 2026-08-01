@@ -6,78 +6,48 @@
 mod app_config;
 mod app_store;
 mod auto_launch;
-mod claude_desktop_config;
-mod claude_mcp;
-mod codex_config;
-mod codex_history_migration;
-mod codex_state_db;
 mod commands;
 mod config;
 mod database;
-mod deeplink;
 mod error;
 pub mod gateway;
-mod gemini_config;
-mod gemini_mcp;
-pub mod hermes_config;
 mod init_status;
 mod lightweight;
 #[cfg(target_os = "linux")]
 mod linux_fix;
-mod mcp;
-mod openclaw_config;
-mod opencode_config;
 mod panic_hook;
-mod prompt;
-mod prompt_files;
 mod provider;
 mod provider_defaults;
 mod proxy;
 mod services;
 mod settings;
 mod store;
+mod test_hooks;
 
 mod tray;
 mod usage_events;
-mod usage_script;
 
-pub use app_config::{AppType, InstalledSkill, McpApps, McpServer, MultiAppConfig, SkillApps};
-pub use codex_config::{get_codex_auth_path, get_codex_config_path, write_codex_live_atomic};
-pub use commands::open_provider_terminal;
+pub use app_config::AppType;
 pub use commands::*;
-pub use config::{get_claude_mcp_path, get_claude_settings_path, read_json_file};
-pub use database::{CcAggregateConfig, Database, Profile};
-pub use deeplink::{import_provider_from_deeplink, parse_deeplink_url, DeepLinkImportRequest};
+pub use database::{CcAggregateConfig, Database};
 pub use error::AppError;
-pub use mcp::{
-    import_from_claude, import_from_codex, import_from_gemini, remove_server_from_claude,
-    remove_server_from_codex, remove_server_from_gemini, sync_enabled_to_claude,
-    sync_enabled_to_codex, sync_enabled_to_gemini, sync_single_server_to_claude,
-    sync_single_server_to_codex, sync_single_server_to_gemini,
-};
-pub use prompt::Prompt;
 pub use provider::{Provider, ProviderMeta};
-pub use proxy::types::RouteMode;
-pub use services::{
-    profile::{ProfilePayload, ProfileScope, ProfileService},
-    provider::reapply_current_codex_official_live,
-    skill::{migrate_skills_to_ssot, ImportSkillSelection},
-    ConfigService, EndpointLatency, McpService, PromptService, ProviderService, ProxyService,
-    SkillService, SpeedtestService,
-};
+pub use services::ProxyService;
 pub use settings::{
     reload_settings as reload_settings_for_test_hook, update_settings, AppSettings,
 };
 pub use store::AppState;
-use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+pub use test_hooks::{
+    add_provider_test_hook, delete_provider_test_hook, update_provider_test_hook,
+};
 
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
 use tauri::image::Image;
 use tauri::tray::TrayIconBuilder;
+use tauri::Manager;
 use tauri::RunEvent;
-use tauri::{Emitter, Manager};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 #[cfg(target_os = "windows")]
@@ -96,102 +66,6 @@ fn set_windows_app_user_model_id(app: &tauri::AppHandle) {
     }
 }
 
-fn redact_url_for_log(url_str: &str) -> String {
-    match url::Url::parse(url_str) {
-        Ok(url) => {
-            let mut output = format!("{}://", url.scheme());
-            if let Some(host) = url.host_str() {
-                output.push_str(host);
-            }
-            output.push_str(url.path());
-
-            let mut keys: Vec<String> = url.query_pairs().map(|(k, _)| k.to_string()).collect();
-            keys.sort();
-            keys.dedup();
-
-            if !keys.is_empty() {
-                output.push_str("?[keys:");
-                output.push_str(&keys.join(","));
-                output.push(']');
-            }
-
-            output
-        }
-        Err(_) => {
-            let base = url_str.split('#').next().unwrap_or(url_str);
-            match base.split_once('?') {
-                Some((prefix, _)) => format!("{prefix}?[redacted]"),
-                None => base.to_string(),
-            }
-        }
-    }
-}
-
-/// 统一处理 agentswitch:// 深链接 URL（粘贴兼容 ccswitch://）
-///
-/// - 解析 URL
-/// - 向前端发射 `deeplink-import` / `deeplink-error` 事件
-/// - 可选：在成功时聚焦主窗口
-fn handle_deeplink_url(
-    app: &tauri::AppHandle,
-    url_str: &str,
-    focus_main_window: bool,
-    source: &str,
-) -> bool {
-    if !(url_str.starts_with("agentswitch://") || url_str.starts_with("ccswitch://")) {
-        return false;
-    }
-
-    let redacted_url = redact_url_for_log(url_str);
-    log::info!("✓ Deep link URL detected from {source}: {redacted_url}");
-
-    match crate::deeplink::parse_deeplink_url(url_str) {
-        Ok(request) => {
-            log::info!(
-                "✓ Successfully parsed deep link: resource={}, app={:?}, name={:?}",
-                request.resource,
-                request.app,
-                request.name
-            );
-
-            if let Err(e) = app.emit("deeplink-import", &request) {
-                log::error!("✗ Failed to emit deeplink-import event: {e}");
-            } else {
-                log::info!("✓ Emitted deeplink-import event to frontend");
-            }
-
-            if focus_main_window {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                    #[cfg(target_os = "linux")]
-                    {
-                        linux_fix::nudge_main_window(window.clone());
-                    }
-                    log::info!("✓ Window shown and focused");
-                }
-            }
-        }
-        Err(e) => {
-            log::error!("✗ Failed to parse deep link URL: {e}");
-
-            if let Err(emit_err) = app.emit(
-                "deeplink-error",
-                serde_json::json!({
-                    "url": redacted_url,
-                    "error": e.to_string()
-                }),
-            ) {
-                log::error!("✗ Failed to emit deeplink-error event: {emit_err}");
-            }
-        }
-    }
-
-    true
-}
-
-/// 更新托盘菜单的Tauri命令
 #[tauri::command]
 async fn update_tray_menu(
     app: tauri::AppHandle,
@@ -238,9 +112,6 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             log::info!("=== Single Instance Callback Triggered ===");
             log::debug!("Args count: {}", args.len());
-            for (i, arg) in args.iter().enumerate() {
-                log::debug!("  arg[{i}]: {}", redact_url_for_log(arg));
-            }
 
             if crate::lightweight::is_lightweight_mode() {
                 if let Err(e) = crate::lightweight::exit_lightweight_mode(app) {
@@ -249,17 +120,7 @@ pub fn run() {
             }
 
             // Check for deep link URL in args (mainly for Windows/Linux command line)
-            let mut found_deeplink = false;
-            for arg in &args {
-                if handle_deeplink_url(app, arg, false, "single_instance args") {
-                    found_deeplink = true;
-                    break;
-                }
-            }
-
-            if !found_deeplink {
-                log::info!("ℹ No deep link URL found in args (this is expected on macOS when launched via system)");
-            }
+            let _ = &args;
 
             // Show and focus window regardless
             if let Some(window) = app.get_webview_window("main") {
@@ -275,8 +136,6 @@ pub fn run() {
     }
 
     let builder = builder
-        // 注册 deep-link 插件（处理 macOS AppleEvent 和其他平台的深链接）
-        .plugin(tauri_plugin_deep_link::init())
         // 拦截窗口关闭：根据设置决定是否最小化到托盘
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -472,70 +331,6 @@ pub fn run() {
 
             // 启动阶段不再无条件保存,避免意外覆盖用户配置。
 
-            // 注册 deep-link URL 处理器（使用正确的 DeepLinkExt API）
-            log::info!("=== Registering deep-link URL handler ===");
-
-            // Linux 和 Windows 调试模式需要显式注册
-            #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
-            {
-                #[cfg(target_os = "linux")]
-                {
-                    // Use Tauri's path API to get correct path (includes app identifier)
-                    // tauri-plugin-deep-link writes to: ~/.local/share/com.agent-switch.app/applications/agent-switch-handler.desktop
-                    // Only register if .desktop file doesn't exist to avoid overwriting user customizations
-                    let should_register = app
-                        .path()
-                        .data_dir()
-                        .map(|d| !d.join("applications/agent-switch-handler.desktop").exists())
-                        .unwrap_or(true);
-
-                    if should_register {
-                        if let Err(e) = app.deep_link().register_all() {
-                            log::error!("✗ Failed to register deep link schemes: {}", e);
-                        } else {
-                            log::info!("✓ Deep link schemes registered (Linux)");
-                        }
-                    } else {
-                        log::info!("⊘ Deep link handler already exists, skipping registration");
-                    }
-                }
-
-                #[cfg(all(debug_assertions, windows))]
-                {
-                    if let Err(e) = app.deep_link().register_all() {
-                        log::error!("✗ Failed to register deep link schemes: {}", e);
-                    } else {
-                        log::info!("✓ Deep link schemes registered (Windows debug)");
-                    }
-                }
-            }
-
-            // 注册 URL 处理回调（所有平台通用）
-            app.deep_link().on_open_url({
-                let app_handle = app.handle().clone();
-                move |event| {
-                    log::info!("=== Deep Link Event Received (on_open_url) ===");
-                    let urls = event.urls();
-                    log::info!("Received {} URL(s)", urls.len());
-
-                    if crate::lightweight::is_lightweight_mode() {
-                        if let Err(e) = crate::lightweight::exit_lightweight_mode(&app_handle) {
-                            log::error!("退出轻量模式重建窗口失败: {e}");
-                        }
-                    }
-
-                    for (i, url) in urls.iter().enumerate() {
-                        let url_str = url.as_str();
-                        log::debug!("  URL[{i}]: {}", redact_url_for_log(url_str));
-
-                        if handle_deeplink_url(&app_handle, url_str, true, "on_open_url") {
-                            break; // Process only first agentswitch:// (or paste-compat ccswitch://) URL
-                        }
-                    }
-                }
-            });
-            log::info!("✓ Deep-link URL handler registered");
-
             // 创建动态托盘菜单
             let menu = tray::create_tray_menu(app.handle(), &app_state)?;
 
@@ -589,14 +384,10 @@ pub fn run() {
                 }
             }
 
-            // 初始化 SkillService
-            let skill_service = SkillService::new();
-            app.manage(commands::skill::SkillServiceState(Arc::new(skill_service)));
-
             // 初始化 CopilotAuthManager
             {
                 use crate::proxy::providers::copilot_auth::CopilotAuthManager;
-                use commands::CopilotAuthState;
+                use crate::proxy::auth_state::CopilotAuthState;
                 use tokio::sync::RwLock;
 
                 let app_config_dir = crate::config::get_app_config_dir();
@@ -608,7 +399,7 @@ pub fn run() {
             // 初始化 CodexOAuthManager (ChatGPT Plus/Pro 反代)
             {
                 use crate::proxy::providers::codex_oauth_auth::CodexOAuthManager;
-                use commands::CodexOAuthState;
+                use crate::proxy::auth_state::CodexOAuthState;
                 use tokio::sync::RwLock;
 
                 let app_config_dir = crate::config::get_app_config_dir();
@@ -656,9 +447,6 @@ pub fn run() {
                 if let Err(error) = state.db.reset_proxy_runtime_mirror().await {
                     log::error!("归零网关运行镜像失败: {error}");
                 }
-
-                // 模型缓存调度只访问项目数据库和已配置的远程上游，属于网关域。
-                crate::services::model_cache::start_schedulers(state.db.clone());
 
                 // 自动整库备份暂时停用。旧库可能仍含客户端 Live 快照，复制整库会继续
                 // 持有/扩散这些历史数据；阶段 5 改为仅导出纯网关表后再恢复自动备份。
@@ -715,6 +503,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // GatewayShell 基础设施
             commands::open_external,
+            commands::open_app_config_folder,
             commands::get_init_error,
             commands::get_settings,
             commands::save_settings,
@@ -726,6 +515,9 @@ pub fn run() {
             commands::start_proxy_server,
             commands::stop_proxy_server,
             commands::get_proxy_status,
+            commands::is_proxy_running,
+            commands::get_proxy_config,
+            commands::update_proxy_config,
             // 网关鉴权
             commands::get_gateway_auth_status,
             commands::create_gateway_api_key,
@@ -847,68 +639,6 @@ pub fn run() {
                     } else if crate::lightweight::is_lightweight_mode() {
                         if let Err(e) = crate::lightweight::exit_lightweight_mode(app_handle) {
                             log::error!("退出轻量模式重建窗口失败: {e}");
-                        }
-                    }
-                }
-                // 处理通过自定义 URL 协议触发的打开事件（例如 agentswitch://...；粘贴兼容 ccswitch://）
-                RunEvent::Opened { urls } => {
-                    if let Some(url) = urls.first() {
-                        let url_str = url.to_string();
-                        log::info!(
-                            "RunEvent::Opened with URL: {}",
-                            redact_url_for_log(&url_str)
-                        );
-
-                        if url_str.starts_with("agentswitch://") || url_str.starts_with("ccswitch://") {
-                            if crate::lightweight::is_lightweight_mode() {
-                                if let Err(e) = crate::lightweight::exit_lightweight_mode(app_handle)
-                                {
-                                    log::error!("退出轻量模式重建窗口失败: {e}");
-                                }
-                            }
-
-                            // 解析并广播深链接事件，复用与 single_instance 相同的逻辑
-                            match crate::deeplink::parse_deeplink_url(&url_str) {
-                                Ok(request) => {
-                                    log::info!(
-                                        "Successfully parsed deep link from RunEvent::Opened: resource={}, app={:?}",
-                                        request.resource,
-                                        request.app
-                                    );
-
-                                    if let Err(e) =
-                                        app_handle.emit("deeplink-import", &request)
-                                    {
-                                        log::error!(
-                                            "Failed to emit deep link event from RunEvent::Opened: {e}"
-                                        );
-                                    }
-                                }
-                                Err(e) => {
-                                    log::error!(
-                                        "Failed to parse deep link URL from RunEvent::Opened: {e}"
-                                    );
-
-                                    if let Err(emit_err) = app_handle.emit(
-                                        "deeplink-error",
-                                        serde_json::json!({
-                                            "url": redact_url_for_log(&url_str),
-                                            "error": e.to_string()
-                                        }),
-                                    ) {
-                                        log::error!(
-                                            "Failed to emit deep link error event from RunEvent::Opened: {emit_err}"
-                                        );
-                                    }
-                                }
-                            }
-
-                            // 确保主窗口可见
-                            if let Some(window) = app_handle.get_webview_window("main") {
-                                let _ = window.unminimize();
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
                         }
                     }
                 }
@@ -1115,30 +845,7 @@ pub fn restart_process(app_handle: &tauri::AppHandle) -> ! {
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_exit_request, redact_url_for_log, ExitRequestAction};
-
-    #[test]
-    fn deep_link_log_redaction_never_keeps_query_values() {
-        let secret = "agsk_super-secret-value";
-        let redacted = redact_url_for_log(&format!(
-            "agentswitch://provider/import?api_key={secret}&name=demo"
-        ));
-
-        assert_eq!(
-            redacted,
-            "agentswitch://provider/import?[keys:api_key,name]"
-        );
-        assert!(!redacted.contains(secret));
-    }
-
-    #[test]
-    fn malformed_deep_link_log_redaction_drops_query_and_fragment() {
-        let redacted = redact_url_for_log("agentswitch://bad path?token=secret#fragment");
-
-        assert_eq!(redacted, "agentswitch://bad path?[redacted]");
-        assert!(!redacted.contains("secret"));
-        assert!(!redacted.contains("fragment"));
-    }
+    use super::{classify_exit_request, ExitRequestAction};
 
     #[test]
     fn no_code_keeps_app_alive_in_tray() {

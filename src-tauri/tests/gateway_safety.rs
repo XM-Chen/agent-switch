@@ -188,14 +188,6 @@ fn gateway_production_wiring_has_no_client_config_entry_points() {
             "src/commands/settings.rs",
             &["maybe_migrate_codex_official_history_to_unified_bucket"],
         ),
-        (
-            "src/commands/provider.rs",
-            &["subscription::get_subscription_quota"],
-        ),
-        (
-            "src/commands/sync_support.rs",
-            &["ProviderService::sync_current_to_live"],
-        ),
     ];
 
     for (relative, forbidden) in cases {
@@ -226,6 +218,7 @@ fn gateway_production_wiring_has_no_client_config_entry_points() {
     let actual: BTreeSet<&str> = registered.iter().copied().collect();
     let expected = BTreeSet::from([
         "commands::open_external",
+        "commands::open_app_config_folder",
         "commands::get_init_error",
         "commands::get_settings",
         "commands::save_settings",
@@ -236,6 +229,9 @@ fn gateway_production_wiring_has_no_client_config_entry_points() {
         "commands::start_proxy_server",
         "commands::stop_proxy_server",
         "commands::get_proxy_status",
+        "commands::is_proxy_running",
+        "commands::get_proxy_config",
+        "commands::update_proxy_config",
         "commands::get_gateway_auth_status",
         "commands::create_gateway_api_key",
         "commands::revoke_gateway_api_key",

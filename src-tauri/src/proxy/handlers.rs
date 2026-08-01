@@ -1861,8 +1861,6 @@ fn codex_proxy_error_code(error: &ProxyError) -> &'static str {
         ProxyError::ForwardFailed(_) => "cc_switch_forward_failed",
         ProxyError::Timeout(_) | ProxyError::StreamIdleTimeout(_) => "cc_switch_timeout",
         ProxyError::NoAvailableProvider => "cc_switch_no_available_provider",
-        ProxyError::AllProvidersCircuitOpen => "cc_switch_all_providers_circuit_open",
-        ProxyError::NoProvidersConfigured => "cc_switch_no_providers_configured",
         ProxyError::ModelNotFound(_) => "model_not_found",
         ProxyError::NoAvailableTarget(_) => "no_available_target",
         ProxyError::MaxRetriesExceeded => "cc_switch_max_retries_exceeded",

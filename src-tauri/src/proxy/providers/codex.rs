@@ -127,18 +127,6 @@ pub fn should_convert_codex_responses_to_anthropic(provider: &Provider, endpoint
     ) && codex_provider_uses_anthropic(provider)
 }
 
-pub fn resolve_codex_catalog_tool_profile(
-    provider: &Provider,
-) -> crate::codex_config::CodexCatalogToolProfile {
-    use crate::codex_config::CodexCatalogToolProfile;
-    if codex_provider_uses_anthropic(provider) {
-        return CodexCatalogToolProfile::Anthropic;
-    }
-    CodexCatalogToolProfile::from_api_format(
-        provider.meta.as_ref().and_then(|m| m.api_format.as_deref()),
-    )
-}
-
 /// Whether a converted Codex Responses request may send `prompt_cache_key` to
 /// its Chat Completions upstream. Unknown OpenAI-compatible gateways default to
 /// false because many reject unsupported request fields with HTTP 400.
@@ -534,7 +522,7 @@ fn extract_codex_model_from_toml(config_text: &str) -> Option<String> {
 fn extract_codex_base_url_from_toml(config_text: &str) -> Option<String> {
     // Canonical parser lives in codex_config; keep this thin alias so the
     // proxy hot path and the usage-credential resolver share one implementation.
-    crate::codex_config::extract_codex_base_url(config_text)
+    crate::gateway::legacy_codex::extract_base_url(config_text)
 }
 
 impl CodexAdapter {
@@ -566,7 +554,7 @@ impl CodexAdapter {
 
         // 2. 尝试从 auth 中获取 (Codex CLI 格式)
         if let Some(auth) = provider.settings_config.get("auth") {
-            if let Some(key) = crate::codex_config::extract_codex_auth_api_key(auth) {
+            if let Some(key) = crate::gateway::legacy_codex::extract_auth_api_key(auth) {
                 return Some(key.to_string());
             }
         }
@@ -597,7 +585,7 @@ impl CodexAdapter {
 
             if let Some(config_str) = config.as_str() {
                 if let Some(key) =
-                    crate::codex_config::extract_codex_experimental_bearer_token(config_str)
+                    crate::gateway::legacy_codex::extract_experimental_bearer_token(config_str)
                 {
                     return Some(key);
                 }
@@ -946,17 +934,6 @@ wire_api = "chat"
         let headers = adapter.get_auth_headers(&api_key).unwrap();
         assert_eq!(headers.len(), 1);
         assert_eq!(headers[0].0, "x-api-key");
-    }
-
-    #[test]
-    fn anthropic_catalog_profile_matches_router() {
-        let provider = create_provider(json!({
-            "config": "model_provider = 'custom'\n[model_providers.custom]\nwire_api = 'anthropic'\n"
-        }));
-        assert_eq!(
-            resolve_codex_catalog_tool_profile(&provider),
-            crate::codex_config::CodexCatalogToolProfile::Anthropic
-        );
     }
 
     #[test]

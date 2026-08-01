@@ -674,7 +674,7 @@ fn count_credential_candidates(app_type: &str, settings: &Value) -> usize {
                     settings
                         .get("config")
                         .and_then(Value::as_str)
-                        .and_then(crate::codex_config::extract_codex_experimental_bearer_token)
+                        .and_then(crate::gateway::legacy_codex::extract_experimental_bearer_token)
                         .is_some(),
                 )
         }

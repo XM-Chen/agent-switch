@@ -1,4 +1,3 @@
-use crate::app_config::AppType;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -135,53 +134,6 @@ impl FromStr for RouteMode {
             "direct" => Ok(Self::Direct),
             "proxy" => Ok(Self::Proxy),
             other => Err(format!("无效的接管路由模式: {other}")),
-        }
-    }
-}
-
-/// 单个模块的稳定接管状态。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ProxyModuleTakeoverStatus {
-    pub takeover_enabled: bool,
-    pub route_mode: RouteMode,
-}
-
-/// 七模块接管状态。字段名是唯一的 AppType -> wire key 映射。
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ProxyTakeoverStatus {
-    pub claude: ProxyModuleTakeoverStatus,
-    pub claude_desktop: ProxyModuleTakeoverStatus,
-    pub codex: ProxyModuleTakeoverStatus,
-    pub gemini: ProxyModuleTakeoverStatus,
-    pub opencode: ProxyModuleTakeoverStatus,
-    pub openclaw: ProxyModuleTakeoverStatus,
-    pub hermes: ProxyModuleTakeoverStatus,
-}
-
-impl ProxyTakeoverStatus {
-    pub fn set_for_app(&mut self, app: &AppType, status: ProxyModuleTakeoverStatus) {
-        match app {
-            AppType::Claude => self.claude = status,
-            AppType::ClaudeDesktop => self.claude_desktop = status,
-            AppType::Codex => self.codex = status,
-            AppType::Gemini => self.gemini = status,
-            AppType::OpenCode => self.opencode = status,
-            AppType::OpenClaw => self.openclaw = status,
-            AppType::Hermes => self.hermes = status,
-        }
-    }
-
-    pub fn for_app(&self, app: &AppType) -> ProxyModuleTakeoverStatus {
-        match app {
-            AppType::Claude => self.claude,
-            AppType::ClaudeDesktop => self.claude_desktop,
-            AppType::Codex => self.codex,
-            AppType::Gemini => self.gemini,
-            AppType::OpenCode => self.opencode,
-            AppType::OpenClaw => self.openclaw,
-            AppType::Hermes => self.hermes,
         }
     }
 }

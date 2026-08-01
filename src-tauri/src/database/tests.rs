@@ -3,12 +3,8 @@
 //! 包含 Schema 迁移和基本功能的测试。
 
 use super::*;
-use crate::app_config::MultiAppConfig;
-use crate::provider::{Provider, ProviderManager};
-use indexmap::IndexMap;
 use rusqlite::{params, Connection};
 use serde_json::json;
-use std::collections::HashMap;
 use tempfile::NamedTempFile;
 
 const LEGACY_SCHEMA_SQL: &str = r#"
@@ -1447,80 +1443,6 @@ fn migration_from_v3_8_schema_v1_to_current_schema_v3() {
         .query_row("SELECT COUNT(*) FROM model_pricing", [], |r| r.get(0))
         .expect("count model_pricing rows");
     assert!(pricing_rows > 0, "model_pricing should be seeded");
-}
-
-#[test]
-fn schema_dry_run_does_not_write_to_disk() {
-    // Create minimal valid config for migration
-    let mut apps = HashMap::new();
-    apps.insert("claude".to_string(), ProviderManager::default());
-
-    let config = MultiAppConfig {
-        version: 2,
-        apps,
-        mcp: Default::default(),
-        prompts: Default::default(),
-        skills: Default::default(),
-        common_config_snippets: Default::default(),
-        claude_common_config_snippet: None,
-    };
-
-    // Dry-run should succeed without any file I/O errors
-    let result = Database::migrate_from_json_dry_run(&config);
-    assert!(
-        result.is_ok(),
-        "Dry-run should succeed with valid config: {result:?}"
-    );
-}
-
-#[test]
-fn dry_run_validates_schema_compatibility() {
-    // Create config with actual provider data
-    let mut providers = IndexMap::new();
-    providers.insert(
-        "test-provider".to_string(),
-        Provider {
-            id: "test-provider".to_string(),
-            name: "Test Provider".to_string(),
-            settings_config: json!({
-                "anthropicApiKey": "sk-test-123",
-            }),
-            website_url: None,
-            category: None,
-            created_at: Some(1234567890),
-            sort_index: None,
-            notes: None,
-            meta: None,
-            icon: None,
-            icon_color: None,
-            in_failover_queue: false,
-        },
-    );
-
-    let manager = ProviderManager {
-        providers,
-        current: "test-provider".to_string(),
-    };
-
-    let mut apps = HashMap::new();
-    apps.insert("claude".to_string(), manager);
-
-    let config = MultiAppConfig {
-        version: 2,
-        apps,
-        mcp: Default::default(),
-        prompts: Default::default(),
-        skills: Default::default(),
-        common_config_snippets: Default::default(),
-        claude_common_config_snippet: None,
-    };
-
-    // Dry-run should validate the full migration path
-    let result = Database::migrate_from_json_dry_run(&config);
-    assert!(
-        result.is_ok(),
-        "Dry-run should succeed with provider data: {result:?}"
-    );
 }
 
 #[test]

@@ -125,11 +125,6 @@ pub fn refresh_tray_menu(app: &tauri::AppHandle) {
     }
 }
 
-/// 兼容旧事件调用方；网关托盘没有用量标题，只需重建状态菜单。
-pub fn schedule_tray_refresh(app: &tauri::AppHandle) {
-    refresh_tray_menu(app);
-}
-
 #[cfg(target_os = "macos")]
 pub fn apply_tray_policy(app: &tauri::AppHandle, dock_visible: bool) {
     use tauri::ActivationPolicy;

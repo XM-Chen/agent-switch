@@ -79,24 +79,7 @@ pub fn init(proxy_url: Option<&str>) -> Result<(), String> {
     Ok(())
 }
 
-/// 验证代理配置（不应用）
-///
-/// 只验证代理 URL 是否有效，不实际更新全局客户端。
-/// 用于在持久化之前验证配置的有效性。
-///
-/// # Arguments
-/// * `proxy_url` - 代理 URL，None 或空字符串表示直连
-///
-/// # Returns
-/// 验证成功返回 Ok(())，失败返回错误信息
-pub fn validate_proxy(proxy_url: Option<&str>) -> Result<(), String> {
-    let effective_url = proxy_url.filter(|s| !s.trim().is_empty());
-    // 只调用 build_client 来验证，但不应用
-    build_client(effective_url)?;
-    Ok(())
-}
-
-/// 应用代理配置（假设已验证）
+/// 应用代理配置。
 ///
 /// 直接应用代理配置到全局客户端，不做额外验证。
 /// 应在 validate_proxy 成功后调用。

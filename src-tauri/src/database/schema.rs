@@ -185,6 +185,30 @@ impl Database {
             input_token_semantics INTEGER NOT NULL DEFAULT 0
         )", []).map_err(|e| AppError::Database(e.to_string()))?;
 
+        // `create_tables` runs before versioned migrations. On an existing pre-v17 DB,
+        // CREATE TABLE IF NOT EXISTS does not add the gateway columns, so creating the
+        // route index here would fail before migrate_v16_to_v17 gets a chance to run.
+        for (column, definition) in [
+            ("request_model", "TEXT"),
+            ("pricing_model", "TEXT"),
+            ("first_token_ms", "INTEGER"),
+            ("duration_ms", "INTEGER"),
+            ("error_message", "TEXT"),
+            ("session_id", "TEXT"),
+            ("provider_type", "TEXT"),
+            ("is_streaming", "INTEGER NOT NULL DEFAULT 0"),
+            ("cost_multiplier", "TEXT NOT NULL DEFAULT '1.0'"),
+            ("data_source", "TEXT NOT NULL DEFAULT 'proxy'"),
+            ("input_token_semantics", "INTEGER NOT NULL DEFAULT 0"),
+            ("ingress_protocol", "TEXT"),
+            ("gateway_model_id", "TEXT"),
+            ("route_target_id", "TEXT"),
+            ("upstream_id", "TEXT"),
+            ("target_model", "TEXT"),
+        ] {
+            Self::add_column_if_missing(conn, "proxy_request_logs", column, definition)?;
+        }
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_request_logs_provider ON proxy_request_logs(provider_id, app_type)", [])
             .map_err(|e| AppError::Database(e.to_string()))?;
         conn.execute("CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON proxy_request_logs(created_at)", [])
@@ -3542,6 +3566,62 @@ mod pricing_tests {
         assert_eq!(pricing(&conn, "gpt-5.6-sol").3, "6.25");
         assert_eq!(pricing(&conn, "gpt-5.6-terra").0, "9");
         assert_eq!(pricing(&conn, "gpt-5.6-terra").3, "0");
+    }
+}
+
+#[cfg(test)]
+mod pre_v17_request_log_tests {
+    use super::Database;
+    use crate::AppError;
+    use rusqlite::Connection;
+
+    #[test]
+    fn create_tables_upgrades_request_log_columns_before_creating_route_index(
+    ) -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "CREATE TABLE proxy_request_logs (
+                request_id TEXT PRIMARY KEY,
+                provider_id TEXT NOT NULL,
+                app_type TEXT NOT NULL,
+                model TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+                input_cost_usd TEXT NOT NULL DEFAULT '0',
+                output_cost_usd TEXT NOT NULL DEFAULT '0',
+                cache_read_cost_usd TEXT NOT NULL DEFAULT '0',
+                cache_creation_cost_usd TEXT NOT NULL DEFAULT '0',
+                total_cost_usd TEXT NOT NULL DEFAULT '0',
+                latency_ms INTEGER NOT NULL,
+                status_code INTEGER NOT NULL,
+                is_streaming INTEGER NOT NULL DEFAULT 0,
+                cost_multiplier TEXT NOT NULL DEFAULT '1.0',
+                created_at INTEGER NOT NULL
+            );
+            PRAGMA user_version = 16;",
+        )?;
+
+        Database::create_tables_on_conn(&conn)?;
+
+        for column in [
+            "ingress_protocol",
+            "gateway_model_id",
+            "route_target_id",
+            "upstream_id",
+            "target_model",
+        ] {
+            assert!(Database::has_column(&conn, "proxy_request_logs", column)?);
+        }
+        let route_index: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'index' AND name = 'idx_request_logs_gateway_route'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(route_index, 1);
+        Ok(())
     }
 }
 

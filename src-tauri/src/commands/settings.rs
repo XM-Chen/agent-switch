@@ -69,50 +69,6 @@ pub async fn save_settings(
     Ok(true)
 }
 
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodexUnifyHistoryRestoreResult {
-    pub restored_jsonl_files: usize,
-    pub restored_state_rows: usize,
-    /// 还原被跳过的原因（如当前目录没有账本），前端据此提示而非报"成功 0 项"。
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub skipped_reason: Option<String>,
-}
-
-/// 是否存在统一会话开关的迁移备份（决定关闭弹窗里是否显示"恢复备份"勾选）。
-#[tauri::command]
-pub async fn has_codex_unify_history_backup() -> Result<bool, String> {
-    Ok(crate::codex_history_migration::has_codex_official_history_unify_backup())
-}
-
-/// 按迁移备份账本把当时迁入共享桶的官方会话还原回 "openai" 桶。
-/// 由关闭统一会话开关的确认弹窗触发；幂等，可安全重试。
-#[tauri::command]
-pub async fn restore_codex_unified_history() -> Result<CodexUnifyHistoryRestoreResult, String> {
-    let outcome = tauri::async_runtime::spawn_blocking(|| {
-        crate::codex_history_migration::restore_codex_official_history_from_backups()
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
-
-    if let Some(reason) = &outcome.skipped_reason {
-        log::debug!("○ Codex official history restore skipped: {reason}");
-    } else {
-        log::info!(
-            "✓ Codex official history restored from backups: jsonl_files={}, state_rows={}",
-            outcome.restored_jsonl_files,
-            outcome.restored_state_rows
-        );
-    }
-
-    Ok(CodexUnifyHistoryRestoreResult {
-        restored_jsonl_files: outcome.restored_jsonl_files,
-        restored_state_rows: outcome.restored_state_rows,
-        skipped_reason: outcome.skipped_reason,
-    })
-}
-
 /// 重启应用程序（当 app_config_dir 变更后使用）
 #[tauri::command]
 pub async fn restart_app(app: AppHandle) -> Result<bool, String> {

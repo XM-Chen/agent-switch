@@ -53,10 +53,9 @@ pub use claude::{
 };
 pub use codex::CodexAdapter;
 pub use codex::{
-    apply_codex_chat_upstream_model, apply_codex_upstream_model, codex_provider_upstream_model,
-    inject_codex_chat_prompt_cache_key, resolve_codex_catalog_tool_profile,
-    resolve_codex_chat_reasoning_config, should_convert_codex_responses_to_anthropic,
-    should_convert_codex_responses_to_chat,
+    apply_codex_chat_upstream_model, apply_codex_upstream_model,
+    inject_codex_chat_prompt_cache_key, resolve_codex_chat_reasoning_config,
+    should_convert_codex_responses_to_anthropic, should_convert_codex_responses_to_chat,
 };
 pub use gemini::GeminiAdapter;
 
@@ -252,32 +251,9 @@ impl std::str::FromStr for ProviderType {
     }
 }
 
-/// 根据 AppType 获取对应的适配器
-///
-/// 仅按 AppType 决定 adapter，够用于 Claude/Codex/Gemini/ClaudeDesktop。
-/// OpenCode/OpenClaw/Hermes 的 canonical 协议随 provider schema（`api`/`api_mode`/`npm`）
-/// 变化，且凭据字段位置与 Codex 不同，需要 provider-aware 解析——它们**不再** fallback 到
-/// CodexAdapter，改由 [`get_adapter_for`] 返回按模块协议规范化后的 adapter。
-/// 这里保留 app-type-only 版本供 stream_check 等无 provider 上下文的调用方使用；
-/// forwarder 请求路径应改用 [`get_adapter_for`]。
-pub fn get_adapter(app_type: &AppType) -> Box<dyn ProviderAdapter> {
-    match app_type {
-        AppType::Claude | AppType::ClaudeDesktop => Box::new(ClaudeAdapter::new()),
-        AppType::Codex => Box::new(CodexAdapter::new()),
-        AppType::Gemini => Box::new(GeminiAdapter::new()),
-        // 没有 provider 上下文就无法判定新模块协议；返回显式拒绝 adapter，
-        // 禁止把未知协议静默当成 Codex/OpenAI。
-        AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => {
-            Box::new(UnsupportedModuleAdapter::new(app_type.clone()))
-        }
-    }
-}
-
-/// provider-aware 的 adapter 解析：Claude/Codex/Gemini/ClaudeDesktop 与
-/// [`get_adapter`] 一致；OpenCode/OpenClaw/Hermes 按 provider 的 canonical 协议
-/// 选择底层 Claude/Codex 转换链，并用模块专属 schema 规范化投影出底层 adapter
-/// 能识别的凭据视图（`extract_base_url`/`extract_auth`）。未知协议返回显式拒绝
-/// adapter，绝不 fallback 到 Codex。
+/// Provider-aware adapter resolution for every compatibility namespace.
+/// Modules whose canonical protocol depends on the stored legacy provider schema are
+/// normalized into the mature Claude/Codex adapters; unknown protocols fail closed.
 pub fn get_adapter_for(app_type: &AppType, provider: &Provider) -> Box<dyn ProviderAdapter> {
     match app_type {
         AppType::Claude | AppType::ClaudeDesktop => Box::new(ClaudeAdapter::new()),
@@ -313,15 +289,15 @@ pub fn get_adapter_for_provider_type(provider_type: &ProviderType) -> Box<dyn Pr
 // OpenCode / OpenClaw / Hermes 的 canonical 协议解析与规范化 adapter（C2b）
 // ============================================================================
 
-/// 四新模块（OpenCode/OpenClaw/Hermes）proxy 时选定的 canonical 本地协议。
+/// Canonical local protocol used by legacy compatibility namespaces.
 ///
 /// 只覆盖现有 Claude/Codex/Gemini 转换链能承载的协议家族：
 /// - `Anthropic`：Anthropic Messages（复用 ClaudeAdapter/Anthropic 转换链）。
 /// - `OpenAiChat`：OpenAI Chat Completions（复用 CodexAdapter/OpenAI 转换链）。
 /// - `OpenAiResponses`：OpenAI Responses（复用 CodexAdapter/Responses 转换链）。
 ///
-/// 能力矩阵外协议（如 Hermes `bedrock_converse`）不在此枚举中，由
-/// [`validate_module_proxy_capability`] 在写 live/提交 route_mode 前原子拒绝。
+/// 能力矩阵外协议不在此枚举中，provider-aware 解析返回 `None`，
+/// 由 `get_adapter_for` 构造显式拒绝 adapter。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleProtocol {
     Anthropic,
@@ -394,44 +370,6 @@ pub fn module_canonical_protocol(
         // 其它 AppType 不使用本函数。
         _ => None,
     }
-}
-
-/// proxy 启用前的能力矩阵校验（fail-fast）。
-///
-/// 仅当模块 canonical 协议落在现有转换链（Anthropic / OpenAI Chat）内才允许 proxy。
-/// 无法解析（矩阵外协议或字段缺失）时返回 `Err`，调用方必须在 capture snapshot /
-/// 写 live / 提交 route_mode **之前**拒绝，保持 `takeover_enabled`/`route_mode`/live/
-/// snapshot 原样；direct 不受本校验限制（对齐 `gateway-takeover.md` §4、父 AC8-C2b）。
-///
-/// 目前的消费方是 `services/proxy.rs::set_takeover_for_app` 的 proxy 分支。
-pub fn validate_module_proxy_capability(
-    app_type: &AppType,
-    provider: &Provider,
-) -> Result<ModuleProtocol, String> {
-    if matches!(app_type, AppType::ClaudeDesktop) {
-        crate::claude_desktop_config::validate_proxy_provider(provider)
-            .map_err(|error| format!("Claude Desktop proxy provider 校验失败: {error}"))?;
-        return Ok(ModuleProtocol::Anthropic);
-    }
-
-    let protocol = module_canonical_protocol(app_type, provider).ok_or_else(|| {
-        format!(
-            "{} 当前供应商的协议不在网关能力矩阵内（无现成转换链），无法启用 proxy 接管；可改用 direct 或切换到受支持协议的供应商",
-            app_type.as_str()
-        )
-    })?;
-
-    // C2b 的冻结路由表只为 OpenCode 暴露 OpenAI Chat Completions；
-    // @ai-sdk/anthropic 会调用 /messages，而本任务明确不新增 /opencode/v1/messages。
-    // 在接管写入前拒绝，不能写出一个必然 404 的 live 配置。
-    if matches!(app_type, AppType::OpenCode) && protocol != ModuleProtocol::OpenAiChat {
-        return Err(
-            "opencode 当前仅支持 OpenAI Chat Completions proxy；该供应商协议可继续用于 direct"
-                .to_string(),
-        );
-    }
-
-    Ok(protocol)
 }
 
 /// 未知/矩阵外协议的显式拒绝 adapter。
@@ -857,7 +795,10 @@ mod tests {
             module_canonical_protocol(&AppType::OpenCode, &anthropic),
             Some(ModuleProtocol::Anthropic)
         );
-        assert!(validate_module_proxy_capability(&AppType::OpenCode, &anthropic).is_err());
+        assert_eq!(
+            get_adapter_for(&AppType::OpenCode, &anthropic).name(),
+            "Claude"
+        );
 
         let unknown = create_provider(json!({
             "npm": "@ai-sdk/amazon-bedrock",
@@ -940,13 +881,19 @@ mod tests {
             Some(ModuleProtocol::Anthropic)
         );
 
-        // 能力矩阵外协议：bedrock_converse 必须解析为 None，并被 capability 校验拒绝。
+        // 能力矩阵外协议必须解析为 None，并得到显式拒绝 adapter。
         let bedrock = create_provider(json!({
             "base_url": "https://relay.example.com", "api_key": "sk-x", "api_mode": "bedrock_converse"
         }));
         assert_eq!(module_canonical_protocol(&AppType::Hermes, &bedrock), None);
-        assert!(validate_module_proxy_capability(&AppType::Hermes, &bedrock).is_err());
-        assert!(validate_module_proxy_capability(&AppType::Hermes, &anthropic).is_ok());
+        assert_eq!(
+            get_adapter_for(&AppType::Hermes, &bedrock).name(),
+            "UnsupportedModule"
+        );
+        assert_eq!(
+            get_adapter_for(&AppType::Hermes, &anthropic).name(),
+            "Claude"
+        );
     }
 
     #[test]

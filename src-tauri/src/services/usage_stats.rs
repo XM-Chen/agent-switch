@@ -4,7 +4,6 @@
 
 use crate::database::{lock_conn, Database};
 use crate::error::AppError;
-use crate::proxy::usage::calculator::ModelPricing;
 use crate::services::sql_helpers::{
     fresh_input_sql, INPUT_TOKEN_SEMANTICS_FRESH, INPUT_TOKEN_SEMANTICS_LEGACY,
     INPUT_TOKEN_SEMANTICS_TOTAL,
@@ -328,92 +327,6 @@ pub(crate) fn effective_usage_log_filter(log_alias: &str) -> String {
             )
         )"
     )
-}
-
-/// 跨源去重指纹键。
-///
-/// `cache_creation_tokens`：Codex/Gemini session 日志不暴露该字段，调用方传 0
-/// 表示"未知"，匹配器会放行 proxy 侧任意 cache_creation_tokens 值。
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct DedupKey<'a> {
-    pub app_type: &'a str,
-    pub model: &'a str,
-    pub input_tokens: u32,
-    pub output_tokens: u32,
-    pub cache_read_tokens: u32,
-    pub cache_creation_tokens: u32,
-    pub created_at: i64,
-}
-
-/// session 日志写入前的统一去重判定。
-///
-/// 命中以下任一条件即跳过插入：① `request_id` 已存在；② 时间窗口内存在
-/// 与 `key` 匹配的 proxy 日志（指纹去重）。
-pub(crate) fn should_skip_session_insert(
-    conn: &Connection,
-    request_id: &str,
-    key: &DedupKey,
-) -> Result<bool, AppError> {
-    if proxy_request_id_exists(conn, request_id)? {
-        return Ok(true);
-    }
-    has_matching_proxy_usage_log(conn, key)
-}
-
-fn proxy_request_id_exists(conn: &Connection, request_id: &str) -> Result<bool, AppError> {
-    conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM proxy_request_logs WHERE request_id = ?1)",
-        params![request_id],
-        |row| row.get::<_, bool>(0),
-    )
-    .map_err(|e| AppError::Database(format!("查询 request_id 失败: {e}")))
-}
-
-pub(crate) fn has_matching_proxy_usage_log(
-    conn: &Connection,
-    key: &DedupKey,
-) -> Result<bool, AppError> {
-    let allow_missing_cache_creation =
-        matches!(key.app_type, "codex" | "gemini" | "opencode") && key.cache_creation_tokens == 0;
-
-    let l_data_source = data_source_expr("l");
-    let sql = format!(
-        "SELECT EXISTS (
-            SELECT 1
-            FROM proxy_request_logs l
-            WHERE {l_data_source} = 'proxy'
-              AND l.app_type = ?1
-              AND l.status_code >= 200
-              AND l.status_code < 300
-              AND l.input_tokens = ?3
-              AND l.output_tokens = ?4
-              AND l.cache_read_tokens = ?5
-              AND (l.cache_creation_tokens = ?6 OR ?9 = 1)
-              AND l.created_at BETWEEN ?7 - ?8 AND ?7 + ?8
-              AND (
-                  LOWER(l.model) = LOWER(?2)
-                  OR LOWER(l.model) = 'unknown'
-                  OR LOWER(?2) = 'unknown'
-              )
-        )"
-    );
-
-    conn.query_row(
-        &sql,
-        params![
-            key.app_type,
-            key.model,
-            key.input_tokens as i64,
-            key.output_tokens as i64,
-            key.cache_read_tokens as i64,
-            key.cache_creation_tokens as i64,
-            key.created_at,
-            SESSION_PROXY_DEDUP_WINDOW_SECONDS,
-            allow_missing_cache_creation as i64,
-        ],
-        |row| row.get::<_, bool>(0),
-    )
-    .map_err(|e| AppError::Database(format!("查询重复代理用量日志失败: {e}")))
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1708,12 +1621,14 @@ struct PricingInfo {
 
 impl Database {
     /// Recalculate stored zero-cost usage rows once pricing becomes available.
+    #[cfg(test)]
     pub(crate) fn backfill_missing_usage_costs(&self) -> Result<u64, AppError> {
         let conn = lock_conn!(self.conn);
         Self::backfill_missing_usage_costs_on_conn(&conn, None)
     }
 
-    /// 仅回填指定 model_id 相关的零成本行；用于单条定价更新后的精准回填。
+    /// 仅回填指定 model_id 相关的零成本行；用于测试定价更新的精准回填。
+    #[cfg(test)]
     pub(crate) fn backfill_missing_usage_costs_for_model(
         &self,
         model_id: &str,
@@ -1944,15 +1859,6 @@ impl Database {
     }
 }
 
-pub(crate) fn find_model_pricing(conn: &Connection, model_id: &str) -> Option<ModelPricing> {
-    find_model_pricing_row(conn, model_id)
-        .ok()
-        .flatten()
-        .and_then(|(input, output, cache_read, cache_creation)| {
-            ModelPricing::from_strings(&input, &output, &cache_read, &cache_creation).ok()
-        })
-}
-
 pub(crate) fn find_model_pricing_row(
     conn: &Connection,
     model_id: &str,
@@ -2106,7 +2012,7 @@ fn clean_model_id_for_pricing(model_id: &str) -> String {
         .to_ascii_lowercase();
 
     normalized
-        .trim_end_matches(crate::claude_desktop_config::ONE_M_CONTEXT_MARKER)
+        .trim_end_matches(crate::proxy::claude_desktop_routes::ONE_M_CONTEXT_MARKER)
         .trim()
         .to_string()
 }
@@ -2363,32 +2269,6 @@ mod tests {
         let sql = format!("SELECT COUNT(*) FROM proxy_request_logs l WHERE {filter}");
         let count: i64 = conn.query_row(&sql, [], |row| row.get(0))?;
         assert_eq!(count, 1);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_matching_proxy_log_treats_legacy_null_data_source_as_proxy() -> Result<(), AppError> {
-        let conn = Connection::open_in_memory()?;
-        create_legacy_nullable_logs_table(&conn)?;
-        conn.execute(
-            "INSERT INTO proxy_request_logs (
-                request_id, app_type, model, input_tokens, output_tokens,
-                cache_read_tokens, cache_creation_tokens, status_code, created_at, data_source
-            ) VALUES ('legacy-proxy', 'codex', 'gpt-5.5', 10, 2, 1, 0, 200, 1000, NULL)",
-            [],
-        )?;
-
-        let key = DedupKey {
-            app_type: "codex",
-            model: "gpt-5.5",
-            input_tokens: 10,
-            output_tokens: 2,
-            cache_read_tokens: 1,
-            cache_creation_tokens: 0,
-            created_at: 1000,
-        };
-        assert!(has_matching_proxy_usage_log(&conn, &key)?);
 
         Ok(())
     }
@@ -3313,28 +3193,6 @@ mod tests {
         assert!(!request_ids.contains(&"codex-session-dup"));
         assert!(!request_ids.contains(&"claude-session-dup"));
         assert!(!request_ids.contains(&"gemini-session-dup"));
-
-        let breakdown = crate::services::session_usage::get_data_source_breakdown(&db)?;
-        let proxy_count = breakdown
-            .iter()
-            .find(|item| item.data_source == "proxy")
-            .map(|item| item.request_count);
-        let codex_session_count = breakdown
-            .iter()
-            .find(|item| item.data_source == "codex_session")
-            .map(|item| item.request_count);
-        let gemini_session_count = breakdown
-            .iter()
-            .find(|item| item.data_source == "gemini_session")
-            .map(|item| item.request_count);
-        let session_log_count = breakdown
-            .iter()
-            .find(|item| item.data_source == "session_log")
-            .map(|item| item.request_count);
-        assert_eq!(proxy_count, Some(3));
-        assert_eq!(codex_session_count, Some(1));
-        assert_eq!(gemini_session_count, None);
-        assert_eq!(session_log_count, None);
 
         Ok(())
     }

@@ -26,21 +26,17 @@
 pub(crate) mod backup;
 mod dao;
 mod gateway_migration;
-mod migration;
 mod schema;
 
 #[cfg(test)]
 mod tests;
 
 // DAO 类型导出供外部使用
+#[cfg(test)]
 pub(crate) use dao::providers_seed::{
-    is_official_seed_id, CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID, CODEX_OFFICIAL_PROVIDER_ID,
+    CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID, CODEX_OFFICIAL_PROVIDER_ID,
 };
-pub(crate) use dao::proxy::{
-    validate_cost_multiplier, validate_pricing_source, PRICING_SOURCE_REQUEST,
-    PRICING_SOURCE_RESPONSE,
-};
-pub use dao::FailoverQueueItem;
+pub(crate) use dao::proxy::{PRICING_SOURCE_REQUEST, PRICING_SOURCE_RESPONSE};
 pub use dao::GatewayApiKeyRecord;
 pub use dao::{
     CreateGatewayModelInput, CreateGatewayUpstreamInput, CreateRouteTargetInput,
@@ -49,7 +45,6 @@ pub use dao::{
     UpdateGatewayUpstreamInput, UpdateRouteTargetInput, UpstreamCredentialHintDto,
     UpstreamModelRecord, UpstreamRecord,
 };
-pub use dao::{Profile, ProviderModel};
 // CustomAggregate / TierSelection 目前仅在 dao 内部命名，但作为 C2 对 C3/C4 的
 // 契约类型对外导出（dao 模块本身私有，此处是唯一 crate 级暴露点）。
 #[allow(unused_imports)]
@@ -59,7 +54,7 @@ use crate::config::get_app_config_dir;
 use crate::error::AppError;
 use crate::gateway::credential;
 use crate::services::credential_protector::{CredentialProtector, PlatformCredentialProtector};
-use rusqlite::{hooks::Action, Connection};
+use rusqlite::Connection;
 use serde::Serialize;
 use std::sync::Mutex;
 
@@ -95,18 +90,6 @@ pub(crate) use lock_conn;
 /// rusqlite::Connection 本身不是 Sync 的，因此需要这层包装。
 pub struct Database {
     pub(crate) conn: Mutex<Connection>,
-}
-
-fn register_db_change_hook(conn: &Connection) {
-    conn.update_hook(Some(
-        |action: Action, _database: &str, table: &str, _row_id: i64| match action {
-            Action::SQLITE_INSERT | Action::SQLITE_UPDATE | Action::SQLITE_DELETE => {
-                crate::services::webdav_auto_sync::notify_db_changed(table);
-                crate::services::s3_auto_sync::notify_db_changed(table);
-            }
-            _ => {}
-        },
-    ));
 }
 
 impl Database {
@@ -262,7 +245,6 @@ impl Database {
             conn.execute("PRAGMA auto_vacuum = INCREMENTAL;", [])
                 .map_err(|e| AppError::Database(e.to_string()))?;
         }
-        register_db_change_hook(&conn);
 
         let db = Self {
             conn: Mutex::new(conn),
@@ -312,10 +294,7 @@ impl Database {
         }
         db.ensure_model_pricing_seeded()?;
 
-        // Startup cleanup: prune old logs and reclaim space
-        if let Err(e) = db.cleanup_old_stream_check_logs(7) {
-            log::warn!("Startup stream_check_logs cleanup failed: {e}");
-        }
+        // Startup cleanup: roll up gateway usage and reclaim space
         if let Err(e) = db.rollup_and_prune(30) {
             log::warn!("Startup rollup_and_prune failed: {e}");
         }
@@ -355,7 +334,6 @@ impl Database {
             .map_err(|e| AppError::Database(e.to_string()))?;
         conn.execute("PRAGMA auto_vacuum = INCREMENTAL;", [])
             .map_err(|e| AppError::Database(e.to_string()))?;
-        register_db_change_hook(&conn);
 
         let db = Self {
             conn: Mutex::new(conn),

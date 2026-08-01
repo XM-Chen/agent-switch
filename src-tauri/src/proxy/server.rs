@@ -278,18 +278,6 @@ impl ProxyServer {
         status
     }
 
-    /// 更新某个应用类型当前“目标供应商”（用于 UI 展示 active_targets）
-    ///
-    /// 注意：这不代表该供应商一定已经处理过请求，而是用于“热切换/启用故障转移立即切 P1”
-    /// 等场景下，让 UI 能立刻反映最新目标。
-    pub async fn set_active_target(&self, app_type: &str, provider_id: &str, provider_name: &str) {
-        let mut current_providers = self.state.current_providers.write().await;
-        current_providers.insert(
-            app_type.to_string(),
-            (provider_id.to_string(), provider_name.to_string()),
-        );
-    }
-
     fn build_router(&self) -> Router {
         Router::new()
             // Claude API (支持带前缀和不带前缀两种格式)
@@ -422,14 +410,6 @@ impl ProxyServer {
         self.state
             .provider_router
             .update_app_configs(app_type, config)
-            .await;
-    }
-
-    /// 重置指定 Provider 的熔断器
-    pub async fn reset_provider_circuit_breaker(&self, provider_id: &str, app_type: &str) {
-        self.state
-            .provider_router
-            .reset_provider_breaker(provider_id, app_type)
             .await;
     }
 }

@@ -7,7 +7,25 @@ use std::sync::{OnceLock, RwLock};
 
 use crate::app_config::AppType;
 use crate::error::AppError;
-use crate::services::skill::{SkillStorageLocation, SyncMethod};
+
+/// 旧设置兼容：历史 Skill 同步方式。独立网关不执行客户端 Skill 同步。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SyncMethod {
+    #[default]
+    Auto,
+    Symlink,
+    Copy,
+}
+
+/// 旧设置兼容：历史 Skill 存储位置。独立网关不访问这些目录。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillStorageLocation {
+    #[default]
+    CcSwitch,
+    Unified,
+}
 
 /// 自定义端点配置（历史兼容，实际存储在 provider.meta.custom_endpoints）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -684,24 +702,6 @@ fn settings_store() -> &'static RwLock<AppSettings> {
     SETTINGS_STORE.get_or_init(|| RwLock::new(AppSettings::load_from_file()))
 }
 
-fn resolve_override_path(raw: &str) -> PathBuf {
-    if raw == "~" {
-        if let Some(home) = dirs::home_dir() {
-            return home;
-        }
-    } else if let Some(stripped) = raw.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(stripped);
-        }
-    } else if let Some(stripped) = raw.strip_prefix("~\\") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(stripped);
-        }
-    }
-
-    PathBuf::from(raw)
-}
-
 pub fn get_settings() -> AppSettings {
     settings_store()
         .read()
@@ -736,114 +736,6 @@ pub fn update_settings(mut new_settings: AppSettings) -> Result<(), AppError> {
     Ok(())
 }
 
-fn mutate_settings<F>(mutator: F) -> Result<(), AppError>
-where
-    F: FnOnce(&mut AppSettings),
-{
-    let mut guard = settings_store().write().unwrap_or_else(|e| {
-        log::warn!("设置锁已毒化，使用恢复值: {e}");
-        e.into_inner()
-    });
-    let mut next = guard.clone();
-    mutator(&mut next);
-    next.normalize_paths();
-    save_settings_file(&next)?;
-    *guard = next;
-    Ok(())
-}
-
-pub fn is_codex_third_party_history_provider_bucket_migrated() -> bool {
-    get_settings()
-        .local_migrations
-        .as_ref()
-        .and_then(|migrations| {
-            migrations
-                .codex_third_party_history_provider_bucket_v1
-                .as_ref()
-        })
-        .is_some_and(|m| m.scanned_history_files)
-}
-
-pub fn mark_codex_third_party_history_provider_bucket_migrated(
-    migration: CodexThirdPartyHistoryProviderBucketMigration,
-) -> Result<(), AppError> {
-    mutate_settings(|settings| {
-        let migrations = settings
-            .local_migrations
-            .get_or_insert_with(Default::default);
-        migrations.codex_third_party_history_provider_bucket_v1 = Some(migration);
-    })
-}
-
-pub fn is_codex_provider_template_migrated() -> bool {
-    get_settings()
-        .local_migrations
-        .as_ref()
-        .and_then(|migrations| migrations.codex_provider_template_v1.as_ref())
-        .is_some()
-}
-
-pub fn mark_codex_provider_template_migrated(
-    migration: CodexProviderTemplateMigration,
-) -> Result<(), AppError> {
-    mutate_settings(|settings| {
-        let migrations = settings
-            .local_migrations
-            .get_or_insert_with(Default::default);
-        migrations.codex_provider_template_v1 = Some(migration);
-    })
-}
-
-/// 统一会话迁移标记是否覆盖指定目录。标记里没记目录（不应出现的旧格式）
-/// 视为不匹配——重跑迁移是幂等的，宁可重迁也不漏迁。
-pub fn is_codex_official_history_unify_migrated_for_dir(codex_dir: &str) -> bool {
-    get_settings()
-        .local_migrations
-        .as_ref()
-        .and_then(|migrations| migrations.codex_official_history_unify_v1.as_ref())
-        .is_some_and(|migration| migration.codex_config_dir.as_deref() == Some(codex_dir))
-}
-
-/// 条件写入迁移完成标记：仅当此刻开关仍开启且迁移意愿仍在时才写。
-/// 检查与写入在 settings 写锁内原子完成，与关闭开关路径
-/// （`update_settings` / 清标记）串行，消除"迁移线程复查开关后、写标记前
-/// 用户恰好关闭开关"的竞态窗口。返回是否实际写入。
-pub fn mark_codex_official_history_unify_migrated_if_enabled(
-    migration: CodexOfficialHistoryUnifyMigration,
-) -> Result<bool, AppError> {
-    let mut written = false;
-    mutate_settings(|settings| {
-        if settings.unify_codex_session_history
-            && settings.unify_codex_migrate_existing.unwrap_or(false)
-        {
-            settings
-                .local_migrations
-                .get_or_insert_with(Default::default)
-                .codex_official_history_unify_v1 = Some(migration);
-            written = true;
-        }
-    })?;
-    Ok(written)
-}
-
-pub fn clear_codex_official_history_unify_migration() -> Result<(), AppError> {
-    mutate_settings(|settings| {
-        if let Some(migrations) = settings.local_migrations.as_mut() {
-            migrations.codex_official_history_unify_v1 = None;
-        }
-    })
-}
-
-pub fn unify_codex_migrate_existing_requested() -> bool {
-    get_settings().unify_codex_migrate_existing.unwrap_or(false)
-}
-
-pub fn clear_codex_unify_migrate_existing() -> Result<(), AppError> {
-    mutate_settings(|settings| {
-        settings.unify_codex_migrate_existing = None;
-    })
-}
-
 /// 从文件重新加载设置到内存缓存
 /// 用于导入配置等场景，确保内存缓存与文件同步
 pub fn reload_settings() -> Result<(), AppError> {
@@ -854,192 +746,6 @@ pub fn reload_settings() -> Result<(), AppError> {
     });
     *guard = fresh_settings;
     Ok(())
-}
-
-pub fn get_claude_override_dir() -> Option<PathBuf> {
-    let settings = settings_store().read().ok()?;
-    settings
-        .claude_config_dir
-        .as_ref()
-        .map(|p| resolve_override_path(p))
-}
-
-pub fn get_codex_override_dir() -> Option<PathBuf> {
-    let settings = settings_store().read().ok()?;
-    settings
-        .codex_config_dir
-        .as_ref()
-        .map(|p| resolve_override_path(p))
-}
-
-pub fn get_gemini_override_dir() -> Option<PathBuf> {
-    let settings = settings_store().read().ok()?;
-    settings
-        .gemini_config_dir
-        .as_ref()
-        .map(|p| resolve_override_path(p))
-}
-
-pub fn get_opencode_override_dir() -> Option<PathBuf> {
-    let settings = settings_store().read().ok()?;
-    settings
-        .opencode_config_dir
-        .as_ref()
-        .map(|p| resolve_override_path(p))
-}
-
-pub fn get_openclaw_override_dir() -> Option<PathBuf> {
-    let settings = settings_store().read().ok()?;
-    settings
-        .openclaw_config_dir
-        .as_ref()
-        .map(|p| resolve_override_path(p))
-}
-
-pub fn get_hermes_override_dir() -> Option<PathBuf> {
-    let settings = settings_store().read().ok()?;
-    settings
-        .hermes_config_dir
-        .as_ref()
-        .map(|p| resolve_override_path(p))
-}
-
-pub fn preserve_codex_official_auth_on_switch() -> bool {
-    settings_store()
-        .read()
-        .unwrap_or_else(|e| {
-            log::warn!("设置锁已毒化，使用恢复值: {e}");
-            e.into_inner()
-        })
-        .preserve_codex_official_auth_on_switch
-}
-
-pub fn unify_codex_session_history() -> bool {
-    settings_store()
-        .read()
-        .unwrap_or_else(|e| {
-            log::warn!("设置锁已毒化，使用恢复值: {e}");
-            e.into_inner()
-        })
-        .unify_codex_session_history
-}
-
-// ===== 当前供应商管理函数 =====
-
-/// 获取指定应用类型的当前供应商 ID（从本地 settings 读取）
-///
-/// 这是设备级别的设置，不随数据库同步。
-/// 如果本地没有设置，调用者应该 fallback 到数据库的 `is_current` 字段。
-pub fn get_current_provider(app_type: &AppType) -> Option<String> {
-    let settings = settings_store().read().ok()?;
-    match app_type {
-        AppType::Claude => settings.current_provider_claude.clone(),
-        AppType::ClaudeDesktop => settings.current_provider_claude_desktop.clone(),
-        AppType::Codex => settings.current_provider_codex.clone(),
-        AppType::Gemini => settings.current_provider_gemini.clone(),
-        AppType::OpenCode => settings.current_provider_opencode.clone(),
-        AppType::OpenClaw => settings.current_provider_openclaw.clone(),
-        AppType::Hermes => settings.current_provider_hermes.clone(),
-    }
-}
-
-/// 设置指定应用类型的当前供应商 ID（保存到本地 settings）
-///
-/// 这是设备级别的设置，不随数据库同步。
-/// 传入 `None` 会清除当前供应商设置。
-pub fn set_current_provider(app_type: &AppType, id: Option<&str>) -> Result<(), AppError> {
-    let id_owned = id.map(|s| s.to_string());
-    mutate_settings(|settings| match app_type {
-        AppType::Claude => settings.current_provider_claude = id_owned.clone(),
-        AppType::ClaudeDesktop => settings.current_provider_claude_desktop = id_owned.clone(),
-        AppType::Codex => settings.current_provider_codex = id_owned.clone(),
-        AppType::Gemini => settings.current_provider_gemini = id_owned.clone(),
-        AppType::OpenCode => settings.current_provider_opencode = id_owned.clone(),
-        AppType::OpenClaw => settings.current_provider_openclaw = id_owned.clone(),
-        AppType::Hermes => settings.current_provider_hermes = id_owned.clone(),
-    })
-}
-
-/// 获取有效的当前供应商 ID（验证存在性）
-///
-/// 逻辑：
-/// 1. 从本地 settings 读取当前供应商 ID
-/// 2. 验证该 ID 在数据库中存在
-/// 3. 如果不存在则清理本地 settings，fallback 到数据库的 is_current
-///
-/// 这确保了返回的 ID 一定是有效的（在数据库中存在）。
-/// 多设备云同步场景下，配置导入后本地 ID 可能失效，此函数会自动修复。
-pub fn get_effective_current_provider(
-    db: &crate::database::Database,
-    app_type: &AppType,
-) -> Result<Option<String>, AppError> {
-    // 1. 从本地 settings 读取
-    if let Some(local_id) = get_current_provider(app_type) {
-        // 2. 验证该 ID 在数据库中存在
-        let providers = db.get_all_providers(app_type.as_str())?;
-        if providers.contains_key(&local_id) {
-            // 存在，直接返回
-            return Ok(Some(local_id));
-        }
-
-        // 3. 不存在，清理本地 settings
-        log::warn!(
-            "本地 settings 中的供应商 {} ({}) 在数据库中不存在，将清理并 fallback 到数据库",
-            local_id,
-            app_type.as_str()
-        );
-        let _ = set_current_provider(app_type, None);
-    }
-
-    // Fallback 到数据库的 is_current
-    db.get_current_provider(app_type.as_str())
-}
-
-// ===== Skill 同步方式管理函数 =====
-
-/// 获取 Skill 同步方式配置
-pub fn get_skill_sync_method() -> SyncMethod {
-    settings_store()
-        .read()
-        .unwrap_or_else(|e| {
-            log::warn!("设置锁已毒化，使用恢复值: {e}");
-            e.into_inner()
-        })
-        .skill_sync_method
-}
-
-// ===== Skill 存储位置管理函数 =====
-
-/// 获取 Skill 存储位置配置
-pub fn get_skill_storage_location() -> SkillStorageLocation {
-    settings_store()
-        .read()
-        .unwrap_or_else(|e| {
-            log::warn!("设置锁已毒化，使用恢复值: {e}");
-            e.into_inner()
-        })
-        .skill_storage_location
-}
-
-/// 设置 Skill 存储位置
-pub fn set_skill_storage_location(location: SkillStorageLocation) -> Result<(), AppError> {
-    mutate_settings(|s| {
-        s.skill_storage_location = location;
-    })
-}
-
-// ===== 备份策略管理函数 =====
-
-/// Get the effective auto-backup interval in hours (default 24)
-pub fn effective_backup_interval_hours() -> u32 {
-    settings_store()
-        .read()
-        .unwrap_or_else(|e| {
-            log::warn!("设置锁已毒化，使用恢复值: {e}");
-            e.into_inner()
-        })
-        .backup_interval_hours
-        .unwrap_or(24)
 }
 
 /// Get the effective backup retain count (default 10, minimum 1)
@@ -1053,63 +759,6 @@ pub fn effective_backup_retain_count() -> usize {
         .backup_retain_count
         .map(|n| (n as usize).max(1))
         .unwrap_or(10)
-}
-
-// ===== 终端设置管理函数 =====
-
-/// 获取首选终端应用
-pub fn get_preferred_terminal() -> Option<String> {
-    settings_store()
-        .read()
-        .unwrap_or_else(|e| {
-            log::warn!("设置锁已毒化，使用恢复值: {e}");
-            e.into_inner()
-        })
-        .preferred_terminal
-        .clone()
-}
-
-// ===== WebDAV 同步设置管理函数 =====
-
-/// 获取 WebDAV 同步设置
-pub fn get_webdav_sync_settings() -> Option<WebDavSyncSettings> {
-    settings_store().read().ok()?.webdav_sync.clone()
-}
-
-/// 保存 WebDAV 同步设置
-pub fn set_webdav_sync_settings(settings: Option<WebDavSyncSettings>) -> Result<(), AppError> {
-    mutate_settings(|current| {
-        current.webdav_sync = settings;
-    })
-}
-
-/// 仅更新 WebDAV 同步状态，避免覆写 credentials/root/profile 等字段
-pub fn update_webdav_sync_status(status: WebDavSyncStatus) -> Result<(), AppError> {
-    mutate_settings(|current| {
-        if let Some(sync) = current.webdav_sync.as_mut() {
-            sync.status = status;
-        }
-    })
-}
-
-// ===== S3 同步设置管理函数 =====
-
-pub fn get_s3_sync_settings() -> Option<S3SyncSettings> {
-    settings_store().read().ok()?.s3_sync.clone()
-}
-
-pub fn set_s3_sync_settings(settings: Option<S3SyncSettings>) -> Result<(), AppError> {
-    mutate_settings(|current| {
-        current.s3_sync = settings;
-    })
-}
-
-pub fn update_s3_sync_status(status: WebDavSyncStatus) -> Result<(), AppError> {
-    mutate_settings(|current| {
-        if let Some(s3) = current.s3_sync.as_mut() {
-            s3.status = status;
-        }
-    })
 }
 
 #[cfg(test)]

@@ -2,10 +2,12 @@
 //!
 //! 提供本地HTTP代理服务，支持多Provider故障转移和请求透传
 
+pub mod auth_state;
 pub mod body_filter;
 pub mod cache_injector;
 pub mod cc_client_profile;
 pub mod circuit_breaker;
+pub mod claude_desktop_routes;
 pub(crate) mod content_encoding;
 pub mod copilot_optimizer;
 pub mod error;
@@ -29,10 +31,7 @@ pub mod response_handler;
 pub mod response_processor;
 pub(crate) mod server;
 pub mod session;
-pub(crate) mod snapshot;
-pub(crate) mod snapshot_adapters;
 pub(crate) mod sse;
-pub(crate) mod switch_lock;
 pub mod thinking_budget_rectifier;
 pub mod thinking_optimizer;
 pub mod thinking_rectifier;

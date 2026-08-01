@@ -665,34 +665,6 @@ impl Database {
             .map_err(|e| AppError::Database(format!("解析迁移报告失败: {e}")))
     }
 
-    pub(crate) fn get_upstream_credential(
-        &self,
-        upstream_id: &str,
-        credential_kind: &str,
-    ) -> Result<Option<UpstreamCredentialRecord>, AppError> {
-        let conn = lock_conn!(self.conn);
-        conn.query_row(
-            "SELECT id, upstream_id, credential_kind, encrypted_payload, encryption_scheme,
-                    key_hint, created_at, updated_at
-             FROM upstream_credentials WHERE upstream_id = ?1 AND credential_kind = ?2",
-            params![upstream_id, credential_kind],
-            |row| {
-                Ok(UpstreamCredentialRecord {
-                    id: row.get(0)?,
-                    upstream_id: row.get(1)?,
-                    credential_kind: row.get(2)?,
-                    encrypted_payload: row.get(3)?,
-                    encryption_scheme: row.get(4)?,
-                    key_hint: row.get(5)?,
-                    created_at: row.get(6)?,
-                    updated_at: row.get(7)?,
-                })
-            },
-        )
-        .optional()
-        .map_err(|e| AppError::Database(format!("读取上游凭据失败: {e}")))
-    }
-
     pub(crate) fn list_upstream_credentials(
         &self,
         upstream_id: &str,

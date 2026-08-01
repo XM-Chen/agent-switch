@@ -93,7 +93,6 @@ pub fn resolve_database_route(
 #[cfg(test)]
 mod tests {
     use crate::database::Database;
-    use rusqlite::params;
 
     use super::*;
 
