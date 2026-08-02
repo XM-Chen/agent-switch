@@ -50,9 +50,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # tag 已由 push 事件带入，直接复用；禁用 updater 产物（未配置签名私钥），
-          # 只产出 MSI/exe，本机手动重装升级。
-          createUpdaterArtifacts: false
+          # tag 已由 push 事件带入，直接复用。updater 产物已在 tauri.conf.json
+          # 通过 createUpdaterArtifacts: false 禁用（未配置签名私钥），此处只产出 MSI。
           tagName: ${{ github.ref_name }}
           releaseName: "Agent-Switch ${{ github.ref_name }}"
           releaseDraft: false
