@@ -17,6 +17,13 @@ const { gatewayApiMock, proxyApiMock } = vi.hoisted(() => ({
     setModelState: vi.fn(),
     setRouteEnabled: vi.fn(),
     reorderRoutes: vi.fn(),
+    createUpstream: vi.fn(),
+    updateUpstream: vi.fn(),
+    deleteUpstream: vi.fn(),
+    setUpstreamEnabled: vi.fn(),
+    listUpstreamCredentials: vi.fn(),
+    replaceUpstreamCredential: vi.fn(),
+    deleteUpstreamCredential: vi.fn(),
   },
   proxyApiMock: {
     getProxyStatus: vi.fn(),
@@ -80,6 +87,21 @@ beforeEach(() => {
     authRequired: true,
     keys: [],
   });
+  gatewayApiMock.createUpstream.mockResolvedValue({
+    id: "up-1",
+    name: "",
+    enabled: true,
+    baseUrl: "",
+    protocol: "anthropic",
+    adapterType: "claude",
+    configJson: {},
+    notes: null,
+    legacyAppType: null,
+    legacyProviderId: null,
+    createdAt: 0,
+    updatedAt: 0,
+  });
+  gatewayApiMock.listUpstreamCredentials.mockResolvedValue([]);
 });
 
 describe("GatewayShell", () => {
@@ -115,5 +137,34 @@ describe("GatewayShell", () => {
     expect(
       screen.getByDisplayValue("http://127.0.0.1:42567/v1/responses"),
     ).toBeInTheDocument();
+  });
+
+  it("上游页可新增上游并把凭据与配置分离", async () => {
+    const user = userEvent.setup();
+    render(<GatewayShell />);
+
+    await screen.findByText("本地模型网关");
+    await user.click(screen.getByRole("button", { name: "上游" }));
+    await user.click(screen.getByRole("button", { name: "新增上游" }));
+
+    // 默认协议/adapter 为 anthropic/claude，凭据不在此处填写。
+    await user.type(screen.getByPlaceholderText("例如 OpenAI 官方"), "OpenAI");
+    await user.type(
+      screen.getByPlaceholderText("https://api.openai.com"),
+      "https://api.openai.com",
+    );
+    await user.click(screen.getByRole("button", { name: "创建" }));
+
+    expect(gatewayApiMock.createUpstream).toHaveBeenCalledWith({
+      name: "OpenAI",
+      enabled: true,
+      baseUrl: "https://api.openai.com",
+      protocol: "anthropic",
+      adapterType: "claude",
+      configJson: {},
+      notes: null,
+    });
+    // configJson 永远不含凭据；凭据只能经 replaceUpstreamCredential 录入。
+    expect(gatewayApiMock.replaceUpstreamCredential).not.toHaveBeenCalled();
   });
 });

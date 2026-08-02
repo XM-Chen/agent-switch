@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  CreateGatewayUpstreamInput,
   GatewayDomainConfig,
   GatewayModel,
   GatewayModelAlias,
@@ -8,6 +9,8 @@ import type {
   GatewayRouteHealth,
   GatewayUpstream,
   GatewayUpstreamModel,
+  UpdateGatewayUpstreamInput,
+  UpstreamCredentialHint,
 } from "@/types/gateway";
 export const gatewayApi = {
   getDomainConfig: () =>
@@ -37,4 +40,35 @@ export const gatewayApi = {
     invoke<GatewayRouteHealth[]>("list_gateway_route_health"),
   listMigrationIssues: () =>
     invoke<GatewayMigrationIssue[]>("list_gateway_migration_issues"),
+  // 上游 CRUD 与凭据管理。凭据明文仅传入 DPAPI 加密接口，不进 configJson，也不返回。
+  createUpstream: (input: CreateGatewayUpstreamInput) =>
+    invoke<GatewayUpstream>("create_gateway_upstream", { input }),
+  updateUpstream: (upstreamId: string, input: UpdateGatewayUpstreamInput) =>
+    invoke<GatewayUpstream>("update_gateway_upstream", { upstreamId, input }),
+  deleteUpstream: (upstreamId: string) =>
+    invoke<boolean>("delete_gateway_upstream", { upstreamId }),
+  setUpstreamEnabled: (upstreamId: string, enabled: boolean) =>
+    invoke<GatewayUpstream>("set_gateway_upstream_enabled", {
+      upstreamId,
+      enabled,
+    }),
+  listUpstreamCredentials: (upstreamId: string) =>
+    invoke<UpstreamCredentialHint[]>("list_gateway_upstream_credential_hints", {
+      upstreamId,
+    }),
+  replaceUpstreamCredential: (
+    upstreamId: string,
+    credentialKind: string,
+    secret: string,
+  ) =>
+    invoke<UpstreamCredentialHint>("replace_gateway_upstream_credential", {
+      upstreamId,
+      credentialKind,
+      secret,
+    }),
+  deleteUpstreamCredential: (upstreamId: string, credentialKind: string) =>
+    invoke<boolean>("delete_gateway_upstream_credential", {
+      upstreamId,
+      credentialKind,
+    }),
 };

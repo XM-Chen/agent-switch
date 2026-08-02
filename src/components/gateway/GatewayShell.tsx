@@ -10,19 +10,23 @@ import {
   Gauge,
   KeyRound,
   ListTree,
+  Pencil,
   Play,
+  Plus,
   RefreshCw,
   Save,
   Server,
   Settings2,
   ShieldCheck,
   Square,
+  Trash2,
   Waypoints,
 } from "lucide-react";
 import { toast } from "sonner";
 import { gatewayApi } from "@/lib/api/gateway";
 import { proxyApi } from "@/lib/api/proxy";
 import type {
+  CreateGatewayUpstreamInput,
   GatewayDomainConfig,
   GatewayMigrationIssue,
   GatewayModel,
@@ -31,15 +35,33 @@ import type {
   GatewayRouteHealth,
   GatewayUpstream,
   GatewayUpstreamModel,
+  UpstreamCredentialHint,
+  UpdateGatewayUpstreamInput,
 } from "@/types/gateway";
 import type { GatewayAuthStatus, ProxyStatus } from "@/types/proxy";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 
 const NAV_ITEMS = [
   "Overview",
@@ -235,7 +257,48 @@ export function GatewayShell() {
             onStop={() => run(() => proxyApi.stopProxyServer(), "网关已停止")}
           />
         )}
-        {activeNav === "上游" && <UpstreamsPage data={data} />}
+        {activeNav === "上游" && (
+          <UpstreamsPage
+            data={data}
+            busy={busy}
+            onCreate={(input) =>
+              run(() => gatewayApi.createUpstream(input), "上游已创建")
+            }
+            onUpdate={(upstreamId, input) =>
+              run(
+                () => gatewayApi.updateUpstream(upstreamId, input),
+                "上游已更新",
+              )
+            }
+            onToggle={(upstream) =>
+              run(
+                () => gatewayApi.setUpstreamEnabled(upstream.id, !upstream.enabled),
+                upstream.enabled ? "上游已停用" : "上游已启用",
+              )
+            }
+            onDelete={(upstreamId) =>
+              run(() => gatewayApi.deleteUpstream(upstreamId), "上游已删除")
+            }
+            onReplaceCredential={(upstreamId, credentialKind, secret) =>
+              run(
+                () =>
+                  gatewayApi.replaceUpstreamCredential(
+                    upstreamId,
+                    credentialKind,
+                    secret,
+                  ),
+                "凭据已保存",
+              )
+            }
+            onDeleteCredential={(upstreamId, credentialKind) =>
+              run(
+                () =>
+                  gatewayApi.deleteUpstreamCredential(upstreamId, credentialKind),
+                "凭据已删除",
+              )
+            }
+          />
+        )}
         {activeNav === "模型" && (
           <ModelsPage
             data={data}
@@ -429,7 +492,109 @@ function OverviewPage({
   );
 }
 
-function UpstreamsPage({ data }: { data: GatewayData }) {
+type UpstreamFormMode = "create" | "edit";
+
+interface UpstreamFormState {
+  name: string;
+  baseUrl: string;
+  protocol: string;
+  adapterType: string;
+  notes: string;
+  enabled: boolean;
+}
+
+const PROTOCOL_OPTIONS = [
+  { value: "anthropic", label: "Anthropic Messages" },
+  { value: "openai_chat", label: "OpenAI Chat" },
+  { value: "openai_responses", label: "OpenAI Responses" },
+  { value: "gemini", label: "Gemini" },
+];
+
+const ADAPTER_OPTIONS = [
+  { value: "claude", label: "Claude" },
+  { value: "module_anthropic", label: "Anthropic Module" },
+  { value: "codex", label: "Codex" },
+  { value: "module_openai", label: "OpenAI Module" },
+  { value: "gemini", label: "Gemini" },
+];
+
+/**
+ * 协议↔adapter 的静态兼容矩阵（镜像后端 gateway_control::validate_protocol_adapter）。
+ * 不在此过滤会让后端校验报错，提前在前端拦截避免无效提交。
+ */
+const ADAPTER_BY_PROTOCOL: Record<string, string[]> = {
+  anthropic: ["claude", "module_anthropic"],
+  openai_chat: ["codex", "module_openai"],
+  openai_responses: ["codex", "module_openai"],
+  gemini: ["gemini"],
+};
+
+/**
+ * 凭据类型与协议的兼容矩阵（镜像后端 gateway::credential::kind_can_serve）。
+ * 用于凭据录入时只列出可服务类型。
+ */
+const CREDENTIAL_KINDS_BY_PROTOCOL: Record<string, string[]> = {
+  anthropic: ["bearer_token", "x_api_key"],
+  openai_chat: ["bearer_token"],
+  openai_responses: ["bearer_token"],
+  gemini: ["google_api_key", "google_oauth"],
+};
+
+const CREDENTIAL_KIND_LABEL: Record<string, string> = {
+  bearer_token: "Bearer Token",
+  x_api_key: "x-api-key",
+  google_api_key: "Google API Key",
+  google_oauth: "Google OAuth",
+};
+
+const EMPTY_UPSTREAM_FORM: UpstreamFormState = {
+  name: "",
+  baseUrl: "",
+  protocol: "anthropic",
+  adapterType: "claude",
+  notes: "",
+  enabled: true,
+};
+
+function adaptUpstreamToForm(
+  upstream: GatewayUpstream,
+): UpstreamFormState {
+  return {
+    name: upstream.name,
+    baseUrl: upstream.baseUrl ?? "",
+    protocol: upstream.protocol,
+    adapterType: upstream.adapterType,
+    notes: upstream.notes ?? "",
+    enabled: upstream.enabled,
+  };
+}
+
+function UpstreamsPage({
+  data,
+  busy,
+  onCreate,
+  onUpdate,
+  onToggle,
+  onDelete,
+  onReplaceCredential,
+  onDeleteCredential,
+}: {
+  data: GatewayData;
+  busy: boolean;
+  onCreate: (input: CreateGatewayUpstreamInput) => Promise<void>;
+  onUpdate: (upstreamId: string, input: UpdateGatewayUpstreamInput) => Promise<void>;
+  onToggle: (upstream: GatewayUpstream) => Promise<void>;
+  onDelete: (upstreamId: string) => Promise<void>;
+  onReplaceCredential: (
+    upstreamId: string,
+    credentialKind: string,
+    secret: string,
+  ) => Promise<void>;
+  onDeleteCredential: (
+    upstreamId: string,
+    credentialKind: string,
+  ) => Promise<void>;
+}) {
   const modelCountByUpstream = useMemo(() => {
     const counts = new Map<string, number>();
     for (const model of data.upstreamModels) {
@@ -438,57 +603,507 @@ function UpstreamsPage({ data }: { data: GatewayData }) {
     return counts;
   }, [data.upstreamModels]);
 
+  const [formOpen, setFormOpen] = useState(false);
+  const [formMode, setFormMode] = useState<UpstreamFormMode>("create");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<UpstreamFormState>(EMPTY_UPSTREAM_FORM);
+  const [credentialsByUpstream, setCredentialsByUpstream] = useState<
+    Record<string, UpstreamCredentialHint[]>
+  >({});
+
+  const openCreate = () => {
+    setFormMode("create");
+    setEditingId(null);
+    setForm(EMPTY_UPSTREAM_FORM);
+    setFormOpen(true);
+  };
+
+  const openEdit = (upstream: GatewayUpstream) => {
+    setFormMode("edit");
+    setEditingId(upstream.id);
+    setForm(adaptUpstreamToForm(upstream));
+    setFormOpen(true);
+  };
+
+  // 协议变更时把 adapter 收敛到该协议允许集合的第一项，避免后端拒绝不兼容组合。
+  const changeProtocol = (protocol: string) => {
+    const adapters = ADAPTER_BY_PROTOCOL[protocol] ?? [];
+    setForm((current) => ({
+      ...current,
+      protocol,
+      adapterType: adapters.includes(current.adapterType)
+        ? current.adapterType
+        : (adapters[0] ?? ""),
+    }));
+  };
+
+  const submit = async () => {
+    if (!form.name.trim() || !form.baseUrl.trim() || !form.adapterType) {
+      toast.error("请填写名称、上游地址并选择 adapter");
+      return;
+    }
+    const configJson = {};
+    if (formMode === "create") {
+      const input: CreateGatewayUpstreamInput = {
+        name: form.name.trim(),
+        enabled: form.enabled,
+        baseUrl: form.baseUrl.trim(),
+        protocol: form.protocol,
+        adapterType: form.adapterType,
+        configJson,
+        notes: form.notes.trim() || null,
+      };
+      await onCreate(input);
+    } else if (editingId) {
+      const input: UpdateGatewayUpstreamInput = {
+        name: form.name.trim(),
+        baseUrl: form.baseUrl.trim(),
+        protocol: form.protocol,
+        adapterType: form.adapterType,
+        configJson,
+        notes: form.notes.trim() || null,
+      };
+      await onUpdate(editingId, input);
+    }
+    setFormOpen(false);
+  };
+
+  const loadCredentials = async (upstreamId: string) => {
+    try {
+      const hints = await gatewayApi.listUpstreamCredentials(upstreamId);
+      setCredentialsByUpstream((current) => ({
+        ...current,
+        [upstreamId]: hints,
+      }));
+    } catch (error) {
+      toast.error(String(error));
+    }
+  };
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Server className="h-5 w-5" />
-          上游 Provider
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <p className="text-sm text-muted-foreground">
-          此处只展示 Agent Switch DB 中的上游，不会从任何客户端配置发现或导入
-          Provider。
-        </p>
-        {data.upstreams.length === 0 ? (
-          <EmptyState text="暂无上游数据" />
-        ) : (
-          data.upstreams.map((upstream) => (
+    <div className="space-y-5">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Server className="h-5 w-5" />
+            上游 Provider
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              只管理 Agent Switch DB 中的上游，不从任何客户端配置发现或导入
+              Provider。凭据经 DPAPI 加密后入库，不在配置中明文存储。
+            </p>
+            <Button onClick={openCreate} disabled={busy}>
+              <Plus className="mr-2 h-4 w-4" />
+              新增上游
+            </Button>
+          </div>
+          {data.upstreams.length === 0 ? (
+            <EmptyState text="暂无上游数据，点“新增上游”创建第一个" />
+          ) : (
+            data.upstreams.map((upstream) => (
+              <UpstreamRow
+                key={upstream.id}
+                upstream={upstream}
+                modelCount={modelCountByUpstream.get(upstream.id) ?? 0}
+                credentials={credentialsByUpstream[upstream.id]}
+                busy={busy}
+                onToggle={() => onToggle(upstream)}
+                onEdit={() => openEdit(upstream)}
+                onDelete={() => onDelete(upstream.id)}
+                onLoadCredentials={() => loadCredentials(upstream.id)}
+                onReplaceCredential={(kind, secret) =>
+                  onReplaceCredential(upstream.id, kind, secret)
+                }
+                onDeleteCredential={(kind) =>
+                  onDeleteCredential(upstream.id, kind)
+                }
+              />
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <UpstreamFormDialog
+        open={formOpen}
+        mode={formMode}
+        form={form}
+        busy={busy}
+        onOpenChange={setFormOpen}
+        onFormChange={setForm}
+        onProtocolChange={changeProtocol}
+        onSubmit={submit}
+      />
+    </div>
+  );
+}
+
+function UpstreamRow({
+  upstream,
+  modelCount,
+  credentials,
+  busy,
+  onToggle,
+  onEdit,
+  onDelete,
+  onLoadCredentials,
+  onReplaceCredential,
+  onDeleteCredential,
+}: {
+  upstream: GatewayUpstream;
+  modelCount: number;
+  credentials: UpstreamCredentialHint[] | undefined;
+  busy: boolean;
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onLoadCredentials: () => void;
+  onReplaceCredential: (credentialKind: string, secret: string) => void;
+  onDeleteCredential: (credentialKind: string) => void;
+}) {
+  const [credOpen, setCredOpen] = useState(false);
+  const [credKind, setCredKind] = useState("");
+  const [credSecret, setCredSecret] = useState("");
+  const availableKinds =
+    CREDENTIAL_KINDS_BY_PROTOCOL[upstream.protocol] ?? [];
+
+  const openCredential = () => {
+    setCredKind(availableKinds[0] ?? "");
+    setCredSecret("");
+    setCredOpen(true);
+    if (!credentials) {
+      onLoadCredentials();
+    }
+  };
+
+  return (
+    <div className="rounded-lg border p-4">
+      <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-medium">{upstream.name}</p>
+            <Badge variant={upstream.enabled ? "secondary" : "outline"}>
+              {upstream.enabled ? "启用" : "停用"}
+            </Badge>
+            <Badge variant="outline">{protocolLabel(upstream.protocol)}</Badge>
+            <Badge variant="outline" className="font-mono">
+              {upstream.adapterType}
+            </Badge>
+          </div>
+          <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
+            {upstream.baseUrl ?? "未设置上游地址"}
+          </p>
+          {upstream.notes && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {upstream.notes}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="text-left md:text-right">
+            <p className="text-lg font-semibold">{modelCount}</p>
+            <p className="text-xs text-muted-foreground">上游模型</p>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Switch
+              checked={upstream.enabled}
+              disabled={busy}
+              onCheckedChange={onToggle}
+            />
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2 border-t pt-3">
+        <Button variant="outline" size="sm" onClick={onEdit} disabled={busy}>
+          <Pencil className="mr-1.5 h-3.5 w-3.5" />
+          编辑
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={openCredential}
+          disabled={busy}
+        >
+          <KeyRound className="mr-1.5 h-3.5 w-3.5" />
+          凭据
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-destructive"
+          onClick={() => {
+            if (window.confirm(`确认删除上游 ${upstream.name}？此操作不可撤销。`)) {
+              onDelete();
+            }
+          }}
+          disabled={busy}
+        >
+          <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+          删除
+        </Button>
+      </div>
+      {credentials && credentials.length > 0 && (
+        <div className="mt-3 space-y-1 border-t pt-3">
+          <p className="text-xs font-medium text-muted-foreground">
+            已存凭据（仅展示脱敏提示）
+          </p>
+          {credentials.map((credential) => (
             <div
-              key={upstream.id}
-              className="grid gap-3 rounded-lg border p-4 md:grid-cols-[1fr_auto] md:items-center"
+              key={credential.id}
+              className="flex items-center justify-between gap-2 text-xs"
             >
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-medium">{upstream.name}</p>
-                  <Badge variant={upstream.enabled ? "secondary" : "outline"}>
-                    {upstream.enabled ? "启用" : "停用"}
-                  </Badge>
-                  <Badge variant="outline">
-                    {protocolLabel(upstream.protocol)}
-                  </Badge>
-                </div>
-                <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                  {upstream.baseUrl ?? "未设置上游地址"}
-                </p>
-                {upstream.notes && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {upstream.notes}
-                  </p>
-                )}
-              </div>
-              <div className="text-left md:text-right">
-                <p className="text-lg font-semibold">
-                  {modelCountByUpstream.get(upstream.id) ?? 0}
-                </p>
-                <p className="text-xs text-muted-foreground">上游模型</p>
-              </div>
+              <span className="font-mono">
+                {CREDENTIAL_KIND_LABEL[credential.credentialKind] ??
+                  credential.credentialKind}
+              </span>
+              <span className="truncate font-mono text-muted-foreground">
+                {credential.keyHint ?? "—"}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-destructive"
+                disabled={busy}
+                onClick={() => onDeleteCredential(credential.credentialKind)}
+              >
+                删除凭据
+              </Button>
             </div>
-          ))
-        )}
-      </CardContent>
-    </Card>
+          ))}
+        </div>
+      )}
+      <CredentialDialog
+        open={credOpen}
+        upstreamName={upstream.name}
+        credentialKind={credKind}
+        secret={credSecret}
+        availableKinds={availableKinds}
+        busy={busy}
+        onOpenChange={setCredOpen}
+        onKindChange={setCredKind}
+        onSecretChange={setCredSecret}
+        onSubmit={() => {
+          if (!credKind || !credSecret.trim()) {
+            toast.error("请选择凭据类型并填写凭据内容");
+            return;
+          }
+          onReplaceCredential(credKind, credSecret);
+          setCredSecret("");
+          setCredOpen(false);
+        }}
+      />
+    </div>
+  );
+}
+
+function UpstreamFormDialog({
+  open,
+  mode,
+  form,
+  busy,
+  onOpenChange,
+  onFormChange,
+  onProtocolChange,
+  onSubmit,
+}: {
+  open: boolean;
+  mode: UpstreamFormMode;
+  form: UpstreamFormState;
+  busy: boolean;
+  onOpenChange: (open: boolean) => void;
+  onFormChange: (form: UpstreamFormState) => void;
+  onProtocolChange: (protocol: string) => void;
+  onSubmit: () => void;
+}) {
+  const adapters = ADAPTER_BY_PROTOCOL[form.protocol] ?? [];
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {mode === "create" ? "新增上游" : "编辑上游"}
+          </DialogTitle>
+          <DialogDescription>
+            凭据不在此处填写，创建后用“凭据”按钮经 DPAPI 加密录入。
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <Field label="名称">
+            <Input
+              value={form.name}
+              placeholder="例如 OpenAI 官方"
+              onChange={(event) =>
+                onFormChange({ ...form, name: event.target.value })
+              }
+            />
+          </Field>
+          <Field label="上游 Base URL">
+            <Input
+              value={form.baseUrl}
+              placeholder="https://api.openai.com"
+              onChange={(event) =>
+                onFormChange({ ...form, baseUrl: event.target.value })
+              }
+            />
+          </Field>
+          <Field label="上游协议">
+            <Select
+              value={form.protocol}
+              onValueChange={onProtocolChange}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="选择协议" />
+              </SelectTrigger>
+              <SelectContent>
+                {PROTOCOL_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Adapter">
+            <Select
+              value={form.adapterType}
+              onValueChange={(value) =>
+                onFormChange({ ...form, adapterType: value })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="选择 adapter" />
+              </SelectTrigger>
+              <SelectContent>
+                {adapters.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {ADAPTER_OPTIONS.find((o) => o.value === value)?.label ??
+                      value}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              adapter 必须与协议兼容，列表已按所选协议过滤。
+            </p>
+          </Field>
+          {mode === "create" && (
+            <ToggleSetting
+              title="创建后启用"
+              description="停用的上游不参与路由，可在列表中随时切换。"
+              checked={form.enabled}
+              onCheckedChange={(checked) =>
+                onFormChange({ ...form, enabled: checked })
+              }
+            />
+          )}
+          <Field label="备注（可选）">
+            <Textarea
+              value={form.notes}
+              rows={2}
+              placeholder="记录该上游的非敏感说明"
+              onChange={(event) =>
+                onFormChange({ ...form, notes: event.target.value })
+              }
+            />
+          </Field>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={busy}
+          >
+            取消
+          </Button>
+          <Button onClick={onSubmit} disabled={busy}>
+            <Save className="mr-2 h-4 w-4" />
+            {mode === "create" ? "创建" : "保存"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CredentialDialog({
+  open,
+  upstreamName,
+  credentialKind,
+  secret,
+  availableKinds,
+  busy,
+  onOpenChange,
+  onKindChange,
+  onSecretChange,
+  onSubmit,
+}: {
+  open: boolean;
+  upstreamName: string;
+  credentialKind: string;
+  secret: string;
+  availableKinds: string[];
+  busy: boolean;
+  onOpenChange: (open: boolean) => void;
+  onKindChange: (kind: string) => void;
+  onSecretChange: (secret: string) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>录入凭据 · {upstreamName}</DialogTitle>
+          <DialogDescription>
+            凭据经 Windows DPAPI（当前用户作用域）加密后入库，提交后不再返回明文。
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <Field label="凭据类型">
+            <Select
+              value={credentialKind}
+              onValueChange={onKindChange}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="选择类型" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableKinds.map((kind) => (
+                  <SelectItem key={kind} value={kind}>
+                    {CREDENTIAL_KIND_LABEL[kind] ?? kind}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="凭据内容">
+            <Textarea
+              value={secret}
+              rows={3}
+              placeholder="粘贴 API Key / Bearer Token / Google OAuth JSON"
+              onChange={(event) => onSecretChange(event.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Google OAuth 需含当前可用的 access_token；refresh-only 暂不满足运行时。
+            </p>
+          </Field>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={busy}
+          >
+            取消
+          </Button>
+          <Button onClick={onSubmit} disabled={busy}>
+            <Save className="mr-2 h-4 w-4" />
+            保存凭据
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
