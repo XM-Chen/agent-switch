@@ -1,0 +1,64 @@
+name: Release
+
+# 打 tag（如 v0.4.0）并推送时触发，在云端 Windows runner 构建 MSI 与 exe，
+# 构建成功后自动发布 Release 并设为 latest。本 workflow 不产出 updater
+# 产物（未配置签名私钥），本机通过下载 MSI 手动重装升级。
+on:
+  push:
+    tags:
+      - "v*"
+
+# 允许 workflow 创建 Release / 上传产物
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    # Supply-chain gate; required reviewers are configured in the repository's
+    # `release` GitHub Environment, not in this workflow.
+    environment: release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # tag 已由 push 事件带入，直接复用；禁用 updater 产物（未配置签名私钥），
+          # 只产出 MSI/exe，本机手动重装升级。
+          createUpdaterArtifacts: false
+          tagName: ${{ github.ref_name }}
+          releaseName: "Agent-Switch ${{ github.ref_name }}"
+          releaseDraft: false
+          prerelease: false
+
+      - name: Mark release as latest
+        run: gh release edit "${{ github.ref_name }}" --latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
